@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+/* Token NAMES are unchanged from the first pass, so pages didn't need editing —
+   only the values moved. The warm near-greys read washed out; these are cooler,
+   darker and further apart, which is most of what "faded" was. */
+@theme {
+  --font-sans: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+
+  /* surfaces — a cool page behind pure-white cards gives real separation */
+  --color-paper: #f4f4f8;
+  --color-card: #ffffff;
+  --color-sunk: #f0f0f6;
+  --color-rule: #e3e3ed;
+  --color-rule-strong: #cbcbdb;
+
+  /* the left rail: deep indigo-black, the strongest anchor on the page */
+  --color-rail: #15152a;
+  --color-rail-hover: #212140;
+  --color-rail-ink: #a6a6c4;
+  --color-rail-bright: #ffffff;
+
+  /* text — near-black head, two readable greys under it (both clear 4.5:1) */
+  --color-ink: #111120;
+  --color-ink-2: #414159;
+  --color-ink-3: #67678a;
+
+  /* brand — indigo 600. Validated for data marks too, so charts and chrome
+     share one hue instead of drifting apart. */
+  --color-brand: #4f46e5;
+  --color-brand-deep: #3f38c4;
+  --color-brand-soft: #eeedfd;
+  --color-brand-rule: #c7c3f7;
+
+  /* status — saturated enough to carry meaning at pill size */
+  --color-good: #046c4e;
+  --color-good-soft: #d8f3e6;
+  --color-warn: #9a4b06;
+  --color-warn-soft: #fdeed3;
+  --color-calm: #3f3f56;
+  --color-calm-soft: #e8e8f1;
+
+  --radius-card: 0.875rem;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    margin: 0;
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    letter-spacing: -0.018em;
+    margin: 0;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-brand-soft);
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c9c9dc;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #b0b0c8;
+    background-clip: content-box;
+  }
+}
+
+@layer utilities {
+  /* Two steps of elevation, both tinted with the ink hue rather than pure
+     black — a neutral-grey shadow over a cool page is what looks muddy. */
+  .shadow-soft {
+    box-shadow:
+      0 1px 2px rgb(17 17 32 / 0.05),
+      0 2px 6px rgb(17 17 32 / 0.05);
+  }
+  .shadow-lift {
+    box-shadow:
+      0 2px 4px rgb(17 17 32 / 0.05),
+      0 10px 24px rgb(17 17 32 / 0.09);
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
