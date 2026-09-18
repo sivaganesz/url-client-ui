@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+.DS_Store
+*.log
+
+# secrets — never commit
+.env
+.env.*
+!.env.example
+SKILL.MD
+
+# local design reference, not part of the app
+wireframe.html
