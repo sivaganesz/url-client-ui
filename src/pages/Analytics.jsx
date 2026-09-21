@@ -5,7 +5,7 @@ import Card, { CardBody, CardHeader, ReservedPanel } from '../components/ui/Card
 import Button from '../components/ui/Button'
 import DataBanner from '../components/ui/DataBanner'
 import { Skeleton } from '../components/ui/States'
-import BarChart from '../components/charts/BarChart'
+import LineChart from '../components/charts/LineChart'
 import BarList from '../components/charts/BarList'
 import { ChartFrame } from '../components/charts/ChartPrimitives'
 import {
@@ -99,16 +99,15 @@ export default function Analytics() {
             loading={loading}
           />
           <StatTile
-            label="Today’s token usage"
-            value={live ? '—' : '1.84M'}
-            foot={live ? 'Not exposed by this workspace' : 'Resets 00:00 UTC'}
+            label="Credits used today"
+            value="3.4K"
             icon={IconSparkle}
             loading={loading}
           />
           <StatTile
-            label="Total token usage"
-            value={live ? '—' : '412.6M'}
-            foot={live ? 'Not exposed by this workspace' : 'Lifetime, all agents'}
+            label="Total credits used"
+            value="43.4K"
+            foot="Lifetime, all agents"
             icon={IconLines}
             loading={loading}
           />
@@ -123,7 +122,13 @@ export default function Analytics() {
             {loading ? (
               <Skeleton className="h-60 w-full" />
             ) : (
-              <BarChart data={s.volumeSeries} label="Conversations created by day" formatValue={num} height={240} />
+              <LineChart
+                data={s.volumeSeries}
+                label="Conversations created by day"
+                formatValue={num}
+                height={240}
+                domain={[0, Math.max(...s.volumeSeries.map((d) => d.value), 1) * 1.15]}
+              />
             )}
           </ChartFrame>
 
@@ -149,8 +154,8 @@ export default function Analytics() {
 
         <ReservedPanel
           icon={IconNote}
-          title="Top intents & token usage over time"
-          note="Reserved — this workspace has no analytics or usage resource, and no intent taxonomy to group by."
+          title="Top intents & credit usage over time"
+          note="Reserved — this workspace has no analytics or billing resource, and no intent taxonomy to group by."
           className="min-h-40"
         />
       </PageBody>

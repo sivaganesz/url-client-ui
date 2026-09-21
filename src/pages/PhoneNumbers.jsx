@@ -8,7 +8,7 @@ import Badge, { StatusBadge } from '../components/ui/Badge'
 import { ReservedPanel } from '../components/ui/Card'
 import { SearchInput, Select } from '../components/ui/Field'
 import { EmptyState } from '../components/ui/States'
-import { IconHash, IconMore, IconPlus, IconSearch, IconTrend } from '../components/icons'
+import { IconHash, IconMore, IconSearch, IconTrend } from '../components/icons'
 import DataBanner from '../components/ui/DataBanner'
 import { num } from '../lib/format'
 import { useResource } from '../lib/useResource'
@@ -35,38 +35,33 @@ export default function PhoneNumbers() {
   }, [phoneNumbers, query, agent, statusFilter])
 
   const columns = [
-    { key: 'number', header: 'Number', width: 152, mono: true, className: 'text-[12px]' },
-    { key: 'label', header: 'Label', width: 156, className: 'text-[12px]' },
-    { key: 'type', header: 'Type', width: 104, muted: true, className: 'text-[12px]' },
-    { key: 'provider', header: 'Provider', width: 112, muted: true, className: 'text-[12px]' },
+    { key: 'number', header: 'Number', width: 180, mono: true, className: 'text-[12px]' },
+    { key: 'label', header: 'Label', width: 200, className: 'text-[12px]' },
     {
       key: 'agent',
       header: 'Linked agent',
-      width: 152,
+      width: 180,
       render: (r) =>
         r.agent ? <Badge tone="info">{r.agent}</Badge> : <Badge tone="muted">Not linked</Badge>,
     },
-    { key: 'direction', header: 'Direction', width: 116, muted: true, className: 'text-[12px]' },
+    { key: 'direction', header: 'Direction', width: 130, muted: true, className: 'text-[12px]' },
     {
       key: 'conversations',
       header: 'Conversations',
-      width: 120,
+      width: 140,
       mono: true,
       className: 'text-[12px]',
       render: (r) => num(r.conversations),
     },
-    { key: 'status', header: 'Status', width: 100, render: (r) => <StatusBadge label={r.status} /> },
+    { key: 'status', header: 'Status', width: 120, render: (r) => <StatusBadge label={r.status} /> },
     {
       key: 'actions',
       header: 'Actions',
-      width: 112,
+      width: 80,
       render: () => (
-        <span className="flex gap-1.5">
-          <Button size="sm">Edit</Button>
-          <Button size="sm" iconOnly aria-label="More actions">
-            <IconMore size={13} />
-          </Button>
-        </span>
+        <Button size="sm" iconOnly aria-label="More actions">
+          <IconMore size={13} />
+        </Button>
       ),
     },
   ]
@@ -77,12 +72,6 @@ export default function PhoneNumbers() {
         title="Phone Number Connections"
         subtitle={`${summary.liveNumbers} connected · ${summary.pendingNumbers} pending`}
         onOpenDrawer={openDrawer}
-        actions={
-          <Button variant="primary">
-            <IconPlus size={14} />
-            Connect number
-          </Button>
-        }
       />
 
       <PageBody className="flex flex-col gap-4">

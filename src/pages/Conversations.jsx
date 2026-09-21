@@ -576,12 +576,6 @@ function TranscriptTab({ conversation, thread }) {
           )
         )}
       </div>
-
-      <ReservedPanel
-        title="Reply / human takeover"
-        note="Reserved — the workspace exposes no send-message tool for an operator to take over this thread."
-        className="mx-4 mb-4 shrink-0 sm:mx-5 sm:mb-5"
-      />
     </>
   )
 }

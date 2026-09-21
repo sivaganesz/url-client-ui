@@ -15,8 +15,8 @@ import {
   IconOutbound,
   IconPhone,
   IconPlay,
+  IconEye,
   IconSearch,
-  IconStar,
 } from '../components/icons'
 import DataBanner from '../components/ui/DataBanner'
 import { dash, num, pct } from '../lib/format'
@@ -36,7 +36,6 @@ export default function CallLogs() {
     Campaign: 'All',
     Outcome: 'All',
   })
-  const [flagged, setFlagged] = useState(() => new Set(sampleCalls.filter((c) => c.flagged).map((c) => c.startedAt)))
 
   const setFilter = (key) => (value) => setFilters((f) => ({ ...f, [key]: value }))
 
@@ -51,13 +50,6 @@ export default function CallLogs() {
       return [c.from, c.to, c.agent, c.campaign].join(' ').toLowerCase().includes(q)
     })
   }, [calls, query, filters])
-
-  const toggleFlag = (key) =>
-    setFlagged((prev) => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      return next
-    })
 
   const columns = [
     { key: 'startedAt', header: 'Started at', width: 104, mono: true },
@@ -82,7 +74,6 @@ export default function CallLogs() {
     { key: 'endedAt', header: 'Ended at', width: 70, mono: true, muted: true },
     { key: 'duration', header: 'Duration', width: 64, mono: true, render: (r) => dash(r.duration) },
     { key: 'sentiment', header: 'Sentiment', width: 82, render: (r) => <StatusBadge label={r.sentiment} size="sm" /> },
-    { key: 'cost', header: 'Cost', width: 58, mono: true, align: 'right' },
     {
       key: 'recording',
       header: 'Recording',
@@ -101,21 +92,13 @@ export default function CallLogs() {
       key: 'review',
       header: 'Review',
       width: 64,
-      render: (r) => {
-        const on = flagged.has(r.startedAt)
-        return (
-          <Button
-            size="sm"
-            iconOnly
-            aria-label={on ? 'Remove review flag' : 'Flag call for review'}
-            aria-pressed={on}
-            onClick={() => toggleFlag(r.startedAt)}
-            className={on ? 'text-brand' : 'text-ink-3'}
-          >
-            <IconStar size={13} filled={on} />
-          </Button>
-        )
-      },
+      // An eye reads as "open this call", so it is a plain action rather than
+      // the toggled flag a star implied.
+      render: (r) => (
+        <Button size="sm" iconOnly aria-label={`Review call from ${r.startedAt}`} className="text-ink-3">
+          <IconEye size={14} />
+        </Button>
+      ),
     },
   ]
 

@@ -56,7 +56,7 @@ export const UNAVAILABLE = {
   phoneNumbers:
     'This workspace has no phone-number resource — connected numbers aren’t exposed over MCP or REST.',
   analytics:
-    'This workspace has no analytics resource — resolution rate and token usage aren’t exposed. The figures below are derived from conversation records where that’s possible, and sampled where it isn’t.',
+    'This workspace has no analytics resource — resolution rate and credit usage aren’t exposed. The figures below are derived from conversation records where that’s possible, and sampled where it isn’t.',
 }
 
 async function request(path, options = {}) {
