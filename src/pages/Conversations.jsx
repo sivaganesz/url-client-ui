@@ -11,13 +11,11 @@ import {
   IconAgent,
   IconAlert,
   IconChat,
-  IconCheck,
   IconChevronLeft,
   IconChevronRight,
   IconClock,
   IconDownload,
   IconMail,
-  IconMore,
   IconNote,
   IconPhone,
   IconPlay,
@@ -207,7 +205,7 @@ export default function Conversations() {
 
 function ConversationDetail({ conversation, onBack }) {
   const [tab, setTab] = useState('overview')
-  const [railOpen, setRailOpen] = useState(true)
+  // const [railOpen, setRailOpen] = useState(true) // parked with the profile rail
 
   const loadMessages = useCallback(() => getMessages(conversation.id), [conversation.id])
   const thread = useResource(
@@ -252,17 +250,26 @@ function ConversationDetail({ conversation, onBack }) {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            {conversation.phone ? (
+              <a
+                href={`tel:${conversation.phone.replace(/[^\d+]/g, '')}`}
+                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-brand-line bg-brand-soft px-3 text-[11.5px] font-medium text-brand transition-colors hover:border-brand hover:bg-brand hover:text-white"
+              >
+                <IconPhone size={13} />
+                Call
+              </a>
+            ) : (
+              <span
+                aria-disabled="true"
+                title="No phone number on this conversation"
+                className="inline-flex h-7 shrink-0 cursor-not-allowed items-center gap-1.5 rounded-full border border-line bg-sunken px-3 text-[11.5px] font-medium text-ink-4"
+              >
+                <IconPhone size={13} />
+                Call
+              </span>
+            )}
             <StatusBadge label={conversation.status} />
-            <Button size="sm" className="hidden sm:inline-flex">
-              <IconCheck size={13} />
-              Mark resolved
-            </Button>
-            <Button size="sm" variant="danger" className="hidden sm:inline-flex">
-              Escalate
-            </Button>
-            <Button size="sm" iconOnly aria-label="Conversation actions">
-              <IconMore size={14} />
-            </Button>
+            {/* Toggle for the customer profile rail — parked with it.
             <button
               type="button"
               onClick={() => setRailOpen((v) => !v)}
@@ -272,17 +279,9 @@ function ConversationDetail({ conversation, onBack }) {
             >
               {railOpen ? <IconChevronRight size={14} /> : <IconChevronLeft size={14} />}
             </button>
+            */}
           </div>
         </header>
-
-        {/* summary strip — the workspace's own one-line verdict on the thread */}
-        {conversation.preview && (
-          <div className="shrink-0 border-b border-line bg-sunken px-4 py-2.5 sm:px-5">
-            <p className="line-clamp-2 text-[12px] leading-relaxed text-ink-2 italic">
-              “{conversation.preview}”
-            </p>
-          </div>
-        )}
 
         <div className="shrink-0 border-b border-line bg-surface px-4 pt-3 sm:px-5">
           <Tabs
@@ -302,9 +301,13 @@ function ConversationDetail({ conversation, onBack }) {
         )}
       </div>
 
-      {railOpen && (
+      {/* Customer profile rail — parked for now, not currently needed.
+          To restore: uncomment this, the toggle button in the header above,
+          and the railOpen state at the top of this component. The ProfileRail
+          and ReachOut components below are left intact. */}
+      {/* {railOpen && (
         <ProfileRail conversation={conversation} messageCount={spoken.length} />
-      )}
+      )} */}
     </div>
   )
 }
@@ -514,6 +517,167 @@ function ToolEvent({ event }) {
   )
 }
 
+/**
+ * Message composer.
+ *
+ * The workspace exposes no send-message endpoint, so Send cannot actually
+ * deliver anything yet. Rather than swallow the click and look like it worked,
+ * it says so plainly and keeps the draft in the box.
+ */
+const COMPOSER_MAX_H = 140
+
+/** Channels the composer can send on, and what each needs to be usable. */
+const CHANNELS = [
+  { id: 'whatsapp', label: 'WhatsApp', icon: IconChat, needs: 'phone' },
+  { id: 'email', label: 'Email', icon: IconMail, needs: 'email' },
+  { id: 'sms', label: 'SMS', icon: IconSms, needs: 'phone' },
+]
+
+/** A channel chip. Picks the channel; it never sends on its own. */
+function ChannelChip({ icon: Icon, label, selected, disabled, title, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-pressed={selected}
+      className={cn(
+        'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11.5px] font-medium transition-colors',
+        disabled
+          ? 'cursor-not-allowed border-line bg-sunken text-ink-4'
+          : selected
+            ? 'border-brand bg-brand text-white'
+            : 'border-line-strong bg-surface text-ink-2 hover:border-brand-line hover:bg-brand-soft hover:text-brand',
+      )}
+    >
+      <Icon size={12} />
+      {label}
+    </button>
+  )
+}
+
+/**
+ * Message composer: type, pick a channel, then Send.
+ *
+ * Only WhatsApp has somewhere to go — it posts to /api/whatsapp, which relays
+ * to the hook server-side so the hook URL never reaches the browser. Email and
+ * SMS are selectable but say plainly that no endpoint exists rather than
+ * silently doing nothing.
+ */
+function Composer({ conversation }) {
+  const [draft, setDraft] = useState('')
+  const [channel, setChannel] = useState(null)
+  const [sending, setSending] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const tel = conversation.phone ? conversation.phone.replace(/[^\d+]/g, '') : null
+  const email = conversation.email || null
+  const have = { phone: Boolean(tel), email: Boolean(email) }
+
+  const ready = Boolean(draft.trim()) && Boolean(channel) && !sending
+
+  const send = async () => {
+    if (!ready) return
+    setResult(null)
+
+    if (channel !== 'whatsapp') {
+      const name = CHANNELS.find((c) => c.id === channel).label
+      setResult({ ok: false, text: `${name} sending isn't available yet — no endpoint exists for it.` })
+      return
+    }
+
+    setSending(true)
+    try {
+      const res = await fetch('/api/whatsapp', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone: tel, name: conversation.name ?? '', message: draft.trim() }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`)
+      setResult({ ok: true, text: `Sent on WhatsApp to ${body?.phone ?? tel}` })
+      setDraft('')
+      setChannel(null)
+    } catch (err) {
+      setResult({ ok: false, text: err.message })
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="shrink-0 border-t border-line bg-surface px-4 py-3 sm:px-5">
+      <div className="mb-2.5 flex flex-wrap gap-1.5">
+        {CHANNELS.map((c) => {
+          const usable = have[c.needs]
+          return (
+            <ChannelChip
+              key={c.id}
+              icon={c.icon}
+              label={c.label}
+              selected={channel === c.id}
+              disabled={!usable}
+              title={usable ? `Send on ${c.label}` : `No ${c.needs === 'phone' ? 'phone number' : 'email address'} on this conversation`}
+              onClick={() => {
+                setChannel((prev) => (prev === c.id ? null : c.id))
+                setResult(null)
+              }}
+            />
+          )
+        })}
+      </div>
+
+      <div className="flex items-end gap-2">
+        <label htmlFor="composer" className="sr-only">
+          Write a message
+        </label>
+        <textarea
+          id="composer"
+          rows={1}
+          value={draft}
+          placeholder="Write a message…"
+          onChange={(e) => {
+            setDraft(e.target.value)
+            setResult(null)
+            const el = e.target
+            el.style.height = 'auto'
+            const needed = el.scrollHeight
+            el.style.height = `${Math.min(needed, COMPOSER_MAX_H)}px`
+            el.style.overflowY = needed > COMPOSER_MAX_H ? 'auto' : 'hidden'
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              send()
+            }
+          }}
+          style={{ maxHeight: COMPOSER_MAX_H, overflowY: 'hidden' }}
+          className="min-h-10 flex-1 resize-none rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 text-[13px] leading-relaxed text-ink placeholder:text-ink-4 focus:border-brand focus:outline-none"
+        />
+        <Button
+          variant="primary"
+          size="md"
+          disabled={!ready}
+          onClick={send}
+          title={
+            !draft.trim() ? 'Write a message first' : !channel ? 'Pick a channel first' : undefined
+          }
+        >
+          {sending ? 'Sending…' : 'Send'}
+        </Button>
+      </div>
+
+      {result && (
+        <p className={cn('mt-2 text-[11.5px]', result.ok ? 'text-ok' : 'text-danger')}>
+          {result.text}
+        </p>
+      )}
+    </div>
+  )
+}
+
+
 function TranscriptTab({ conversation, thread }) {
   return (
     <>
@@ -576,6 +740,7 @@ function TranscriptTab({ conversation, thread }) {
           )
         )}
       </div>
+      <Composer conversation={conversation} />
     </>
   )
 }

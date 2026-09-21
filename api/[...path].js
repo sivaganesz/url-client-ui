@@ -20,6 +20,25 @@
 const KEY = process.env.PERFOX_API_KEY ?? ''
 const API_BASE = process.env.PERFOX_API_BASE ?? 'https://siva-workspace-api.perfox.ai/api/v1'
 const ACCESS_CODE = process.env.ACCESS_CODE ?? ''
+const WHATSAPP_HOOK = process.env.WHATSAPP_WEBHOOK_URL ?? ''
+
+/** Indian mobiles to E.164. Stored numbers already carry +91, so don't re-add it. */
+function toE164(raw) {
+  const digits = String(raw ?? '').replace(/\D/g, '').replace(/^0+/, '')
+  if (!digits) return null
+  return digits.length === 10 ? `+91${digits}` : `+${digits}`
+}
+
+async function readJson(req) {
+  if (req.body && typeof req.body === 'object') return req.body
+  const chunks = []
+  for await (const c of req) chunks.push(c)
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    return null
+  }
+}
 
 const ID = '[0-9a-f-]{20,40}'
 
@@ -47,10 +66,6 @@ export default async function handler(req, res) {
   const url = new URL(req.url, `https://${req.headers.host ?? 'localhost'}`)
   const path = url.pathname
 
-  if (req.method !== 'GET') {
-    return json(res, 405, { error: 'This deployment is read-only.' })
-  }
-
   if (path === '/api/health') {
     return json(res, 200, {
       ok: true,
@@ -60,12 +75,44 @@ export default async function handler(req, res) {
     })
   }
 
+  // Gate everything else, reads AND the WhatsApp write. Ordering matters:
+  // put the write above this and the access code stops protecting it.
   if (ACCESS_CODE) {
     const code = req.headers['x-access-code'] ?? url.searchParams.get('code') ?? ''
     if ((Array.isArray(code) ? code[0] : code) !== ACCESS_CODE) {
       return json(res, 401, { error: 'This deployment is private. An access code is required.' })
     }
   }
+
+  // The single write this deployment permits. The hook URL stays server-side:
+  // it is a capability, and same-origin avoids CORS.
+  if (path === '/api/whatsapp' && req.method === 'POST') {
+    if (!WHATSAPP_HOOK) return json(res, 503, { error: 'WHATSAPP_WEBHOOK_URL is not configured.' })
+
+    const body = await readJson(req)
+    const phone = toE164(body?.phone)
+    const message = String(body?.message ?? '').trim()
+    if (!phone) return json(res, 400, { error: 'A valid phone number is required.' })
+    if (!message) return json(res, 400, { error: 'Message cannot be empty.' })
+
+    const upstream = await fetch(WHATSAPP_HOOK, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ phone, name: body?.name ?? '', message }),
+    })
+    if (!upstream.ok) {
+      console.error('[console] whatsapp hook', upstream.status)
+      return json(res, 502, { error: `The WhatsApp hook returned ${upstream.status}.` })
+    }
+    return json(res, 200, { ok: true, phone })
+  }
+
+
+  if (req.method !== 'GET') {
+    return json(res, 405, { error: 'This deployment is read-only apart from sending WhatsApp.' })
+  }
+
+
 
   if (!KEY) {
     return json(res, 503, { error: 'Not configured. PERFOX_API_KEY is missing.' })
