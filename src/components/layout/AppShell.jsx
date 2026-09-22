@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
+import CallScreen from '../CallScreen'
 import { cn } from '../../lib/cn'
 
 /**
@@ -9,6 +10,9 @@ import { cn } from '../../lib/cn'
  */
 export default function AppShell({ source }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // The live call lives here rather than on a page, so it survives navigating
+  // away from wherever it was placed.
+  const [call, setCall] = useState(null)
   const location = useLocation()
 
   // Close the drawer on navigation and on Escape.
@@ -41,8 +45,16 @@ export default function AppShell({ source }) {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Outlet context={{ openDrawer: () => setDrawerOpen(true) }} />
+        <Outlet
+          context={{
+            openDrawer: () => setDrawerOpen(true),
+            startCall: setCall,
+            endCall: () => setCall(null),
+          }}
+        />
       </div>
+
+      <CallScreen call={call} onEnd={() => setCall(null)} />
     </div>
   )
 }

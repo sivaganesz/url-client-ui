@@ -311,10 +311,29 @@ export const IconCredit = (p) => (
   </Svg>
 )
 
+export const IconMicOff = (p) => (
+  <Svg {...p}>
+    <path d="M9 9v3a3 3 0 0 0 4.6 2.5M15 12V6a3 3 0 0 0-5.9-.7" />
+    <path d="M5 11a7 7 0 0 0 10.3 6.2M19 11a7 7 0 0 1-.6 2.8" />
+    <path d="M12 19v2" />
+    <path d="M4 3l16 18" />
+  </Svg>
+)
+
+export const IconPhoneDown = (p) => (
+  <Svg {...p}>
+    <path d="M3.5 13.5a12 12 0 0 1 17 0" />
+    <path d="M7 12.2v2.6a1.5 1.5 0 0 1-1.6 1.5l-1.5-.1A1.5 1.5 0 0 1 2.6 14l.9-.5M17 12.2v2.6a1.5 1.5 0 0 0 1.6 1.5l1.5-.1A1.5 1.5 0 0 0 21.4 14l-.9-.5" />
+  </Svg>
+)
+
 /** Channel name -> icon, so every surface labels a channel the same way. */
 export const channelIcon = {
   WhatsApp: IconChat,
   Phone: IconPhone,
   Email: IconMail,
   SMS: IconSms,
+  Web: IconGlobe,
+  // A web chat that moved to voice — still the widget, now spoken.
+  'Web voice': IconPhone,
 }

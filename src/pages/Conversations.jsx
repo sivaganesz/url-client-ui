@@ -7,6 +7,7 @@ import Card, { ReservedPanel } from '../components/ui/Card'
 import DataBanner from '../components/ui/DataBanner'
 import RecordingPlayer from '../components/RecordingPlayer'
 import Dropdown, { MenuItem } from '../components/ui/Dropdown'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import NewConversationDialog from '../components/NewConversationDialog'
 import { ChipGroup, SearchInput, Tabs } from '../components/ui/Field'
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States'
@@ -26,11 +27,21 @@ import {
   IconSearch,
   IconSms,
   IconSparkle,
+  IconX,
   channelIcon,
 } from '../components/icons'
 import { cn } from '../lib/cn'
 import { useResource } from '../lib/useResource'
-import { callInfoOf, duration, getConversations, getCustomer, getMessages, timeAgo } from '../lib/api'
+import {
+  callInfoOf,
+  duration,
+  getAgentReach,
+  getConversations,
+  getCustomer,
+  getMessages,
+  startOutbound,
+  timeAgo,
+} from '../lib/api'
 import {
   conversations as sampleConversations,
   customerByConversation,
@@ -64,12 +75,24 @@ const CHANNEL_EDGE = {
   Email: 'bg-channel-email',
 }
 
+/**
+ * Every channel a conversation has touched, the one it started on first.
+ *
+ * `channel` is the origin — it's what the row's coloured edge means — and the
+ * rest follow in the order the workspace reports them. Falls back to the
+ * origin alone for a conversation that reports no list.
+ */
+function channelsOf(c) {
+  const all = c.channels?.length ? c.channels : [c.channel].filter(Boolean)
+  return [c.channel, ...all.filter((x) => x && x !== c.channel)].filter(Boolean)
+}
+
 const ANY_AGENT = { id: 'all', name: 'All agents' }
 /** Conversations whose workflow no longer exists still need to be reachable. */
 const GONE_AGENT = { id: 'gone', name: 'Deleted or unknown agent' }
 
 export default function Conversations() {
-  const { openDrawer } = useOutletContext()
+  const { openDrawer, startCall } = useOutletContext()
   const { id } = useParams()
   const navigate = useNavigate()
 
@@ -321,11 +344,19 @@ export default function Conversations() {
                           <p className="truncate text-[11.5px] text-ink-3 italic">{summary}</p>
                         )}
 
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <Badge tone="muted" size="sm">
-                            <ChannelIcon size={10} />
-                            {c.channel}
-                          </Badge>
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          {/* Every channel the thread has touched. A web chat
+                              that moved to voice is two, and showing only the
+                              first hides half of what happened. */}
+                          {channelsOf(c).map((ch) => {
+                            const Icon = channelIcon[ch] ?? IconChat
+                            return (
+                              <Badge key={ch} tone="muted" size="sm">
+                                <Icon size={10} />
+                                {ch}
+                              </Badge>
+                            )
+                          })}
                           <StatusBadge label={c.status} size="sm" />
                         </div>
                       </div>
@@ -375,6 +406,7 @@ export default function Conversations() {
             key={selected.id}
             conversation={selected}
             onBack={() => navigate('/conversations')}
+            onCalling={startCall}
           />
         )}
       </section>
@@ -386,11 +418,12 @@ export default function Conversations() {
         <NewConversationDialog
           open
           onClose={() => setStarting(false)}
-          onStarted={({ conversationId }) => {
+          onStarted={({ conversationId, channel: ch, to, agentName }) => {
             setStarting(false)
             // The thread is new, so the rail has to refetch before it can
             // highlight where we just landed.
             list.reload()
+            if (ch === 'phone') startCall({ name: agentName ?? to, phone: to, conversationId })
             if (conversationId) navigate(`/conversations/${conversationId}`)
           }}
         />
@@ -401,7 +434,7 @@ export default function Conversations() {
 
 /* ── detail pane ──────────────────────────────────────────── */
 
-function ConversationDetail({ conversation, onBack }) {
+function ConversationDetail({ conversation, onBack, onCalling }) {
   const [tab, setTab] = useState('overview')
   // const [railOpen, setRailOpen] = useState(true) // parked with the profile rail
 
@@ -411,6 +444,50 @@ function ConversationDetail({ conversation, onBack }) {
     messagesByConversation[conversation.id] ?? [],
     [conversation.id],
   )
+
+  // What this conversation's own agent can be reached on. One request, and the
+  // Call button and the composer chips both read it.
+  const loadReach = useCallback(() => getAgentReach(conversation.agentId), [conversation.agentId])
+  const reach = useResource(loadReach, { channels: [], senders: [] }, [conversation.agentId])
+
+  const [confirmCall, setConfirmCall] = useState(false)
+  const [calling, setCalling] = useState(false)
+  const [callResult, setCallResult] = useState(null)
+
+  const cannotCall = !conversation.phone
+    ? 'No phone number on this conversation'
+    : !conversation.agentId
+      ? 'This conversation has no agent'
+      : reach.status === 'loading'
+        ? 'Checking whether this agent takes calls…'
+        : !reach.data.channels.includes('Phone')
+          ? `${conversation.agent ?? 'This agent'} has no phone trigger`
+          : null
+
+  async function placeCall() {
+    setConfirmCall(false)
+    setCalling(true)
+    setCallResult(null)
+    try {
+      const r = await startOutbound({
+        agentId: conversation.agentId,
+        channel: 'phone',
+        to: conversation.phone.replace(/[^\d+]/g, ''),
+        customerId: conversation.customerId || undefined,
+      })
+      // A call opens its own conversation — it is a session, not this thread.
+      setCallResult({ ok: true, id: r.conversationId, status: r.status })
+      onCalling({
+        name: conversation.title,
+        phone: conversation.phone,
+        conversationId: r.conversationId,
+      })
+    } catch (err) {
+      setCallResult({ ok: false, text: err.message })
+    } finally {
+      setCalling(false)
+    }
+  }
 
   const ChannelIcon = channelIcon[conversation.channel] ?? IconChat
   const spoken = thread.data.filter((m) => m.role === 'customer' || m.role === 'agent')
@@ -455,24 +532,28 @@ function ConversationDetail({ conversation, onBack }) {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            {conversation.phone ? (
-              <a
-                href={`tel:${conversation.phone.replace(/[^\d+]/g, '')}`}
-                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-brand-line bg-brand-soft px-3 text-[11.5px] font-medium text-brand transition-colors hover:border-brand hover:bg-brand hover:text-white"
-              >
+            <button
+              type="button"
+              disabled={Boolean(cannotCall) || calling}
+              title={cannotCall ?? `${conversation.agent} will phone ${conversation.phone}`}
+              onClick={() => setConfirmCall(true)}
+              className={cn(
+                'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11.5px] font-medium transition-colors',
+                cannotCall
+                  ? 'cursor-not-allowed border-line bg-sunken text-ink-4'
+                  : 'border-brand-line bg-brand-soft text-brand hover:border-brand hover:bg-brand hover:text-white',
+              )}
+            >
+              {calling ? (
+                <span
+                  aria-hidden="true"
+                  className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
+                />
+              ) : (
                 <IconPhone size={13} />
-                Call
-              </a>
-            ) : (
-              <span
-                aria-disabled="true"
-                title="No phone number on this conversation"
-                className="inline-flex h-7 shrink-0 cursor-not-allowed items-center gap-1.5 rounded-full border border-line bg-sunken px-3 text-[11.5px] font-medium text-ink-4"
-              >
-                <IconPhone size={13} />
-                Call
-              </span>
-            )}
+              )}
+              {calling ? 'Calling…' : 'Call'}
+            </button>
             <StatusBadge label={conversation.status} />
             {/* Toggle for the customer profile rail — parked with it.
             <button
@@ -499,10 +580,44 @@ function ConversationDetail({ conversation, onBack }) {
           />
         </div>
 
+        {callResult && (
+          <div
+            role="status"
+            className={cn(
+              'flex items-start gap-2.5 border-b px-4 py-2.5 text-[11.5px] sm:px-5',
+              callResult.ok ? 'border-ok/25 bg-ok-bg' : 'border-danger/25 bg-danger-bg',
+            )}
+          >
+            <IconPhone size={14} className={cn('mt-0.5 shrink-0', callResult.ok ? 'text-ok' : 'text-danger')} />
+            <p className="min-w-0 flex-1 leading-relaxed text-ink-2">
+              {callResult.ok ? (
+                <>
+                  Calling {conversation.phone} — the call has its own conversation.{' '}
+                  {callResult.id && (
+                    <Link to={`/conversations/${callResult.id}`} className="font-medium text-brand hover:underline">
+                      Open it
+                    </Link>
+                  )}
+                </>
+              ) : (
+                callResult.text
+              )}
+            </p>
+            <button
+              type="button"
+              onClick={() => setCallResult(null)}
+              aria-label="Dismiss"
+              className="shrink-0 text-ink-3 hover:text-ink"
+            >
+              <IconX size={13} />
+            </button>
+          </div>
+        )}
+
         {tab === 'overview' ? (
           <OverviewTab conversation={conversation} thread={thread} spoken={spoken} call={call} />
         ) : (
-          <TranscriptTab conversation={conversation} thread={thread} />
+          <TranscriptTab conversation={conversation} thread={thread} reach={reach} />
         )}
       </div>
 
@@ -513,6 +628,17 @@ function ConversationDetail({ conversation, onBack }) {
       {/* {railOpen && (
         <ProfileRail conversation={conversation} messageCount={spoken.length} />
       )} */}
+
+      {/* A call reaches a real person, and the button sits one click from
+          anything else in the header. */}
+      <ConfirmDialog
+        open={confirmCall}
+        title="Place this call?"
+        body={`${conversation.agent} will phone ${conversation.phone} now. The call opens its own conversation — a call is a session with its own recording, not a continuation of this thread.`}
+        confirmLabel="Call now"
+        onConfirm={placeCall}
+        onCancel={() => setConfirmCall(false)}
+      />
     </div>
   )
 }
@@ -716,7 +842,12 @@ function ToolEvent({ event }) {
  */
 const COMPOSER_MAX_H = 140
 
-/** Channels the composer can send on, and what each needs to be usable. */
+/**
+ * Channels the composer can send on.
+ *
+ * `needs` is the contact detail the message is addressed to; `label` doubles
+ * as the name the agent's triggers and senders are reported under.
+ */
 const CHANNELS = [
   { id: 'whatsapp', label: 'WhatsApp', icon: IconChat, needs: 'phone' },
   { id: 'email', label: 'Email', icon: IconMail, needs: 'email' },
@@ -750,12 +881,13 @@ function ChannelChip({ icon: Icon, label, selected, disabled, title, onClick }) 
 /**
  * Message composer: type, pick a channel, then Send.
  *
- * Only WhatsApp has somewhere to go — it posts to /api/whatsapp, which relays
- * to the hook server-side so the hook URL never reaches the browser. Email and
- * SMS are selectable but say plainly that no endpoint exists rather than
- * silently doing nothing.
+ * Sends through POST /outbound as the conversation's own agent, which is what
+ * continuing a thread means on a text channel. A chip is only usable when the
+ * conversation has the contact detail AND the agent has a trigger for that
+ * channel — the API rejects the rest, and a disabled chip that says why beats
+ * a request that fails after you have typed a message.
  */
-function Composer({ conversation }) {
+function Composer({ conversation, reach }) {
   const [draft, setDraft] = useState('')
   const [channel, setChannel] = useState(null)
   const [sending, setSending] = useState(false)
@@ -767,28 +899,46 @@ function Composer({ conversation }) {
 
   const ready = Boolean(draft.trim()) && Boolean(channel) && !sending
 
+  /** Why this chip can't be used, or null when it can. */
+  const blocked = (c) => {
+    if (!have[c.needs]) {
+      return `No ${c.needs === 'phone' ? 'phone number' : 'email address'} on this conversation`
+    }
+    if (!conversation.agentId) return 'This conversation has no agent'
+    if (reach.status === 'loading') return 'Checking what this agent can send…'
+    if (!reach.data.channels.includes(c.label)) {
+      return `${conversation.agent ?? 'This agent'} has no ${c.label} trigger`
+    }
+    return null
+  }
+
   const send = async () => {
     if (!ready) return
     setResult(null)
-
-    if (channel !== 'whatsapp') {
-      const name = CHANNELS.find((c) => c.id === channel).label
-      setResult({ ok: false, text: `${name} sending isn't available yet — no endpoint exists for it.` })
-      return
-    }
-
     setSending(true)
     try {
-      const res = await fetch('/api/whatsapp', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ phone: tel, name: conversation.name ?? '', message: draft.trim() }),
+      const picked = CHANNELS.find((c) => c.id === channel)
+      const r = await startOutbound({
+        agentId: conversation.agentId,
+        channel,
+        to: picked.needs === 'phone' ? tel : email,
+        openingMessage: draft.trim(),
+        customerId: conversation.customerId || undefined,
       })
-      const body = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`)
-      setResult({ ok: true, text: `Sent on WhatsApp to ${body?.phone ?? tel}` })
-      setDraft('')
-      setChannel(null)
+      // The request succeeded either way; whether anything left the building
+      // is a separate question, and the one worth reporting.
+      setResult(
+        r.sendAuthorized
+          ? { ok: true, text: `Sent on ${picked.label} to ${picked.needs === 'phone' ? tel : email}` }
+          : {
+              ok: false,
+              text: `Conversation ran, but ${conversation.agent ?? 'this agent'} has no ${picked.label} sender action — nothing was sent.`,
+            },
+      )
+      if (r.sendAuthorized) {
+        setDraft('')
+        setChannel(null)
+      }
     } catch (err) {
       setResult({ ok: false, text: err.message })
     } finally {
@@ -800,15 +950,15 @@ function Composer({ conversation }) {
     <div className="shrink-0 border-t border-line bg-surface px-4 py-3 sm:px-5">
       <div className="mb-2.5 flex flex-wrap gap-1.5">
         {CHANNELS.map((c) => {
-          const usable = have[c.needs]
+          const why = blocked(c)
           return (
             <ChannelChip
               key={c.id}
               icon={c.icon}
               label={c.label}
               selected={channel === c.id}
-              disabled={!usable}
-              title={usable ? `Send on ${c.label}` : `No ${c.needs === 'phone' ? 'phone number' : 'email address'} on this conversation`}
+              disabled={Boolean(why)}
+              title={why ?? `Send on ${c.label}`}
               onClick={() => {
                 setChannel((prev) => (prev === c.id ? null : c.id))
                 setResult(null)
@@ -868,7 +1018,7 @@ function Composer({ conversation }) {
 }
 
 
-function TranscriptTab({ conversation, thread }) {
+function TranscriptTab({ conversation, thread, reach }) {
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4 sm:p-5">
@@ -930,7 +1080,7 @@ function TranscriptTab({ conversation, thread }) {
           )
         )}
       </div>
-      <Composer conversation={conversation} />
+      <Composer conversation={conversation} reach={reach} />
     </>
   )
 }

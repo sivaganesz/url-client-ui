@@ -26,14 +26,7 @@ const API_BASE = (process.env.PERFOX_API_BASE ?? 'https://siva-workspace-api.per
   '',
 )
 const ACCESS_CODE = process.env.ACCESS_CODE ?? ''
-const WHATSAPP_HOOK = process.env.WHATSAPP_WEBHOOK_URL ?? ''
 
-/** Indian mobiles to E.164. Stored numbers already carry +91, so don't re-add it. */
-function toE164(raw) {
-  const digits = String(raw ?? '').replace(/\D/g, '').replace(/^0+/, '')
-  if (!digits) return null
-  return digits.length === 10 ? `+91${digits}` : `+${digits}`
-}
 
 async function readJson(req) {
   if (req.body && typeof req.body === 'object') return req.body
@@ -99,8 +92,8 @@ export default async function handler(req, res) {
     })
   }
 
-  // Gate everything else, reads AND the WhatsApp write. Ordering matters:
-  // put the write above this and the access code stops protecting it.
+  // Gate everything else, reads AND writes. Ordering matters: put a write
+  // above this and the access code stops protecting it.
   if (ACCESS_CODE) {
     const code = req.headers['x-access-code'] ?? url.searchParams.get('code') ?? ''
     if ((Array.isArray(code) ? code[0] : code) !== ACCESS_CODE) {
@@ -108,29 +101,10 @@ export default async function handler(req, res) {
     }
   }
 
-  // The single write this deployment permits. The hook URL stays server-side:
-  // it is a capability, and same-origin avoids CORS.
-  if (path === '/api/whatsapp' && req.method === 'POST') {
-    if (!WHATSAPP_HOOK) return json(res, 503, { error: 'WHATSAPP_WEBHOOK_URL is not configured.' })
-
-    const body = await readJson(req)
-    const phone = toE164(body?.phone)
-    const message = String(body?.message ?? '').trim()
-    if (!phone) return json(res, 400, { error: 'A valid phone number is required.' })
-    if (!message) return json(res, 400, { error: 'Message cannot be empty.' })
-
-    const upstream = await fetch(WHATSAPP_HOOK, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ phone, name: body?.name ?? '', message }),
-    })
-    if (!upstream.ok) {
-      console.error('[console] whatsapp hook', upstream.status)
-      return json(res, 502, { error: `The WhatsApp hook returned ${upstream.status}.` })
-    }
-    return json(res, 200, { ok: true, phone })
-  }
-
+  // The WhatsApp relay that used to live here is gone: the composer sends
+  // through POST /outbound now, as the conversation's own agent. A hook that
+  // can message anyone, reachable on a public URL and called by nothing, is
+  // only a liability.
 
   if (!KEY) {
     return json(res, 503, { error: 'Not configured. PERFOX_API_KEY is missing.' })

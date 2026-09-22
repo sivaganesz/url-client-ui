@@ -34,21 +34,7 @@ const API_BASE = (process.env.PERFOX_API_BASE ?? 'https://siva-workspace-api.per
 )
 const MCP_URL = process.env.PERFOX_MCP_URL ?? 'https://siva-workspace-api.perfox.ai/mcp'
 const PORT = Number(process.env.PROXY_PORT ?? 8787)
-const WHATSAPP_HOOK = process.env.WHATSAPP_WEBHOOK_URL ?? ''
 
-/**
- * Indian mobile numbers to E.164.
- *
- * The workspace already stores them as +91XXXXXXXXXX, so prepending the country
- * code blindly would give +9191... — this handles a bare 10-digit number, a
- * leading 0, and an already-prefixed one.
- */
-function toE164(raw) {
-  const digits = String(raw ?? '').replace(/\D/g, '').replace(/^0+/, '')
-  if (!digits) return null
-  if (digits.length === 10) return `+91${digits}`
-  return `+${digits}`
-}
 const WORKSPACE = 'siva-workspace'
 
 /** Strip the key from anything we are about to log or return. */
@@ -154,33 +140,9 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { count: tools.length, tools })
     }
 
-    // ── WhatsApp send ────────────────────────────────────────
-    // Proxied rather than called from the browser: the hook URL is a
-    // capability (anyone holding it can send as you), so it stays server-side,
-    // and same-origin sidesteps CORS entirely.
-    if (path === '/api/whatsapp' && req.method === 'POST') {
-      if (!WHATSAPP_HOOK) {
-        return send(res, 503, { error: 'WHATSAPP_WEBHOOK_URL is not configured.' })
-      }
-      const body = await readBody(req)
-      const phone = toE164(body?.phone)
-      const message = String(body?.message ?? '').trim()
-
-      if (!phone) return send(res, 400, { error: 'A valid phone number is required.' })
-      if (!message) return send(res, 400, { error: 'Message cannot be empty.' })
-
-      const upstream = await fetch(WHATSAPP_HOOK, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ phone, name: body?.name ?? '', message }),
-      })
-      const text = await upstream.text()
-      if (!upstream.ok) {
-        console.error('[proxy] whatsapp hook', upstream.status, text.slice(0, 200))
-        return send(res, 502, { error: `The WhatsApp hook returned ${upstream.status}.` })
-      }
-      return send(res, 200, { ok: true, phone })
-    }
+    // The WhatsApp relay that used to live here is gone: sending goes through
+    // POST /outbound as the conversation's own agent, so the hook has no
+    // caller left.
 
     // ── MCP tool call ────────────────────────────────────────
     if (path === '/api/mcp/call' && req.method === 'POST') {

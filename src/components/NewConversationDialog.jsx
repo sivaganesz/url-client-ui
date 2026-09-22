@@ -84,12 +84,19 @@ export default function NewConversationDialog({ open, onClose, onStarted }) {
     setSending(true)
     setFailure(null)
     try {
-      const r = await startOutbound({
-        agentId,
-        channel: channel.trigger,
-        to: contact.trim(),
-        openingMessage: opening.trim() || undefined,
-      })
+      const to = contact.trim()
+      const r = {
+        ...(await startOutbound({
+          agentId,
+          channel: channel.trigger,
+          to,
+          openingMessage: opening.trim() || undefined,
+        })),
+        // Carried back so the caller can label a call screen without
+        // re-reading the form.
+        to,
+        agentName: picked?.name,
+      }
       // Authorized: the message is on its way, so go and watch it. Otherwise
       // hold the dialog open and say what happened — the conversation exists,
       // but nothing went out, and silently navigating would hide that.

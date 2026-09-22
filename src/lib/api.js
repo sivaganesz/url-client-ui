@@ -140,6 +140,37 @@ export const activateAgent = (id) => write(`agents/${id}/publish`, 'POST', {})
 export const deactivateAgent = (id) => write(`agents/${id}`, 'PATCH', { status: 'paused' })
 
 /**
+ * What one agent can be reached on, and reply on.
+ *
+ * Same rule as getAgentsWithChannels, for the cases that already know which
+ * agent they mean — a conversation knows its own, and reading fourteen graphs
+ * to learn about one would be silly.
+ */
+export async function getAgentReach(agentId) {
+  if (!agentId) return { channels: [], senders: [] }
+  const a = await rest(`agents/${agentId}`).then((r) => r?.data ?? r)
+  const nodes = a?.nodes ?? []
+  return {
+    published: a?.status === 'published',
+    channels: [
+      ...new Set(
+        nodes
+          .filter((n) => n.type === 'trigger' && n.config?.channel)
+          .map((n) => channelLabel(n.config.channel)),
+      ),
+    ],
+    senders: [
+      ...new Set(
+        nodes
+          .map((n) => /^(.+)_sender$/.exec(n.type)?.[1])
+          .filter(Boolean)
+          .map(channelLabel),
+      ),
+    ],
+  }
+}
+
+/**
  * Have an agent reach out first.
  *
  * A phone call always opens a new conversation — a call is a session with its
