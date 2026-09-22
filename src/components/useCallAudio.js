@@ -75,8 +75,10 @@ export function useCallAudio() {
         if (!track) throw new Error('No recording available for this call.')
         if (token !== tokenRef.current) return // a newer request took over
 
-        const el = audioRef.current ?? new Audio()
-        audioRef.current = el
+        // Built and wired up before it goes into the ref, never after. A
+        // half-configured element in the ref is one an unmount could tear down
+        // mid-setup, and `stop()` above has already released the previous one.
+        const el = new Audio()
         el.src = track.url
 
         const seen = () => (Number.isFinite(el.duration) ? el.duration : 0)
@@ -91,6 +93,7 @@ export function useCallAudio() {
         el.onerror = () =>
           setState({ id: callId, status: 'error', error: new Error('Could not play this recording.') })
 
+        audioRef.current = el
         await el.play()
         if (token !== tokenRef.current) return
         setState({ id: callId, status: 'playing', error: null })

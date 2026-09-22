@@ -3,7 +3,7 @@ import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom
 import Avatar from '../components/ui/Avatar'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import Button from '../components/ui/Button'
-import Card, { ReservedPanel } from '../components/ui/Card'
+import Card from '../components/ui/Card'
 import DataBanner from '../components/ui/DataBanner'
 import RecordingPlayer from '../components/RecordingPlayer'
 import Dropdown, { MenuItem } from '../components/ui/Dropdown'
@@ -13,7 +13,6 @@ import { ChipGroup, SearchInput, Tabs } from '../components/ui/Field'
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States'
 import {
   IconAgent,
-  IconAlert,
   IconChat,
   IconChevronDown,
   IconChevronLeft,
@@ -21,7 +20,6 @@ import {
   IconClock,
   IconDownload,
   IconMail,
-  IconNote,
   IconPhone,
   IconPlus,
   IconSearch,
@@ -38,7 +36,6 @@ import {
   duration,
   getAgentReach,
   getConversations,
-  getCustomer,
   getMessages,
   startOutbound,
   timeAgo,
@@ -437,7 +434,6 @@ export default function Conversations() {
 
 function ConversationDetail({ conversation, onBack, onCalling }) {
   const [tab, setTab] = useState('overview')
-  // const [railOpen, setRailOpen] = useState(true) // parked with the profile rail
 
   const loadMessages = useCallback(() => getMessages(conversation.id), [conversation.id])
   const thread = useResource(loadMessages, [], [conversation.id])
@@ -552,17 +548,6 @@ function ConversationDetail({ conversation, onBack, onCalling }) {
               {calling ? 'Calling…' : 'Call'}
             </button>
             <StatusBadge label={conversation.status} />
-            {/* Toggle for the customer profile rail — parked with it.
-            <button
-              type="button"
-              onClick={() => setRailOpen((v) => !v)}
-              aria-label={railOpen ? 'Hide customer panel' : 'Show customer panel'}
-              aria-expanded={railOpen}
-              className="hidden h-8 w-8 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-sunken xl:flex"
-            >
-              {railOpen ? <IconChevronRight size={14} /> : <IconChevronLeft size={14} />}
-            </button>
-            */}
           </div>
         </header>
 
@@ -617,14 +602,6 @@ function ConversationDetail({ conversation, onBack, onCalling }) {
           <TranscriptTab conversation={conversation} thread={thread} reach={reach} />
         )}
       </div>
-
-      {/* Customer profile rail — parked for now, not currently needed.
-          To restore: uncomment this, the toggle button in the header above,
-          and the railOpen state at the top of this component. The ProfileRail
-          and ReachOut components below are left intact. */}
-      {/* {railOpen && (
-        <ProfileRail conversation={conversation} messageCount={spoken.length} />
-      )} */}
 
       {/* A call reaches a real person, and the button sits one click from
           anything else in the header. */}
@@ -1082,152 +1059,3 @@ function TranscriptTab({ conversation, thread, reach }) {
   )
 }
 
-/* ── profile rail ─────────────────────────────────────────── */
-
-function ReachOut({ icon: Icon, label, href, disabled }) {
-  const className = cn(
-    'flex flex-1 flex-col items-center gap-1.5 rounded-lg border border-line py-2.5 text-[10.5px] font-medium transition-colors',
-    disabled
-      ? 'cursor-not-allowed bg-sunken text-ink-4'
-      : 'bg-surface text-ink-2 hover:border-brand-line hover:bg-brand-soft hover:text-brand',
-  )
-  if (disabled) {
-    return (
-      <span className={className} aria-disabled="true">
-        <Icon size={16} />
-        {label}
-      </span>
-    )
-  }
-  return (
-    <a href={href} className={className}>
-      <Icon size={16} />
-      {label}
-    </a>
-  )
-}
-
-function ProfileRail({ conversation, messageCount }) {
-  const loadCustomer = useCallback(
-    () => getCustomer(conversation.customerId),
-    [conversation.customerId],
-  )
-  const { data: customer, status, error, reload } = useResource(loadCustomer, null, [
-    conversation.customerId,
-    conversation.id,
-  ])
-
-  const phone = customer?.details?.find((d) => d.label === 'Phone')?.value
-  const tel = phone && phone !== '—' ? phone.replace(/[^\d+]/g, '') : null
-  const email = customer?.details?.find((d) => d.label === 'Email')?.value
-  const mail = email && email !== '—' ? email : null
-
-  return (
-    <aside className="hidden w-[17.5rem] shrink-0 flex-col overflow-auto border-l border-line bg-surface xl:flex">
-      {status === 'loading' ? (
-        <div className="flex flex-col gap-4 p-4">
-          <Skeleton className="mx-auto h-16 w-16 rounded-full" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-24 w-full" />
-        </div>
-      ) : status === 'error' ? (
-        <ErrorState error={error} onRetry={reload} />
-      ) : (
-        <>
-          <div className="flex flex-col items-center gap-2 border-b border-line px-4 py-5">
-            <Avatar name={customer?.name ?? conversation.name} size="lg" />
-            <span className="mt-1 max-w-full truncate text-[13px] font-semibold">
-              {conversation.title}
-              {!conversation.name && conversation.ref && (
-                <span className="ml-1.5 font-mono text-[11px] font-normal text-ink-4">
-                  {conversation.ref}
-                </span>
-              )}
-            </span>
-            <span className="text-[11px] text-ink-3">
-              {customer ? 'Customer' : 'Anonymous session'}
-            </span>
-            <div className="mt-1 flex flex-wrap justify-center gap-1.5">
-              <Badge tone="muted" size="sm">
-                {conversation.channel}
-              </Badge>
-              <StatusBadge label={conversation.status} size="sm" />
-            </div>
-          </div>
-
-          {customer && (
-            <div className="border-b border-line px-4 py-3">
-              {customer.details
-                .filter((d) => d.value && d.value !== '—')
-                .slice(0, 5)
-                .map((d) => (
-                  <Row key={d.label} label={d.label} value={d.value} mono={d.mono} />
-                ))}
-            </div>
-          )}
-
-          <div className="border-b border-line px-4 py-3">
-            <h3 className="mb-2 text-[10px] font-semibold tracking-[0.08em] text-ink-3 uppercase">
-              Agent
-            </h3>
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
-                <IconAgent size={14} />
-              </span>
-              <Link
-                to="/agents"
-                className="truncate text-[12.5px] font-medium hover:text-brand"
-                title={conversation.agent ?? 'Unassigned'}
-              >
-                {conversation.agent ?? 'Unassigned'}
-              </Link>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 border-b border-line px-4 py-3 text-center">
-            {[
-              { value: String(messageCount), label: 'Messages' },
-              { value: String(conversation.channels?.length || 1), label: 'Channels' },
-              { value: timeAgo(conversation.updatedAt ?? conversation.createdAt), label: 'Last seen' },
-            ].map((s) => (
-              <div key={s.label} className="flex flex-col gap-1 rounded-lg bg-sunken px-1 py-2">
-                <span className="truncate font-mono text-[13px] font-semibold tabular-nums">
-                  {s.value}
-                </span>
-                <span className="text-[9px] font-semibold tracking-[0.06em] text-ink-3 uppercase">
-                  {s.label}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <div className="px-4 py-3">
-            <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.08em] text-ink-3 uppercase">
-              <IconClock size={11} />
-              Reach out
-            </h3>
-            <div className="flex gap-1.5">
-              <ReachOut icon={IconPhone} label="Call" href={`tel:${tel}`} disabled={!tel} />
-              <ReachOut
-                icon={IconChat}
-                label="WhatsApp"
-                href={`https://wa.me/${tel?.replace('+', '')}`}
-                disabled={!tel}
-              />
-              <ReachOut icon={IconSms} label="SMS" href={`sms:${tel}`} disabled={!tel} />
-              <ReachOut icon={IconMail} label="Email" href={`mailto:${mail}`} disabled={!mail} />
-            </div>
-          </div>
-
-          <div className="mt-auto p-4">
-            <ReservedPanel
-              icon={IconNote}
-              title="Debug · Runs · Recording"
-              note="Reserved — this workspace’s API exposes no run traces, QA scores or call recordings."
-            />
-          </div>
-        </>
-      )}
-    </aside>
-  )
-}

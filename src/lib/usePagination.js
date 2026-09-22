@@ -20,8 +20,12 @@ export function usePagination(items, { sizes, initial = sizes[0], resetKey, onLe
   const [page, setPage] = useState(1)
 
   // Held in a ref so an inline callback doesn't re-run the reset every render.
+  // Written in an effect rather than during render: render must stay pure, or
+  // a re-render React discards can leave the ref pointing at a stale closure.
   const leave = useRef(onLeavePage)
-  leave.current = onLeavePage
+  useEffect(() => {
+    leave.current = onLeavePage
+  }, [onLeavePage])
 
   const pageCount = Math.max(1, Math.ceil(items.length / perPage))
   const current = Math.min(page, pageCount)
