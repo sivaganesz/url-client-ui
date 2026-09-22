@@ -82,7 +82,7 @@ function ExportMenu({ row }) {
     <Dropdown
       menuClassName="w-28"
       button={({ open, toggle }) => (
-        <Button size="sm" className="px-2" aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
+        <Button size="sm" aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
           Export
           <IconChevronDown size={12} />
         </Button>
@@ -247,7 +247,7 @@ export default function ConversationLog({ rows }) {
       render: () => (
         <Button
           size="sm"
-          className="px-2"
+         
           disabled
           title="Opens the conversation once this log is wired to the API"
         >

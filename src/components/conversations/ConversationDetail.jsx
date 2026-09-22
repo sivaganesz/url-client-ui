@@ -84,7 +84,7 @@ export default function ConversationDetail({ conversation, onBack, onCalling }) 
             <Avatar name={conversation.name} />
             <div className="flex min-w-0 flex-col gap-1">
               <span className="flex min-w-0 items-baseline gap-1.5">
-                <span className="truncate text-sm font-semibold">{conversation.title}</span>
+                <h2 className="truncate text-sm font-semibold">{conversation.title}</h2>
                 {/* Every unnamed thread is titled "Anonymous", so the ref is
                     what tells this one from the next. */}
                 {!conversation.name && conversation.ref && (

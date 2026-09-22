@@ -125,7 +125,7 @@ export default function Analytics() {
               {(start || end) && (
                 <Button
                   size="sm"
-                  className="px-2"
+                 
                   onClick={() => {
                     setStart('')
                     setEnd('')

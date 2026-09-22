@@ -30,11 +30,11 @@ export default function TablePager({ pager, noun = 'rows', loading = false, clas
           {loading ? '' : total ? `${num(from + 1)}–${num(from + rows.length)} of ${num(total)}` : `No ${noun}`}
         </span>
         <div className="flex items-center gap-1.5">
-          <Button size="sm" className="px-2" disabled={page <= 1} onClick={() => goto(page - 1)}>
+          <Button size="sm" disabled={page <= 1} onClick={() => goto(page - 1)}>
             <IconChevronLeft size={13} />
             Previous
           </Button>
-          <Button size="sm" className="px-2" disabled={page >= pageCount} onClick={() => goto(page + 1)}>
+          <Button size="sm" disabled={page >= pageCount} onClick={() => goto(page + 1)}>
             Next
             <IconChevronRight size={13} />
           </Button>

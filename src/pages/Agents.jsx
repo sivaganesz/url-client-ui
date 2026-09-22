@@ -74,7 +74,7 @@ function AgentActions({ agent, pending, onAct, className }) {
     <span className={cn('inline-flex items-center gap-1.5', className)}>
       <Button
         size="sm"
-        className="px-2"
+       
         disabled={busy || live}
         title={(live ? `${agent.name} is already live` : `Publish ${agent.name} and take it live`)}
         onClick={() => onAct(agent, 'Active')}
@@ -85,7 +85,7 @@ function AgentActions({ agent, pending, onAct, className }) {
       <Button
         size="sm"
         variant="danger"
-        className="px-2"
+       
         disabled={busy || !live}
         title={(live ? `Stop ${agent.name} answering customers` : `${agent.name} is not live`)}
         onClick={() => onAct(agent, 'Paused')}

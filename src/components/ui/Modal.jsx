@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef } from 'react'
+import { useId } from 'react'
 import { IconX } from '../icons'
 import { cn } from '../../lib/cn'
+import { useDialog } from '../../lib/useDialog'
 
 /**
  * A centred dialog with a title bar, a scrolling body and a footer.
@@ -10,16 +11,8 @@ import { cn } from '../../lib/cn'
  * it is an alertdialog asking one question, not a form.
  */
 export default function Modal({ open, title, onClose, footer, children, className }) {
-  const panel = useRef(null)
   const titleId = useId()
-
-  useEffect(() => {
-    if (!open) return
-    panel.current?.focus()
-    const onKey = (e) => e.key === 'Escape' && onClose?.()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  const panel = useDialog(open, onClose)
 
   if (!open) return null
 

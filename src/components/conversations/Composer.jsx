@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import Button from '../ui/Button'
 import { IconChat, IconMail, IconSms } from '../icons'
 import { cn } from '../../lib/cn'
@@ -53,6 +53,7 @@ function ChannelChip({ icon: Icon, label, selected, disabled, title, onClick }) 
  * a request that fails after you have typed a message.
  */
 export default function Composer({ conversation, reach }) {
+  const composerId = useId()
   const [draft, setDraft] = useState('')
   const [channel, setChannel] = useState(null)
   const [sending, setSending] = useState(false)
@@ -134,11 +135,11 @@ export default function Composer({ conversation, reach }) {
       </div>
 
       <div className="flex items-end gap-2">
-        <label htmlFor="composer" className="sr-only">
+        <label htmlFor={composerId} className="sr-only">
           Write a message
         </label>
         <textarea
-          id="composer"
+          id={composerId}
           rows={1}
           value={draft}
           placeholder="Write a message…"

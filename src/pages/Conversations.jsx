@@ -119,6 +119,12 @@ export default function Conversations() {
 
   return (
     <div className="flex min-h-0 flex-1">
+      {/* This page lays out its own two panes rather than using PageHeader, so
+          it was the one route with no h1 at all — every other page gets one
+          from the shared header. Visually hidden: the design has no room for a
+          title here, but a screen reader needs to know which page this is. */}
+      <h1 className="sr-only">Conversations</h1>
+
       {/* ── list rail ──────────────────────────────────────── */}
       <aside
         className={cn(

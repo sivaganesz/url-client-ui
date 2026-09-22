@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useId } from 'react'
 import Button from './Button'
+import { useDialog } from '../../lib/useDialog'
 
 /**
  * A blocking confirm for changes that reach real customers.
@@ -17,15 +18,8 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }) {
-  const confirmRef = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    confirmRef.current?.focus()
-    const onKey = (e) => e.key === 'Escape' && onCancel?.()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onCancel])
+  const titleId = useId()
+  const panel = useDialog(open, onCancel)
 
   if (!open) return null
 
@@ -38,12 +32,14 @@ export default function ConfirmDialog({
         className="absolute inset-0 bg-ink/30"
       />
       <div
+        ref={panel}
+        tabIndex={-1}
         role="alertdialog"
         aria-modal="true"
-        aria-labelledby="confirm-title"
+        aria-labelledby={titleId}
         className="relative w-full max-w-sm rounded-card border border-line bg-surface p-5 shadow-raised"
       >
-        <h2 id="confirm-title" className="text-sm font-semibold text-ink">
+        <h2 id={titleId} className="text-sm font-semibold text-ink">
           {title}
         </h2>
         <p className="mt-2 text-xs leading-relaxed text-ink-2">{body}</p>
@@ -51,7 +47,7 @@ export default function ConfirmDialog({
           <Button size="sm" onClick={onCancel}>
             Cancel
           </Button>
-          <Button ref={confirmRef} size="sm" variant={tone} onClick={onConfirm}>
+          <Button size="sm" variant={tone} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </div>

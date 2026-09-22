@@ -34,7 +34,9 @@ export default function CallScreen({ call, onEnd }) {
     <div
       role="dialog"
       aria-label={`Call with ${call.name}`}
-      className="fixed right-4 bottom-4 z-40 w-[17.5rem] overflow-hidden rounded-card border border-line bg-surface shadow-raised sm:right-6 sm:bottom-6"
+      /* Full width less a gutter on a phone, where a fixed 280px panel crowds
+         the composer it floats over; its own size from `sm` up. */
+      className="fixed right-4 bottom-4 left-4 z-40 overflow-hidden rounded-card border border-line bg-surface shadow-raised sm:right-6 sm:bottom-6 sm:left-auto sm:w-[17.5rem]"
     >
       <div className="flex items-center gap-3 px-4 pt-4 pb-3">
         <Avatar name={call.name} size="lg" />
