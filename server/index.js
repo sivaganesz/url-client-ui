@@ -35,7 +35,17 @@ const API_BASE = (process.env.PERFOX_API_BASE ?? 'https://siva-workspace-api.per
 const MCP_URL = process.env.PERFOX_MCP_URL ?? 'https://siva-workspace-api.perfox.ai/mcp'
 const PORT = Number(process.env.PROXY_PORT ?? 8787)
 
-const WORKSPACE = 'siva-workspace'
+/**
+ * The workspace name, read from the API base rather than hardcoded.
+ *
+ * It used to be a literal 'siva-workspace', so pointing .env at a different
+ * workspace left the console still announcing the old one — the data changed
+ * underneath a label that didn't.
+ *
+ * "https://pradeepworkspace-api.perfox.ai/api/v1" -> "pradeepworkspace"
+ */
+const WORKSPACE =
+  /^https?:\/\/([a-z0-9-]+?)(?:-api)?\./i.exec(API_BASE)?.[1] ?? null
 
 /** Strip the key from anything we are about to log or return. */
 function redact(text) {

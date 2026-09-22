@@ -43,7 +43,11 @@ export default function Sidebar({ onNavigate, source }) {
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand text-white">
           <IconChat size={15} />
         </span>
-        <span className="truncate text-[13.5px] font-semibold tracking-tight">Siva Workspace</span>
+        {/* The workspace this console is pointed at, not a fixed product name.
+            It read "Siva Workspace" whatever the key actually connected to. */}
+        <span className="truncate text-[13.5px] font-semibold tracking-tight">
+          {source?.workspace ?? 'Workspace'}
+        </span>
       </div>
 
       {SECTIONS.map((section) => (

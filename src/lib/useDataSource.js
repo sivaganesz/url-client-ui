@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react'
  * Probes the local proxy once on boot.
  *
  * The browser never holds the Perfox key, so "are we live?" is really "is the
- * proxy up and does it have a key?". When it isn't, pages fall back to the
- * bundled samples and the sidebar says so rather than quietly showing fiction.
+ * proxy up and does it have a key?". It also reports which workspace the key
+ * connects to, which the sidebar names — pointing .env somewhere else used to
+ * leave the console still announcing the old workspace over the new data.
  */
 export function useDataSource() {
-  const [source, setSource] = useState({ live: false, label: 'Checking data source…' })
+  const [source, setSource] = useState({ live: false, workspace: null, label: 'Checking data source…' })
 
   useEffect(() => {
     let cancelled = false
@@ -23,12 +24,16 @@ export function useDataSource() {
         // a hardcoded name would state something we don't know.
         setSource(
           body?.keyConfigured
-            ? { live: true, label: body.workspace ? `Live · ${body.workspace}` : 'Live' }
-            : { live: false, label: 'No API key configured' },
+            ? {
+                live: true,
+                workspace: body.workspace ?? null,
+                label: body.workspace ? `Live · ${body.workspace}` : 'Live',
+              }
+            : { live: false, workspace: null, label: 'No API key configured' },
         )
       })
       .catch(() => {
-        if (!cancelled) setSource({ live: false, label: 'Sample data · proxy offline' })
+        if (!cancelled) setSource({ live: false, workspace: null, label: 'Workspace unreachable' })
       })
       .finally(() => clearTimeout(timer))
 

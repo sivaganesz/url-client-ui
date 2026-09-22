@@ -27,6 +27,7 @@ import {
 } from '../components/conversations/channels'
 import { useResource } from '../lib/useResource'
 import {
+  getAnalytics,
   getConversations,
   timeAgo,
 } from '../lib/api'
@@ -47,6 +48,19 @@ export default function Conversations() {
 
   const list = useResource(getConversations, [], [])
   const conversations = list.data
+
+  /**
+   * How many conversations the workspace actually holds.
+   *
+   * /conversations returns at most 200 records and accepts no paging — no
+   * limit, offset, page or cursor — so the list can never show more than that.
+   * The footer used to report the 200 as if it were the total, which quietly
+   * hid the rest. Only analytics/summary knows the real figure, so the rail
+   * asks it separately rather than claiming a number it cannot see.
+   */
+  const stats = useResource((signal) => getAnalytics(undefined, signal), null, [])
+  const workspaceTotal = stats.data?.total ?? null
+  const capped = workspaceTotal !== null && workspaceTotal > conversations.length
 
   const channels = useMemo(() => {
     const extra = [...new Set(conversations.map((c) => c.channel).filter(Boolean))].filter(
@@ -335,10 +349,30 @@ export default function Conversations() {
           )}
         </div>
 
-        <div className="shrink-0 border-t border-line px-3 py-2 text-center text-[11px] text-ink-3">
-          {list.status === 'loading'
-            ? 'Loading…'
-            : `${visible.length} of ${filtered.length} conversations`}
+        {/* Three different counts, and conflating them is how the old footer
+            came to claim 200 was everything: what's rendered, what matches the
+            filters, and what the workspace holds. */}
+        <div
+          className="shrink-0 border-t border-line px-3 py-2 text-center text-[11px] text-ink-3"
+          title={
+            capped
+              ? `The conversations API returns at most ${conversations.length} records, so the ${workspaceTotal - conversations.length} oldest are not available here.`
+              : undefined
+          }
+        >
+          {list.status === 'loading' ? (
+            'Loading…'
+          ) : filtered.length !== conversations.length ? (
+            // A filter is on: the workspace total says nothing about the matches.
+            `${visible.length} of ${filtered.length} matching`
+          ) : capped ? (
+            <>
+              {visible.length} of {conversations.length}
+              <span className="text-ink-4"> · {workspaceTotal} in workspace</span>
+            </>
+          ) : (
+            `${visible.length} of ${conversations.length} conversations`
+          )}
         </div>
       </aside>
 
