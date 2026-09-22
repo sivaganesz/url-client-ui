@@ -1,0 +1,387 @@
+/**
+ * What the workspace API returns, and what the UI reads.
+ *
+ * None of the wire shapes below are documented anywhere. They were established
+ * by probing the live API, so they describe what it *did* return, not what it
+ * promises to. Fields are marked optional wherever a response was seen without
+ * them — an optimistic type here would only move a runtime crash somewhere
+ * harder to find.
+ *
+ * Two layers, kept apart deliberately:
+ *   · `Api*`  — the raw payload, snake_case, exactly as it arrives
+ *   · the rest — what components consume, after mapping in api.ts
+ */
+
+/* ── wire shapes ─────────────────────────────────────────── */
+
+/** Every list endpoint answers with this envelope. `next_cursor` only on /calls. */
+export interface ApiList<T> {
+  data: T[]
+  next_cursor?: string | null
+}
+
+export interface ApiAgent {
+  id: string
+  name?: string
+  description?: string
+  status?: string
+  channels?: string[]
+  active_version?: number
+  node_count?: number
+  created_at?: string
+  updated_at?: string
+  /** Only on GET /agents/{id} — the list endpoint omits the graph. */
+  nodes?: ApiNode[]
+  edges?: unknown[]
+}
+
+/**
+ * A node on an agent's canvas.
+ *
+ * `config.channel` on a trigger is how the console decides which channels an
+ * agent can be reached on — the list endpoint's `channels` reports "web" for
+ * every agent and cannot be used for it.
+ */
+export interface ApiNode {
+  type: string
+  config?: {
+    trigger_type?: string
+    channel?: string
+    /** Webhook triggers carry the channel under a different key. */
+    webhook_channel?: string
+    [key: string]: unknown
+  }
+}
+
+export interface ApiConversation {
+  id: string
+  customer_id?: string
+  workflow_id?: string
+  status?: string
+  channel_started?: string
+  channels?: string[]
+  summary?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ApiCustomer {
+  id: string
+  name?: string
+  phone?: string
+  email?: string
+  created_at?: string
+  [key: string]: unknown
+}
+
+export interface ApiCall {
+  conversation_id: string
+  customer_id?: string
+  end_user?: { name?: string; phone?: string }
+  channel?: string
+  status?: string
+  summary?: string
+  started_at?: string
+  ended_at?: string
+  duration_seconds?: number
+  /** Means "available now", not "was ever recorded" — audio ages out. */
+  has_recording?: boolean
+}
+
+export interface ApiRecording {
+  leg: string
+  url: string
+}
+
+export interface ApiRecordings {
+  conversation_id?: string
+  expires_in_seconds?: number
+  recordings?: ApiRecording[]
+}
+
+export interface ApiAnalytics {
+  window?: { start_date: string | null; end_date: string | null }
+  conversations?: {
+    total?: number
+    active?: number
+    resolved?: number
+    escalated?: number
+    abandoned?: number
+    /** A percentage (13.98), not a fraction. */
+    resolution_rate?: number
+  }
+  tokens?: { input?: number; output?: number; total?: number; llm_calls?: number }
+  channels?: { channel: string; count: number }[]
+}
+
+export interface ApiCredits {
+  balance?: number
+  /** The same figure in millicredits — the integer the ledger actually holds. */
+  balance_mc?: number
+  low_balance?: boolean
+  out_of_credits?: boolean
+}
+
+/** `date` changes format with the interval: 2026-09-22 | 2026-W39 | 2026-09. */
+export interface ApiOverTimePoint {
+  date: string
+  count: number
+  resolved: number
+}
+
+export interface ApiOutboundResult {
+  conversation_id?: string
+  execution_id?: string
+  status?: string
+  channel?: string
+  /** False means the agent ran but has no Sender action — nothing went out. */
+  send_authorized?: boolean
+}
+
+/* ── what the UI consumes ────────────────────────────────── */
+
+export type ChannelLabel = 'Web' | 'Phone' | 'WhatsApp' | 'SMS' | 'Email' | 'Web voice' | string
+export type StatusLabel = 'Resolved' | 'Ended' | 'Abandoned' | 'Active' | 'Draft' | 'Paused' | string
+
+export interface Agent {
+  id: string
+  name: string
+  model: string
+  status: StatusLabel
+  channels: ChannelLabel[]
+  description: string
+  conversations: number | null
+  resolution: number | null
+  updatedAt?: string
+  /** Only from getAgentsWithChannels — the Sender actions on the canvas. */
+  senders?: ChannelLabel[]
+}
+
+export interface Conversation {
+  id: string
+  /** First 8 characters of the id, for telling anonymous threads apart. */
+  ref: string
+  customerId?: string
+  agentId?: string
+  agent: string | null
+  title: string
+  name: string | null
+  phone: string
+  email: string
+  channel: ChannelLabel
+  channels: ChannelLabel[]
+  status: StatusLabel
+  preview: string
+  time: string
+  createdAt?: string
+  updatedAt?: string
+  unread: number
+}
+
+export type MessageRole = 'customer' | 'agent' | 'tool' | 'system'
+
+export interface Message {
+  id: string
+  role: MessageRole
+  author: string
+  text: string
+  time: string
+  at?: string
+  eventType?: string
+  toolName?: string
+  toolInput?: unknown
+  toolOutput?: unknown
+  toolStatus?: string
+  toolLatencyMs?: number
+}
+
+export interface Call {
+  id: string
+  customerId?: string
+  name: string | null
+  phone: string | null
+  channel: ChannelLabel
+  status: StatusLabel
+  summary: string | null
+  startedAt?: string
+  endedAt?: string
+  durationSeconds: number | null
+  hasRecording: boolean
+}
+
+export interface RecordingLeg {
+  leg: string
+  /** "Full call" / "Customer only" / "Assistant only". */
+  label: string
+  url: string
+}
+
+export interface Recordings {
+  legs: RecordingLeg[]
+  /** Signed links lapse (900s at present); the player counts down from here. */
+  expiresInSeconds: number | null
+  fetchedAt: number
+}
+
+export interface Analytics {
+  total: number | null
+  active: number | null
+  resolved: number | null
+  escalated: number | null
+  abandoned: number | null
+  /** A fraction (0.1398) — divided from the percentage the API sends. */
+  resolutionRate: number | null
+  window: ApiAnalytics['window'] | null
+  tokensIn: number | null
+  tokensOut: number | null
+  tokensTotal: number | null
+  llmCalls: number | null
+  channels: { channel: ChannelLabel; count: number }[]
+}
+
+export interface Summary {
+  analytics: Analytics | null
+  totalConversations: number | null
+  phoneConversations: number | null
+  whatsappConversations: number | null
+  webConversations: number | null
+  totalAgents: number | null
+  activeAgents: number | null
+  pausedAgents: number | null
+  resolutionRate: number | null
+  channelSplit: { channel: ChannelLabel; count: number }[]
+  volumeSeries: SeriesPoint[]
+}
+
+export interface Credits {
+  balance: number | null
+  low: boolean
+  out: boolean
+}
+
+export interface SeriesPoint {
+  label: string
+  value: number
+  date?: string
+  resolved?: number
+}
+
+export interface AgentReach {
+  published?: boolean
+  channels: ChannelLabel[]
+  senders: ChannelLabel[]
+}
+
+export interface OutboundResult {
+  conversationId: string | null
+  executionId: string | null
+  status: string | null
+  channel: string
+  /** Absent on the wire means authorized; only text channels withhold it. */
+  sendAuthorized: boolean
+}
+
+export interface OutboundRequest {
+  agentId: string
+  channel: string
+  to: string
+  openingMessage?: string
+  customerId?: string
+}
+
+/* ── the shell ───────────────────────────────────────────── */
+
+/** What the /api/health probe says about the proxy behind this console. */
+export interface DataSource {
+  live: boolean
+  workspace: string | null
+  label: string
+}
+
+/** Who a live call is with. Placed by a page, rendered by the shell. */
+export interface CallTarget {
+  name: string
+  phone?: string | null
+  conversationId?: string | null
+}
+
+/**
+ * Passed down the router outlet. Pages read it with
+ * `useOutletContext<ShellContext>()` — react-router cannot infer it, so the
+ * annotation is what keeps these honest.
+ */
+export interface ShellContext {
+  openDrawer: () => void
+  startCall: (call: CallTarget) => void
+  endCall: () => void
+}
+
+/* ── the conversation log ────────────────────────────────── */
+
+/**
+ * The log's rows have no endpoint behind them yet — the workspace scores no
+ * conversation and raises no ticket. This is the shape a future loader has to
+ * produce, written down here so the mock and the eventual mapper agree.
+ */
+export type LogSentiment = 'Positive' | 'Negative' | 'Neutral'
+
+export interface LogScore {
+  sentiment: LogSentiment
+  solved: boolean
+  followUp: boolean
+  /** Out of ten. */
+  qaScore: number
+  note: string
+}
+
+export interface LogRow {
+  id: string
+  at: string
+  who: string
+  /** Who moved last. */
+  direction: 'customer' | 'agent' | 'system'
+  channel: ChannelLabel
+  triggeredBy: string
+  summary: string | null
+  /** null while scoring is pending. */
+  ai: LogScore | null
+  ticketStatus: StatusLabel
+}
+
+/**
+ * A connected phone number.
+ *
+ * No endpoint returns these yet — the loader rejects as unavailable and the
+ * page says so. The shape is here so the page's columns are checked against
+ * something rather than against `never`.
+ */
+export interface PhoneNumber {
+  id: string
+  number: string
+  label: string
+  agent: string | null
+  direction: string
+  conversations: number | null
+  status: StatusLabel
+}
+
+/** What a send or a call did, as the conversation surface reports it. */
+export interface SendResult {
+  ok: boolean
+  text?: string
+  /** The conversation a placed call opened — its own thread, not this one. */
+  id?: string | null
+  status?: string | null
+}
+
+/**
+ * What the New conversation dialog hands back once an agent has reached out.
+ *
+ * It is the outbound result plus the two things the form knew and the API
+ * does not return, so the caller can label a call screen without re-reading
+ * the form it just closed.
+ */
+export interface StartedConversation extends OutboundResult {
+  to: string
+  agentName?: string
+}

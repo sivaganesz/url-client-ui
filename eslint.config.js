@@ -1,5 +1,6 @@
 import js from '@eslint/js'
 import globals from 'globals'
+import tseslint from 'typescript-eslint'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
@@ -17,13 +18,18 @@ export default [
   { ignores: ['dist/**', 'node_modules/**'] },
 
   // ── the app ──────────────────────────────────────────────
+  // Type errors are tsc's job (`npm run typecheck`, and the build gate);
+  // ESLint here is about scope, unused code and hook rules.
   {
-    files: ['src/**/*.{js,jsx}'],
+    files: ['src/**/*.{ts,tsx}'],
     ...js.configs.recommended,
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
       globals: globals.browser,
+      // No type-aware rules: they need a program per run and cost more than
+      // they return on a codebase this size. tsc already checks the types.
+      parser: tseslint.parser,
       parserOptions: {
         ecmaFeatures: { jsx: true },
       },
@@ -61,6 +67,29 @@ export default [
        */
       'react-hooks/set-state-in-effect': 'warn',
       'react-hooks/use-memo': 'warn',
+    },
+  },
+
+  /**
+   * TypeScript-aware replacements for two base rules.
+   *
+   * The base rules read type positions as value positions, so a parameter
+   * named in an `interface` signature looks unused and TS's own globals —
+   * `RequestInit`, `HTMLAudioElement` — look undefined. These are not rules
+   * being switched off to go quiet: the TS-aware versions check the same
+   * things correctly, and `tsc --noEmit` checks undefined names against the
+   * real lib types, which is strictly better than a name list.
+   */
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    rules: {
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', caughtErrors: 'none' },
+      ],
+      'no-undef': 'off',
     },
   },
 
