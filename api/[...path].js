@@ -73,6 +73,8 @@ const ALLOWED = [
 const WRITES = [
   { method: 'POST', re: new RegExp(`^agents/${ID}/publish$`) },
   { method: 'PATCH', re: new RegExp(`^agents/${ID}$`) },
+  // Reaching out: places a real call, or sends a real message.
+  { method: 'POST', re: /^outbound$/ },
 ]
 
 /** Never echo the key back, even if upstream includes it in an error. */

@@ -386,7 +386,13 @@ export default function Conversations() {
         <NewConversationDialog
           open
           onClose={() => setStarting(false)}
-          onStart={() => setStarting(false)}
+          onStarted={({ conversationId }) => {
+            setStarting(false)
+            // The thread is new, so the rail has to refetch before it can
+            // highlight where we just landed.
+            list.reload()
+            if (conversationId) navigate(`/conversations/${conversationId}`)
+          }}
         />
       )}
     </div>

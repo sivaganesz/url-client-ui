@@ -139,6 +139,36 @@ function write(path, method, body) {
 export const activateAgent = (id) => write(`agents/${id}/publish`, 'POST', {})
 export const deactivateAgent = (id) => write(`agents/${id}`, 'PATCH', { status: 'paused' })
 
+/**
+ * Have an agent reach out first.
+ *
+ * A phone call always opens a new conversation — a call is a session with its
+ * own beginning, end and recording, not a thread. SMS, WhatsApp and email
+ * continue an open thread instead, which is what replying on those channels
+ * means. Either way the customer is resolved from `to`, so history follows the
+ * person; pass `customerId` only to skip that lookup.
+ *
+ * `send_authorized: false` is not a failure. The conversation started and the
+ * agent ran — it simply has no Sender action for the channel, so nothing left
+ * the building. Read it as "this agent isn't finished yet". Calls are always
+ * authorized, because the voice stream is itself the delivery.
+ */
+export async function startOutbound({ agentId, channel, to, openingMessage, customerId }) {
+  const body = { agent_id: agentId, channel, to }
+  if (openingMessage) body.opening_message = openingMessage
+  if (customerId) body.customer_id = customerId
+
+  const r = await write('outbound', 'POST', body)
+  return {
+    conversationId: r?.conversation_id ?? null,
+    executionId: r?.execution_id ?? null,
+    status: r?.status ?? null,
+    channel: r?.channel ?? channel,
+    // Absent means authorized: only the text channels can withhold it.
+    sendAuthorized: r?.send_authorized !== false,
+  }
+}
+
 export class UnavailableError extends Error {
   constructor(resource) {
     super(UNAVAILABLE[resource] ?? `No live source for ${resource}.`)
@@ -204,16 +234,30 @@ export async function getAgentsWithChannels() {
     ),
   )
 
-  return list.map((a, i) => ({
-    ...mapAgent(a),
-    channels: [
-      ...new Set(
-        (graphs[i]?.nodes ?? [])
-          .filter((n) => n.type === 'trigger' && n.config?.channel)
-          .map((n) => channelLabel(n.config.channel)),
-      ),
-    ],
-  }))
+  return list.map((a, i) => {
+    const nodes = graphs[i]?.nodes ?? []
+    return {
+      ...mapAgent(a),
+      channels: [
+        ...new Set(
+          nodes
+            .filter((n) => n.type === 'trigger' && n.config?.channel)
+            .map((n) => channelLabel(n.config.channel)),
+        ),
+      ],
+      // Sender actions — "whatsapp_sender" and friends. A text channel with a
+      // trigger but no sender starts a conversation that can never reply, and
+      // the API only reports that after the fact, via send_authorized.
+      senders: [
+        ...new Set(
+          nodes
+            .map((n) => /^(.+)_sender$/.exec(n.type)?.[1])
+            .filter(Boolean)
+            .map(channelLabel),
+        ),
+      ],
+    }
+  })
 }
 
 /**

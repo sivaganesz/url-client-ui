@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useResource } from '../lib/useResource'
-import { getAgentsWithChannels } from '../lib/api'
+import { getAgentsWithChannels, startOutbound } from '../lib/api'
 import Modal from './ui/Modal'
 import Button from './ui/Button'
 import { FormField, controlClass } from './ui/Field'
-import { IconChat, IconMail, IconPhone, IconPlay, IconSms } from './icons'
+import { IconAlert, IconChat, IconChevronRight, IconMail, IconPhone, IconPlay, IconSms } from './icons'
 import { cn } from '../lib/cn'
 
 /**
@@ -29,19 +29,27 @@ const CONTACT = {
 }
 
 /**
- * Start a new outbound conversation.
+ * Have an agent reach out first — POST /outbound.
  *
- * The agent list is real: it offers the published agents that handle the
- * chosen channel, and says so plainly when none do rather than presenting an
- * empty dropdown. Nothing is sent yet — the workspace has no endpoint for
- * starting a conversation, so Start is wired to `onStart` and left to the
- * caller.
+ * This places a real call or sends a real message, so the form only enables
+ * once a channel, a published agent with a trigger for it, and a destination
+ * are all present.
+ *
+ * Three outcomes, and the third is the one worth care: the request can fail;
+ * it can succeed and deliver; or it can succeed with `send_authorized: false`,
+ * meaning the conversation opened and the agent ran but has no Sender action,
+ * so nothing went out. That last one is a half-built agent rather than a
+ * failed request, and navigating away silently would bury it.
  */
-export default function NewConversationDialog({ open, onClose, onStart }) {
+export default function NewConversationDialog({ open, onClose, onStarted }) {
   const [channel, setChannel] = useState(CHANNELS[0])
   const [agentId, setAgentId] = useState('')
   const [contact, setContact] = useState('')
   const [opening, setOpening] = useState('')
+
+  const [sending, setSending] = useState(false)
+  const [failure, setFailure] = useState(null)
+  const [started, setStarted] = useState(null)
 
   // Loaded here rather than by the page: it costs a request per agent, and
   // nothing needs it until this dialog is on screen.
@@ -59,9 +67,39 @@ export default function NewConversationDialog({ open, onClose, onStart }) {
   const field = CONTACT[channel.contact]
   const ready = !none && Boolean(agentId) && contact.trim() !== ''
 
+  // A call delivers over the voice stream, so it needs no sender action. On the
+  // text channels, a trigger without one starts a conversation that can never
+  // reply — worth saying before the send, not only after.
+  const picked = eligible.find((a) => a.id === agentId)
+  const willNotSend =
+    Boolean(picked) && channel.id !== 'Phone' && !picked.senders?.includes(channel.id)
+
   const pickChannel = (next) => {
     setChannel(next)
     setAgentId('') // an agent for one channel means nothing on another
+    setFailure(null)
+  }
+
+  async function submit() {
+    setSending(true)
+    setFailure(null)
+    try {
+      const r = await startOutbound({
+        agentId,
+        channel: channel.trigger,
+        to: contact.trim(),
+        openingMessage: opening.trim() || undefined,
+      })
+      // Authorized: the message is on its way, so go and watch it. Otherwise
+      // hold the dialog open and say what happened — the conversation exists,
+      // but nothing went out, and silently navigating would hide that.
+      if (r.sendAuthorized) onStarted?.(r)
+      else setStarted(r)
+    } catch (err) {
+      setFailure(err.message)
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -70,26 +108,77 @@ export default function NewConversationDialog({ open, onClose, onStart }) {
       title="Start a new conversation"
       onClose={onClose}
       footer={
-        <>
-          <Button variant="ghost" size="md" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            size="md"
-            disabled={!ready}
-            title={none ? 'No published agent handles this channel' : undefined}
-            onClick={() =>
-              onStart?.({ channel: channel.id, agentId, contact: contact.trim(), opening: opening.trim() })
-            }
-          >
-            Start
-            <IconPlay size={11} />
-          </Button>
-        </>
+        started ? (
+          <>
+            <Button variant="ghost" size="md" onClick={onClose}>
+              Close
+            </Button>
+            <Button variant="primary" size="md" onClick={() => onStarted?.(started)}>
+              Open conversation
+              <IconChevronRight size={13} />
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="ghost" size="md" onClick={onClose} disabled={sending}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              disabled={!ready || sending}
+              title={none ? 'No published agent handles this channel' : undefined}
+              onClick={submit}
+            >
+              {sending ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
+                  />
+                  {channel.id === 'Phone' ? 'Calling…' : 'Starting…'}
+                </>
+              ) : (
+                <>
+                  {channel.id === 'Phone' ? 'Call' : 'Start'}
+                  <IconPlay size={11} />
+                </>
+              )}
+            </Button>
+          </>
+        )
       }
     >
       <div className="flex flex-col gap-4">
+        {started && (
+          <div
+            role="status"
+            className="flex items-start gap-2.5 rounded-card border border-warn/25 bg-warn-bg px-3.5 py-3"
+          >
+            <IconAlert size={15} className="mt-0.5 shrink-0 text-warn" />
+            <div className="min-w-0 text-[11.5px] leading-relaxed">
+              <p className="font-semibold text-warn">Conversation started — but nothing was sent</p>
+              <p className="mt-0.5 text-ink-2">
+                {picked?.name ?? 'This agent'} has no {channel.label} sender action on its canvas, so
+                it ran without being able to reply. Add one and the thread will pick up from here.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {failure && (
+          <div
+            role="alert"
+            className="flex items-start gap-2.5 rounded-card border border-danger/25 bg-danger-bg px-3.5 py-3"
+          >
+            <IconAlert size={15} className="mt-0.5 shrink-0 text-danger" />
+            <div className="min-w-0 text-[11.5px] leading-relaxed">
+              <p className="font-semibold text-danger">Could not reach out</p>
+              <p className="mt-0.5 font-mono break-words text-ink-2">{failure}</p>
+            </div>
+          </div>
+        )}
+
         <FormField label="Channel">
           {() => (
             <div
@@ -121,7 +210,13 @@ export default function NewConversationDialog({ open, onClose, onStart }) {
 
         <FormField
           label="Agent"
-          hint={none ? `Publish a workflow with a “${channel.trigger}” trigger node to enable this channel.` : undefined}
+          hint={
+            none
+              ? `Publish a workflow with a “${channel.trigger}” trigger node to enable this channel.`
+              : willNotSend
+                ? `This agent has no ${channel.label} sender action, so the conversation will start but nothing will be sent.`
+                : undefined
+          }
           hintTone="warn"
         >
           {(id) => (
