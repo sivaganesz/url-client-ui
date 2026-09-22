@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { PageBody, PageHeader } from '../components/layout/AppShell'
 import StatTile from '../components/ui/StatTile'
@@ -5,7 +6,8 @@ import Card, { CardBody, CardHeader } from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import DataBanner from '../components/ui/DataBanner'
 import ConversationLog from '../components/ConversationLog'
-import { Skeleton } from '../components/ui/States'
+import { ChipGroup, DateRange } from '../components/ui/Field'
+import { EmptyState, ErrorState, Skeleton } from '../components/ui/States'
 import LineChart from '../components/charts/LineChart'
 import BarList from '../components/charts/BarList'
 import { ChartFrame } from '../components/charts/ChartPrimitives'
@@ -14,34 +16,48 @@ import {
   IconChat,
   IconCheck,
   IconChevronDown,
+  IconCredit,
   IconDownload,
-  IconLines,
-  IconSparkle,
 } from '../components/icons'
-import { compact, num, pct } from '../lib/format'
+import { credits, num, pct } from '../lib/format'
 import { useResource } from '../lib/useResource'
-import { getSummary } from '../lib/api'
-import {
-  channelSplit as sampleSplit,
-  summary as sampleSummary,
-  volumeSeries as sampleVolume,
-} from '../data/sample'
+import { getConversationsOverTime, getCredits, getSummary } from '../lib/api'
+import { channelSplit as sampleSplit, summary as sampleSummary } from '../data/sample'
 import { conversationLog } from '../data/conversationLog'
 
-const fallback = {
-  ...sampleSummary,
-  channelSplit: sampleSplit,
-  volumeSeries: sampleVolume.map((d) => ({
-    label: d.day,
-    value: d.whatsapp + d.phone + d.email + d.sms,
-  })),
-}
+/** Bucket sizes the endpoint understands, in the casing the chips show. */
+const INTERVALS = ['Day', 'Week', 'Month']
+
+// The series is its own resource now, so the tiles' fallback no longer carries
+// one — only what the tiles and the channel breakdown need.
+const fallback = { ...sampleSummary, channelSplit: sampleSplit }
 
 export default function Analytics() {
   const { openDrawer } = useOutletContext()
   const { data: s, status, error, reload } = useResource(getSummary, fallback, [])
+
+  const credit = useResource(getCredits, { balance: null, low: false, out: false }, [])
+
+  const [interval, setInterval] = useState('Day')
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+
+  // Its own resource: the series comes from a different endpoint, and a chart
+  // that can load should not wait on the tiles, or fail with them. Changing a
+  // control changes the deps, which refetches.
+  const overTime = useResource(
+    () =>
+      getConversationsOverTime({
+        interval: interval.toLowerCase(),
+        start_date: start || undefined,
+        end_date: end || undefined,
+      }),
+    [],
+    [interval, start, end],
+  )
+
   const loading = status === 'loading'
-  const live = status === 'live'
+  const series = overTime.data
 
   return (
     <>
@@ -71,7 +87,7 @@ export default function Analytics() {
           note="Showing bundled samples."
         />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatTile
             label="Total conversations"
             value={num(s.totalConversations)}
@@ -91,42 +107,73 @@ export default function Analytics() {
             loading={loading}
           />
           <StatTile
-            label="Tokens used today"
-            value={s.today?.tokensTotal == null ? '—' : compact(s.today.tokensTotal)}
+            label="Credit balance"
+            value={credits(credit.data.balance)}
             foot={
-              s.today?.llmCalls != null ? `${num(s.today.llmCalls)} model calls` : 'Resets at midnight'
+              credit.status === 'error'
+                ? 'Balance unavailable'
+                : credit.data.out
+                  ? 'Out of credits — agents cannot run'
+                  : credit.data.low
+                    ? 'Running low — top up soon'
+                    : 'Available to spend'
             }
-            icon={IconSparkle}
-            loading={loading}
-          />
-          <StatTile
-            label="Total tokens used"
-            value={s.analytics?.tokensTotal == null ? '—' : compact(s.analytics.tokensTotal)}
-            foot={
-              s.analytics?.tokensIn != null
-                ? `${compact(s.analytics.tokensIn)} in · ${compact(s.analytics.tokensOut)} out`
-                : 'Lifetime, all agents'
-            }
-            icon={IconLines}
-            loading={loading}
+            tone={credit.data.out ? 'danger' : credit.data.low ? 'warn' : undefined}
+            icon={IconCredit}
+            loading={credit.status === 'loading'}
           />
         </div>
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <ChartFrame
-            title="Conversation volume"
-            subtitle="Conversations created per day, last 7 days"
+            title="Conversation over time"
+            subtitle={
+              series.length
+                ? `Conversations created per ${interval.toLowerCase()} · ${series[0].label} – ${series.at(-1).label}`
+                : `Conversations created per ${interval.toLowerCase()}`
+            }
             className="lg:col-span-2"
           >
-            {loading ? (
+            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 px-2">
+              <ChipGroup
+                label="Interval"
+                options={INTERVALS}
+                value={interval}
+                onChange={setInterval}
+              />
+              <span aria-hidden="true" className="h-5 w-px bg-line" />
+              <DateRange from={start} to={end} onFrom={setStart} onTo={setEnd} />
+              {(start || end) && (
+                <Button
+                  size="sm"
+                  className="px-2"
+                  onClick={() => {
+                    setStart('')
+                    setEnd('')
+                  }}
+                >
+                  Clear dates
+                </Button>
+              )}
+            </div>
+
+            {overTime.status === 'loading' ? (
               <Skeleton className="h-60 w-full" />
+            ) : overTime.status === 'error' ? (
+              <ErrorState error={overTime.error} onRetry={overTime.reload} />
+            ) : series.length === 0 ? (
+              <EmptyState
+                icon={IconChat}
+                title="Nothing in this range"
+                note="No conversations were created in the period selected."
+              />
             ) : (
               <LineChart
-                data={s.volumeSeries}
-                label="Conversations created by day"
+                data={series}
+                label={`Conversations created by ${interval.toLowerCase()}`}
                 formatValue={num}
                 height={240}
-                domain={[0, Math.max(...s.volumeSeries.map((d) => d.value), 1) * 1.15]}
+                domain={[0, Math.max(...series.map((d) => d.value), 1) * 1.15]}
               />
             )}
           </ChartFrame>

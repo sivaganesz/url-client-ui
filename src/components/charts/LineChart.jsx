@@ -15,6 +15,7 @@ export default function LineChart({
   height = 220,
   label,
   domain,
+  maxLabels = 12,
 }) {
   const [ref, { width }] = useMeasure()
   const [hover, setHover] = useState(null)
@@ -33,6 +34,7 @@ export default function LineChart({
   const line = data.map((d, i) => `${i === 0 ? 'M' : 'L'}${px(i)},${py(d.value)}`).join(' ')
   const area = `${line} L${px(data.length - 1)},${PAD.top + plotH} L${px(0)},${PAD.top + plotH} Z`
   const ticks = [lo, lo + span / 2, hi]
+  const labelStep = Math.max(1, Math.ceil(data.length / maxLabels))
 
   function onMove(e) {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -72,11 +74,16 @@ export default function LineChart({
           <path d={area} fill={SERIES_SOFT} />
           <path d={line} fill="none" stroke={SERIES} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 
-          {data.map((d, i) => (
-            <text key={d.label} x={px(i)} y={height - 8} textAnchor="middle" fontSize="10.5" fill={AXIS_TEXT}>
-              {d.label}
-            </text>
-          ))}
+          {/* Two months of daily points would overlap into mush, so label
+              every nth — plus the last one, when it isn't about to collide
+              with the label before it. */}
+          {data.map((d, i) =>
+            i % labelStep === 0 || (i === data.length - 1 && i % labelStep > labelStep / 2) ? (
+              <text key={i} x={px(i)} y={height - 8} textAnchor="middle" fontSize="10.5" fill={AXIS_TEXT}>
+                {d.label}
+              </text>
+            ) : null,
+          )}
 
           {hover !== null && (
             <g pointerEvents="none">

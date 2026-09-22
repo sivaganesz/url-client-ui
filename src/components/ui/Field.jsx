@@ -83,7 +83,7 @@ export function Select({
  * means no restriction — the same as picking every pill, but it says "I don't
  * care about this" rather than making the reader check all five are lit.
  */
-export function ChipGroup({ label, options, value, onChange, multiple = false, className }) {
+export function ChipGroup({ label, options, value, onChange, multiple = false, wrap = true, className }) {
   const isOn = (o) => (multiple ? value.includes(o) : o === value)
   const pick = (o) => {
     if (!multiple) return onChange?.(o)
@@ -91,7 +91,11 @@ export function ChipGroup({ label, options, value, onChange, multiple = false, c
   }
 
   return (
-    <div role="group" aria-label={label} className={cn('flex flex-wrap gap-1.5', className)}>
+    <div
+      role="group"
+      aria-label={label}
+      className={cn('flex gap-1.5', wrap ? 'flex-wrap' : 'flex-nowrap', className)}
+    >
       {options.map((o) => {
         const selected = isOn(o)
         return (
@@ -148,6 +152,34 @@ export function DateRange({ from, to, onFrom, onTo, className }) {
         onChange={(e) => onTo?.(e.target.value)}
         className={field}
       />
+    </div>
+  )
+}
+
+/** Shared look for the controls inside a FormField. */
+export const controlClass =
+  'w-full rounded-lg border border-line-strong bg-surface px-3 text-[13px] text-ink transition-colors placeholder:text-ink-4 hover:border-ink-4 focus:border-brand focus:outline-none disabled:bg-sunken disabled:text-ink-4'
+
+/**
+ * A labelled control in a form, with an optional hint underneath.
+ *
+ * `children` is a function taking the generated id, so the label stays tied to
+ * whatever control the caller renders — input, select or textarea — without
+ * this component having to know which.
+ */
+export function FormField({ label, hint, hintTone = 'muted', children, className }) {
+  const id = useId()
+  return (
+    <div className={cn('flex flex-col gap-1.5', className)}>
+      <label htmlFor={id} className="text-[10.5px] font-semibold tracking-[0.07em] text-ink-3 uppercase">
+        {label}
+      </label>
+      {children(id)}
+      {hint && (
+        <p className={cn('text-[11px] leading-relaxed', hintTone === 'warn' ? 'text-warn' : 'text-ink-3')}>
+          {hint}
+        </p>
+      )}
     </div>
   )
 }

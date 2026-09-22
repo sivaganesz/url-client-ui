@@ -304,6 +304,13 @@ export const IconSystem = (p) => (
   </Svg>
 )
 
+export const IconCredit = (p) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M14.8 9.4a3.4 3.4 0 1 0 0 5.2" />
+  </Svg>
+)
+
 /** Channel name -> icon, so every surface labels a channel the same way. */
 export const channelIcon = {
   WhatsApp: IconChat,

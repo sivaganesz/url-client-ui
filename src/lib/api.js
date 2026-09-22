@@ -198,17 +198,19 @@ export async function getConversations() {
 
   return rows(convoRes).map((c) => {
     const customer = byId.get(c.customer_id)
-    // The console titles a thread by whatever identifies it best: a name, else
-    // the phone, else a short id — never a bare "Anonymous".
-    const title =
-      customer?.name || customer?.phone || `Conversation ${String(c.id).slice(0, 8)}`
+    // Two thirds of web sessions have no customer record at all. Heading those
+    // rows with a raw hex id reads as noise, so the title says what the thread
+    // is — Anonymous — and `ref` carries the id separately, for the places that
+    // need to tell two of them apart.
+    const ref = String(c.id).slice(0, 8)
     return {
       id: c.id,
+      ref,
       customerId: c.customer_id,
       agentId: c.workflow_id,
       agent: agentById.get(c.workflow_id) ?? null,
-      title,
-      name: customer?.name || 'Anonymous session',
+      title: customer?.name || customer?.phone || 'Anonymous',
+      name: customer?.name || null,
       phone: customer?.phone || '',
       email: customer?.email || '',
       channel: channelLabel(c.channel_started ?? c.channels?.[0]),
@@ -395,12 +397,10 @@ export async function getAnalytics(window) {
 export async function getSummary() {
   // Totals come from the analytics endpoint (authoritative, covers everything);
   // the per-day series still has to be derived, since nothing returns it.
-  const today = new Date().toISOString().slice(0, 10)
-  const [convos, agents, analytics, todayStats] = await Promise.all([
+  const [convos, agents, analytics] = await Promise.all([
     getConversations(),
     getAgents(),
     getAnalytics().catch(() => null),
-    getAnalytics({ from: today, to: today }).catch(() => null),
   ])
 
   const byChannel = new Map()
@@ -430,7 +430,6 @@ export async function getSummary() {
 
   return {
     analytics,
-    today: todayStats,
     totalConversations: analytics?.total ?? convos.length,
     totalAgents: agents.length,
     activeAgents: agents.filter((a) => a.status === 'Active').length,
@@ -468,6 +467,127 @@ export async function getSummary() {
  *   · has_recording flips to false once a recording passes the workspace's
  *     retention window, so it means "available now", not "was ever recorded"
  */
+const DAY_MS = 864e5
+const WEEK_MS = 7 * DAY_MS
+const fmt = (d, opts) => d.toLocaleDateString('en-GB', { ...opts, timeZone: 'UTC' })
+
+/** Monday of the ISO week a date falls in. */
+function monday(d) {
+  const m = new Date(d)
+  m.setUTCDate(m.getUTCDate() - ((m.getUTCDay() + 6) % 7))
+  return m
+}
+
+/** The ISO week label — "2026-W39" — a date falls in. */
+function isoWeek(d) {
+  // Thursday decides the year: a week belongs to whichever year holds it.
+  const thu = new Date(d)
+  thu.setUTCDate(thu.getUTCDate() - ((thu.getUTCDay() + 6) % 7) + 3)
+  const year = thu.getUTCFullYear()
+  const firstThu = new Date(Date.UTC(year, 0, 4))
+  firstThu.setUTCDate(firstThu.getUTCDate() - ((firstThu.getUTCDay() + 6) % 7) + 3)
+  return `${year}-W${String(1 + Math.round((thu - firstThu) / WEEK_MS)).padStart(2, '0')}`
+}
+
+/**
+ * One bucket size, three jobs: name a bucket, walk to the next, and label it.
+ *
+ * The endpoint returns a different `date` format per interval — 2026-09-22,
+ * 2026-W39, 2026-09 — so each needs its own reading and its own step.
+ */
+const INTERVALS = {
+  day: {
+    parse: (key) => new Date(`${key}T00:00:00Z`),
+    start: (iso) => new Date(`${iso}T00:00:00Z`),
+    key: (d) => d.toISOString().slice(0, 10),
+    next: (d) => d.setUTCDate(d.getUTCDate() + 1),
+    label: (d) => fmt(d, { day: 'numeric', month: 'short' }),
+  },
+  week: {
+    parse: (key) => {
+      const [y, w] = key.split('-W').map(Number)
+      const jan4 = new Date(Date.UTC(y, 0, 4))
+      const first = monday(jan4)
+      first.setUTCDate(first.getUTCDate() + (w - 1) * 7)
+      return first
+    },
+    start: (iso) => monday(new Date(`${iso}T00:00:00Z`)),
+    key: isoWeek,
+    next: (d) => d.setUTCDate(d.getUTCDate() + 7),
+    label: (d) => `w/c ${fmt(d, { day: 'numeric', month: 'short' })}`,
+  },
+  month: {
+    parse: (key) => new Date(`${key}-01T00:00:00Z`),
+    start: (iso) => new Date(`${iso.slice(0, 7)}-01T00:00:00Z`),
+    key: (d) => d.toISOString().slice(0, 7),
+    next: (d) => d.setUTCMonth(d.getUTCMonth() + 1),
+    label: (d) => fmt(d, { month: 'short', year: 'numeric' }),
+  },
+}
+
+/** Enough for two years of daily buckets; a stop, not a limit anyone will meet. */
+const MAX_BUCKETS = 800
+
+/**
+ * Conversations created per interval.
+ *
+ * The endpoint omits buckets that had none, so the raw series would draw 17
+ * July next to 20 July and flatten a three-day gap into a single step. Fill
+ * the calendar back in at zero before anything charts it — and when an
+ * explicit range is asked for, fill from that range rather than from the
+ * first bucket with data, so a quiet start reads as quiet rather than absent.
+ *
+ * Parameters: `interval` (day | week | month), `start_date`, `end_date`.
+ * `from`/`to` are ignored here, unlike analytics/summary.
+ */
+/**
+ * Credit balance.
+ *
+ * `balance_mc` is the same figure in millicredits — the integer the billing
+ * system holds — so read that and divide rather than trusting the decimal to
+ * survive the round trip intact.
+ *
+ * The two flags are the workspace's own judgement of when a balance is low,
+ * so the threshold lives there rather than being guessed at here.
+ */
+export async function getCredits() {
+  const r = await rest('billing/credits')
+  const mc = r?.balance_mc
+  return {
+    balance: typeof mc === 'number' ? mc / 1000 : (r?.balance ?? null),
+    low: Boolean(r?.low_balance),
+    out: Boolean(r?.out_of_credits),
+  }
+}
+
+export async function getConversationsOverTime({ interval = 'day', start_date, end_date } = {}) {
+  const step = INTERVALS[interval] ?? INTERVALS.day
+  const query = { interval }
+  if (start_date) query.start_date = start_date
+  if (end_date) query.end_date = end_date
+
+  const list = rows(await rest('analytics/conversations-over-time', query))
+  if (!list.length && !(start_date && end_date)) return []
+
+  const byKey = new Map(list.map((d) => [d.date, d]))
+  const cursor = start_date ? step.start(start_date) : step.parse(list[0].date)
+  const last = end_date ? step.start(end_date) : step.parse(list.at(-1).date)
+  const out = []
+
+  while (cursor <= last && out.length < MAX_BUCKETS) {
+    const key = step.key(cursor)
+    const hit = byKey.get(key)
+    out.push({
+      date: key,
+      label: step.label(cursor),
+      value: hit?.count ?? 0,
+      resolved: hit?.resolved ?? 0,
+    })
+    step.next(cursor)
+  }
+  return out
+}
+
 export async function getCalls() {
   const list = await restAll('calls')
   return list.map((c) => ({

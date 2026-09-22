@@ -36,6 +36,16 @@
   --color-muted: #55524b;
   --color-muted-bg: #efede8;
 
+  /* channel identity — the conversation list's leading edge. Kept apart from
+     the status palette above: these say where a thread came from, not how it
+     went, and they are decorative next to a badge that names the channel. */
+  --color-channel-any: #64748b;
+  --color-channel-web: #3b82f6;
+  --color-channel-whatsapp: #22c55e;
+  --color-channel-phone: #f97316;
+  --color-channel-sms: #8b5cf6;
+  --color-channel-email: #1e3a8a;
+
   --radius-card: 0.75rem;
 }
 

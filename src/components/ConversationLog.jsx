@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Card from './ui/Card'
 import DataTable from './ui/DataTable'
 import TablePager from './ui/TablePager'
+import Dropdown, { MenuItem } from './ui/Dropdown'
 import Button from './ui/Button'
 import Badge, { StatusBadge } from './ui/Badge'
 import { ChipGroup, DateRange } from './ui/Field'
@@ -59,21 +60,6 @@ function save(name, text, type) {
 const csvCell = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`
 
 function ExportMenu({ row }) {
-  const [open, setOpen] = useState(false)
-  const box = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    const away = (e) => !box.current?.contains(e.target) && setOpen(false)
-    const esc = (e) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', away)
-    document.addEventListener('keydown', esc)
-    return () => {
-      document.removeEventListener('mousedown', away)
-      document.removeEventListener('keydown', esc)
-    }
-  }, [open])
-
   const flat = {
     date: row.at,
     who: row.who,
@@ -90,7 +76,6 @@ function ExportMenu({ row }) {
   }
 
   const pick = (format) => {
-    setOpen(false)
     if (format === 'json') {
       save(`conversation-${row.id}.json`, JSON.stringify(row, null, 2), 'application/json')
     } else {
@@ -101,39 +86,32 @@ function ExportMenu({ row }) {
   }
 
   return (
-    <div ref={box} className="relative">
-      <Button
-        size="sm"
-        className="px-2"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        Export
-        <IconChevronDown size={12} />
-      </Button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 z-20 mt-1 w-28 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-raised"
-        >
-          {[
-            ['json', 'JSON'],
-            ['csv', 'CSV'],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="menuitem"
-              onClick={() => pick(id)}
-              className="block w-full px-3 py-1.5 text-left text-[11.5px] text-ink-2 hover:bg-sunken hover:text-ink"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+    <Dropdown
+      menuClassName="w-28"
+      button={({ open, toggle }) => (
+        <Button size="sm" className="px-2" aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
+          Export
+          <IconChevronDown size={12} />
+        </Button>
       )}
-    </div>
+    >
+      {({ close }) =>
+        [
+          ['json', 'JSON'],
+          ['csv', 'CSV'],
+        ].map(([id, label]) => (
+          <MenuItem
+            key={id}
+            onClick={() => {
+              pick(id)
+              close()
+            }}
+          >
+            {label}
+          </MenuItem>
+        ))
+      }
+    </Dropdown>
   )
 }
 

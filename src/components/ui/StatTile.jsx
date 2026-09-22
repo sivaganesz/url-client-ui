@@ -1,10 +1,29 @@
 import { cn } from '../../lib/cn'
 
 /**
+ * `tone` colours the icon chip and the footnote — for a figure that is itself
+ * the warning, like a balance about to run out. The number stays black: a
+ * coloured headline reads as an error rather than a reading.
+ */
+const TONES = {
+  warn: { chip: 'bg-warn-bg text-warn', foot: 'text-warn' },
+  danger: { chip: 'bg-danger-bg text-danger', foot: 'text-danger' },
+}
+
+/**
  * One headline number. `loading` renders the same box at the same height so
  * the grid never reflows when live data arrives.
  */
-export default function StatTile({ label, value, foot, icon: Icon, loading = false, className }) {
+export default function StatTile({
+  label,
+  value,
+  foot,
+  icon: Icon,
+  tone,
+  loading = false,
+  className,
+}) {
+  const toned = TONES[tone]
   return (
     <div
       className={cn(
@@ -17,7 +36,12 @@ export default function StatTile({ label, value, foot, icon: Icon, loading = fal
           {label}
         </span>
         {Icon && (
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted-bg text-ink-3">
+          <span
+            className={cn(
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
+              toned?.chip ?? 'bg-muted-bg text-ink-3',
+            )}
+          >
             <Icon size={15} />
           </span>
         )}
@@ -34,7 +58,9 @@ export default function StatTile({ label, value, foot, icon: Icon, loading = fal
       {loading ? (
         <div className="h-3.5 w-32 animate-pulse rounded bg-muted-bg" />
       ) : (
-        foot && <div className="truncate text-[11.5px] text-ink-3">{foot}</div>
+        foot && (
+          <div className={cn('truncate text-[11.5px]', toned?.foot ?? 'text-ink-3')}>{foot}</div>
+        )
       )}
     </div>
   )

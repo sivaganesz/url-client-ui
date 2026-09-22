@@ -25,7 +25,13 @@ if (existsSync(envPath)) {
 }
 
 const KEY = process.env.PERFOX_API_KEY ?? ''
-const API_BASE = process.env.PERFOX_API_BASE ?? 'https://siva-workspace-api.perfox.ai/api/v1'
+// Trailing slashes are trimmed because a base ending in "/" would build
+// ".../api/v1//agents", and this API answers an unknown path with 401 rather
+// than 404 — so a stray slash in .env looks exactly like a bad key.
+const API_BASE = (process.env.PERFOX_API_BASE ?? 'https://siva-workspace-api.perfox.ai/api/v1').replace(
+  /\/+$/,
+  '',
+)
 const MCP_URL = process.env.PERFOX_MCP_URL ?? 'https://siva-workspace-api.perfox.ai/mcp'
 const PORT = Number(process.env.PROXY_PORT ?? 8787)
 const WHATSAPP_HOOK = process.env.WHATSAPP_WEBHOOK_URL ?? ''

@@ -18,7 +18,13 @@
  *   ACCESS_CODE      optional — set it to require a code on every request
  */
 const KEY = process.env.PERFOX_API_KEY ?? ''
-const API_BASE = process.env.PERFOX_API_BASE ?? 'https://siva-workspace-api.perfox.ai/api/v1'
+// Trailing slashes trimmed: a base ending in "/" builds ".../api/v1//agents",
+// and this API answers an unknown path with 401, not 404 — so a stray slash
+// reads as a bad key and sends you hunting the wrong problem.
+const API_BASE = (process.env.PERFOX_API_BASE ?? 'https://siva-workspace-api.perfox.ai/api/v1').replace(
+  /\/+$/,
+  '',
+)
 const ACCESS_CODE = process.env.ACCESS_CODE ?? ''
 const WHATSAPP_HOOK = process.env.WHATSAPP_WEBHOOK_URL ?? ''
 
@@ -53,6 +59,8 @@ const ALLOWED = [
   new RegExp(`^customers$`),
   new RegExp(`^customers/${ID}$`),
   new RegExp(`^analytics/summary$`),
+  new RegExp(`^analytics/conversations-over-time$`),
+  new RegExp(`^billing/credits$`),
   new RegExp(`^calls$`),
 ]
 

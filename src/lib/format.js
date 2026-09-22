@@ -26,3 +26,12 @@ export function compact(value) {
 export function dash(value) {
   return value === null || value === undefined || value === '' ? '—' : value
 }
+
+/** 1703.585 -> "1,703.59". A balance is money-shaped: always two decimals. */
+export function credits(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  return new Intl.NumberFormat('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}

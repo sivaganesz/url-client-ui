@@ -6,12 +6,15 @@ import Button from '../components/ui/Button'
 import Card, { ReservedPanel } from '../components/ui/Card'
 import DataBanner from '../components/ui/DataBanner'
 import RecordingPlayer from '../components/RecordingPlayer'
+import Dropdown, { MenuItem } from '../components/ui/Dropdown'
+import NewConversationDialog from '../components/NewConversationDialog'
 import { ChipGroup, SearchInput, Tabs } from '../components/ui/Field'
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States'
 import {
   IconAgent,
   IconAlert,
   IconChat,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconClock,
@@ -27,7 +30,7 @@ import {
 } from '../components/icons'
 import { cn } from '../lib/cn'
 import { useResource } from '../lib/useResource'
-import { callInfoOf, duration, getConversations, getCustomer, getMessages, timeAgo } from '../lib/api'
+import { callInfoOf, duration, getAgents, getConversations, getCustomer, getMessages, timeAgo } from '../lib/api'
 import {
   conversations as sampleConversations,
   customerByConversation,
@@ -37,6 +40,34 @@ import {
 /** Conversations added to the rail per click of Load more. */
 const PAGE = 50
 
+/**
+ * Channel filters, fixed rather than derived from the data.
+ *
+ * Deriving them meant a channel with no conversations yet simply had no chip,
+ * so there was no way to tell "nothing on SMS" from "SMS isn't a thing here".
+ * Anything the workspace reports outside this list is appended, so a new
+ * channel still shows up.
+ */
+const CHANNEL_FILTERS = ['All', 'WhatsApp', 'Web', 'Phone', 'SMS', 'Email']
+
+/**
+ * Channel as a colour on the row's leading edge.
+ *
+ * Where a thread came from, not how it went — the status badge covers that.
+ * Anything unmapped falls back to the neutral slate.
+ */
+const CHANNEL_EDGE = {
+  Web: 'bg-channel-web',
+  WhatsApp: 'bg-channel-whatsapp',
+  Phone: 'bg-channel-phone',
+  SMS: 'bg-channel-sms',
+  Email: 'bg-channel-email',
+}
+
+const ANY_AGENT = { id: 'all', name: 'All agents' }
+/** Conversations whose workflow no longer exists still need to be reachable. */
+const GONE_AGENT = { id: 'gone', name: 'Deleted or unknown agent' }
+
 export default function Conversations() {
   const { openDrawer } = useOutletContext()
   const { id } = useParams()
@@ -44,25 +75,63 @@ export default function Conversations() {
 
   const [query, setQuery] = useState('')
   const [channel, setChannel] = useState('All')
+  const [agent, setAgent] = useState(ANY_AGENT.id)
   const [shown, setShown] = useState(PAGE)
+  const [starting, setStarting] = useState(false)
 
   const list = useResource(getConversations, sampleConversations, [])
   const conversations = list.data
 
-  const channels = useMemo(
-    () => ['All', ...Array.from(new Set(conversations.map((c) => c.channel).filter(Boolean)))],
-    [conversations],
-  )
+  // Only needed by the new-conversation dialog, to offer the agents that
+  // actually handle the chosen channel.
+  const agentList = useResource(getAgents, [], [])
+
+  const channels = useMemo(() => {
+    const extra = [...new Set(conversations.map((c) => c.channel).filter(Boolean))].filter(
+      (c) => !CHANNEL_FILTERS.includes(c),
+    )
+    return [...CHANNEL_FILTERS, ...extra]
+  }, [conversations])
+
+  /**
+   * Agents that actually appear in the loaded conversations, with counts.
+   *
+   * Listing every agent in the workspace would offer choices that can only
+   * return nothing — half of them have no conversations at all. The count
+   * beside each name says what picking it will give you.
+   */
+  const agentOptions = useMemo(() => {
+    const seen = new Map()
+    let orphans = 0
+    for (const c of conversations) {
+      if (!c.agent) {
+        orphans += 1
+        continue
+      }
+      const at = seen.get(c.agentId) ?? { id: c.agentId, name: c.agent, count: 0 }
+      at.count += 1
+      seen.set(c.agentId, at)
+    }
+    const list = [...seen.values()].sort((a, b) => b.count - a.count)
+    return [
+      { ...ANY_AGENT, count: conversations.length },
+      ...list,
+      ...(orphans ? [{ ...GONE_AGENT, count: orphans }] : []),
+    ]
+  }, [conversations])
+
+  const selectedAgent = agentOptions.find((a) => a.id === agent) ?? agentOptions[0]
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return conversations.filter(
-      (c) =>
-        (channel === 'All' || c.channel === channel) &&
-        (q === '' ||
-          [c.title, c.name, c.phone, c.email].filter(Boolean).join(' ').toLowerCase().includes(q)),
-    )
-  }, [conversations, query, channel])
+    return conversations.filter((c) => {
+      if (channel !== 'All' && c.channel !== channel) return false
+      if (agent === GONE_AGENT.id ? Boolean(c.agent) : agent !== ANY_AGENT.id && c.agentId !== agent)
+        return false
+      if (!q) return true
+      return [c.title, c.name, c.phone, c.email].filter(Boolean).join(' ').toLowerCase().includes(q)
+    })
+  }, [conversations, query, channel, agent])
 
   // The rail renders the first `shown` matches. A new search or channel starts
   // from the top again — carrying a deep scroll across filters just hides the
@@ -72,7 +141,7 @@ export default function Conversations() {
 
   useEffect(() => {
     setShown(PAGE)
-  }, [query, channel])
+  }, [query, channel, agent])
 
   // A conversation opened by link — from the Dashboard, or a shared URL — can
   // sit past the loaded window. Load far enough for the rail to show where you
@@ -90,7 +159,7 @@ export default function Conversations() {
       {/* ── list rail ──────────────────────────────────────── */}
       <aside
         className={cn(
-          'w-full shrink-0 flex-col border-r border-line bg-surface md:flex md:w-[19rem]',
+          'w-full shrink-0 flex-col border-r border-line bg-surface md:flex md:w-[22.2rem]',
           selectedId ? 'hidden' : 'flex',
         )}
       >
@@ -112,14 +181,72 @@ export default function Conversations() {
             onChange={setQuery}
             className="min-w-0 flex-1"
           />
-          <Button variant="primary" size="md" className="shrink-0">
+          <Button variant="primary" size="md" className="shrink-0" onClick={() => setStarting(true)}>
             <IconPlus size={14} />
             New
           </Button>
         </div>
 
-        <div className="shrink-0 border-b border-line px-3 py-2.5">
-          <ChipGroup label="Filter by channel" options={channels} value={channel} onChange={setChannel} />
+        {/* One line, not three. The chips scroll sideways rather than wrapping,
+            so the filters cost a fixed 44px however many channels exist. */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+          <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <ChipGroup
+              label="Filter by channel"
+              options={channels}
+              value={channel}
+              onChange={setChannel}
+              wrap={false}
+            />
+          </div>
+
+          {/* Set apart from the chips: it filters a different thing, and the
+              chips scroll under it. */}
+          <span aria-hidden="true" className="h-5 w-px shrink-0 bg-line" />
+
+          <Dropdown
+            align="right"
+            menuClassName="max-h-72 w-60 overflow-auto"
+            button={({ open, toggle }) => (
+              <button
+                type="button"
+                onClick={toggle}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                title={selectedAgent.name}
+                className={cn(
+                  'inline-flex h-7 max-w-[10rem] items-center gap-1 rounded-full border px-2.5 text-[11.5px] transition-colors',
+                  agent === ANY_AGENT.id
+                    ? 'border-line-strong bg-surface text-ink-2 hover:bg-sunken'
+                    : 'border-brand bg-brand font-medium text-white',
+                )}
+              >
+                <IconAgent size={11} className="shrink-0" />
+                <span className="truncate">
+                  {agent === ANY_AGENT.id ? 'Agent' : selectedAgent.name}
+                </span>
+                <IconChevronDown size={11} className="shrink-0" />
+              </button>
+            )}
+          >
+            {({ close }) =>
+              agentOptions.map((a) => (
+                <MenuItem
+                  key={a.id}
+                  selected={a.id === agent}
+                  onClick={() => {
+                    setAgent(a.id)
+                    close()
+                  }}
+                >
+                  <span className="min-w-0 flex-1 truncate" title={a.name}>
+                    {a.name}
+                  </span>
+                  <span className="shrink-0 font-mono text-[10.5px] text-ink-3">{a.count}</span>
+                </MenuItem>
+              ))
+            }
+          </Dropdown>
         </div>
 
         {list.status !== 'live' && list.status !== 'loading' && (
@@ -151,30 +278,54 @@ export default function Conversations() {
               {visible.map((c) => {
                 const ChannelIcon = channelIcon[c.channel] ?? IconChat
                 const active = c.id === selectedId
+                const summary = c.preview && c.preview !== 'No summary available.' ? c.preview : null
                 return (
                   <li key={c.id}>
                     <Link
                       to={`/conversations/${c.id}`}
                       aria-current={active ? 'true' : undefined}
+                      title={`${c.title} · ${c.channel} · ${c.status}`}
                       className={cn(
-                        'flex gap-2.5 border-b border-line/70 px-3 py-2.5 transition-colors',
-                        active
-                          ? 'bg-brand-soft shadow-[inset_2px_0_0_var(--color-brand)]'
-                          : 'hover:bg-sunken',
+                        'flex items-start gap-2.5 border-b border-line/70 py-2.5 pr-3 pl-2.5 transition-colors',
+                        active ? 'bg-brand-soft' : 'hover:bg-sunken',
                       )}
                     >
-                      <Avatar name={c.name} size="sm" />
+                      {/* The badges below name the channel and status; this
+                          just lets the shape of the list read while scrolling. */}
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'w-[3px] shrink-0 self-stretch rounded-full',
+                          CHANNEL_EDGE[c.channel] ?? 'bg-channel-any',
+                        )}
+                      />
+
+                      {c.name ? (
+                        <Avatar name={c.name} size="sm" />
+                      ) : (
+                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted-bg text-ink-4">
+                          <ChannelIcon size={14} />
+                        </span>
+                      )}
+
                       <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="truncate text-[12.5px] font-semibold" title={c.title}>
-                            {c.title}
-                          </span>
-                          <span className="shrink-0 text-[10.5px] text-ink-3">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="truncate text-[12.5px] font-semibold">{c.title}</span>
+                          {!c.name && c.ref && (
+                            <span className="shrink-0 font-mono text-[10px] text-ink-4">{c.ref}</span>
+                          )}
+                          <span className="ml-auto shrink-0 text-[10.5px] text-ink-3">
                             {timeAgo(c.updatedAt ?? c.createdAt) || c.time}
                           </span>
                         </div>
-                        <p className="truncate text-[11.5px] text-ink-3 italic">{c.preview}</p>
-                        <div className="flex items-center gap-1.5">
+
+                        {/* Dropped entirely when there is nothing to say, rather
+                            than spending a line on "No summary available." */}
+                        {summary && (
+                          <p className="truncate text-[11.5px] text-ink-3 italic">{summary}</p>
+                        )}
+
+                        <div className="flex min-w-0 items-center gap-1.5">
                           <Badge tone="muted" size="sm">
                             <ChannelIcon size={10} />
                             {c.channel}
@@ -231,6 +382,13 @@ export default function Conversations() {
           />
         )}
       </section>
+
+      <NewConversationDialog
+        open={starting}
+        agents={agentList.data}
+        onClose={() => setStarting(false)}
+        onStart={() => setStarting(false)}
+      />
     </div>
   )
 }
@@ -268,7 +426,14 @@ function ConversationDetail({ conversation, onBack }) {
             </button>
             <Avatar name={conversation.name} />
             <div className="flex min-w-0 flex-col gap-1">
-              <span className="truncate text-sm font-semibold">{conversation.title}</span>
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <span className="truncate text-sm font-semibold">{conversation.title}</span>
+                {/* Every unnamed thread is titled "Anonymous", so the ref is
+                    what tells this one from the next. */}
+                {!conversation.name && conversation.ref && (
+                  <span className="shrink-0 font-mono text-[11px] text-ink-4">{conversation.ref}</span>
+                )}
+              </span>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge tone="muted" size="sm">
                   <ChannelIcon size={10} />
@@ -384,11 +549,11 @@ function OverviewTab({ conversation, thread, spoken, call }) {
       type = 'application/json'
       ext = 'json'
     } else if (format === 'md') {
-      body = `# ${conversation.title}\n\n_${conversation.preview}_\n\n${lines.map((l) => `- ${l}`).join('\n')}\n`
+      body = `# ${conversation.title} · ${conversation.ref}\n\n_${conversation.preview}_\n\n${lines.map((l) => `- ${l}`).join('\n')}\n`
       type = 'text/markdown'
       ext = 'md'
     } else {
-      body = `${conversation.title}\n\n${lines.join('\n')}\n`
+      body = `${conversation.title} · ${conversation.ref}\n\n${lines.join('\n')}\n`
       type = 'text/plain'
       ext = 'txt'
     }
@@ -821,6 +986,11 @@ function ProfileRail({ conversation, messageCount }) {
             <Avatar name={customer?.name ?? conversation.name} size="lg" />
             <span className="mt-1 max-w-full truncate text-[13px] font-semibold">
               {conversation.title}
+              {!conversation.name && conversation.ref && (
+                <span className="ml-1.5 font-mono text-[11px] font-normal text-ink-4">
+                  {conversation.ref}
+                </span>
+              )}
             </span>
             <span className="text-[11px] text-ink-3">
               {customer ? 'Customer' : 'Anonymous session'}
