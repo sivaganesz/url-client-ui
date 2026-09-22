@@ -1,8 +1,8 @@
 # Client Console — Test Report & Page Completion Status
 
-**Branch:** `prod-grade` · **Tested:** 22–23 September 2026
+**Branch:** `prod-grade` · **Tested:** 22–23 September 2026 · **Last updated:** 23 September 2026
 **Method:** Automated browser testing (Playwright + Chromium) against two live workspaces, plus the production build.
-**Scope:** 21 test runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling.
+**Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a **committed regression suite of 34 tests** (§9).
 
 > Outbound actions were restricted to the single authorised number **+916374160200**. No other number was contacted.
 
@@ -185,6 +185,11 @@ The second workspace exercised cases the first could not: an **empty** call log,
 | Error handling | Complete API failure |
 | Console | Errors, warnings and failed requests on every page |
 
+Everything in this table was tested by hand or by one-off script during the
+rounds above. What is now **permanently guarded** is §9 — the parts that would
+silently break are covered; the parts that would send a message or place a call
+are covered up to the confirmation and no further.
+
 ---
 
 ## 3. Working correctly
@@ -225,6 +230,8 @@ One development-only artefact: `/api/health net::ERR_ABORTED` appears once per p
 | 1 | Conversation rail reported the API cap (200) as the total | 🟡 Medium | ✅ **Fixed** — see §7.1 |
 | 2 | Sidebar showed "Siva Workspace" regardless of which workspace was connected | 🟡 Medium | ✅ **Fixed** — see §7.2 |
 | 3 | Call popup shows the agent's name instead of the person being called | ⚪ Low | ⏸ Deferred — call work is frozen |
+| 4 | No `<main>` landmark anywhere in the app | 🟡 Medium | ✅ **Fixed** — see §7.3 |
+| 5 | An empty bordered strip sat above a healthy conversation rail | ⚪ Low | ✅ **Fixed** — see §7.4 |
 
 ---
 
@@ -236,8 +243,15 @@ One development-only artefact: `/api/health net::ERR_ABORTED` appears once per p
 | 2 | No phone-number resource | Phone Numbers page cannot be completed |
 | 3 | No conversation scoring / ticket resource | Analytics Conversation Log remains mock |
 | 4 | `/calls` reports `direction: unknown` on every record | Direction column omitted rather than shown blank |
+| 5 | `/agents` reports `channels: ["web"]` for **every** agent, whatever its triggers | The console cannot use it. To know what an agent can be reached on it fetches that agent's full graph — **one request per agent**. Opening the New conversation dialog on an 11-agent workspace costs 12 requests; on a 50-agent workspace it would cost 51 |
+| 6 | The API **rate-limits** (HTTP 429) and the console has no backoff | Surfaced while building the regression suite: a full run trips it, because of the N+1 above. A client browsing quickly could hit it too, and today it renders as a generic load failure rather than "too fast, retrying" |
 
-**Recommended API request:** give `/conversations` the same `limit` + `next_cursor` that `/calls` already has. The frontend already has the cursor-following helper and would need a one-word change.
+**Two recommended API requests, in priority order:**
+
+1. Give `/conversations` the same `limit` + `next_cursor` that `/calls` already has. The frontend already has the cursor-following helper and would need a one-word change.
+2. Make `/agents` report each agent's real trigger channels. That removes the N+1 outright and with it most of the 429 exposure.
+
+**Worth doing on our side regardless:** the console should treat a 429 as a retry-after condition rather than a failure. Not done — it is a behaviour change to the shared request layer and was outside the scope of this round.
 
 ---
 
@@ -281,6 +295,33 @@ Pointing `.env` at a different workspace therefore changed the data while the la
 
 Verified by switching workspaces and confirming both the title and the status line follow.
 
+### 7.3 No `<main>` landmark
+
+**Problem.** Found while writing the regression suite: there was no accessible
+way to target "the page content", because the app had no `<main>`. The shell
+rendered the routed page inside a plain `<div>`.
+
+This is not only a test-authoring inconvenience. Landmarks are how a screen
+reader user skips past navigation to the content; without one, every page
+visit starts from the top of the sidebar. The earlier round recorded
+"accessibility checks: all passed", which was too generous — tab order, focus
+rings, focus traps and heading hierarchy were all checked, landmarks were not.
+
+**Fix.** The shell now wraps the routed page in a single `<main>`, so every
+route has exactly one content landmark. One element changed; no visual change.
+
+### 7.4 An empty bordered strip above the conversation rail
+
+**Problem.** Caught by the TypeScript migration, not by a person. The rail
+tested `list.status !== 'live'` — and `'live'` is not one of the four statuses
+a resource can have. The condition was therefore true on a healthy load, so
+the wrapper rendered on every visit. `DataBanner` itself returns nothing
+unless there is something to report, so the result was a bordered, padded
+strip with no content in it.
+
+**Fix.** The condition now names the two states that have something to say:
+`error` and `unavailable`.
+
 ---
 
 ## 8. Final summary
@@ -292,7 +333,8 @@ Verified by switching workspaces and confirming both the title and the status li
 | Distinct API operations in use | **13** — 10 reads, 3 writes |
 | Console errors | **0** |
 | Failed user flows | **0** |
-| Bugs found during testing | 2 — both **fixed and re-verified** |
+| Bugs found and fixed | **4** — 2 during testing, 2 since (§7) |
+| Regression tests committed | **34**, green on 3 consecutive runs |
 | Outbound actions | 2 sent, both to the authorised number, both successful |
 | Responsive breakpoints | 4 of 4 clean |
 | Accessibility checks | All passed |
@@ -307,10 +349,63 @@ Verified by switching workspaces and confirming both the title and the status li
 
 > **Item 1 is required.** Outbound is disabled by default in production as a safety measure — a deployment without these variables cannot place calls, and the Call button will return 403.
 
-> The two frontend issues found during testing (§7) are **fixed**. Item 2 is a product decision, not a defect.
+> All four frontend issues in §7 are **fixed**. Item 2 is a product decision, not a defect, and is on hold at the client's request.
+
+### Done since the first version of this report
+
+- ✅ **TypeScript migration.** Every file under `src/` is `.ts`/`.tsx`, type-checked under `strict` with `noUncheckedIndexedAccess`. `npm run build` runs `tsc --noEmit` first, so a type error fails the build. It found the bug in §7.4.
+- ✅ **Automated regression suite.** 34 tests, committed, run with `npm test` (§9).
 
 ### Recommended next
 
-1. **An automated regression suite.** This round was one-off scripts, not a permanent safety net. Nothing currently stops a future change breaking these flows.
-2. **TypeScript migration**, previously agreed to follow the refactoring work.
+1. Ask the platform team for the two API changes in §6 — paging on `/conversations`, and real channels on `/agents`.
+2. Handle 429 with a retry/backoff in the shared request layer.
 3. Replace the Conversation Log mock data once the scoring API is available.
+
+---
+
+## 9. The regression suite
+
+```bash
+npm test              # headless, ~2 minutes
+npm run test:ui       # Playwright UI mode, for debugging
+```
+
+34 tests in `tests/`, run by Playwright. The suite starts its own proxy and
+Vite server, so it works from a clean checkout; it needs a configured `.env`,
+and says so plainly if one is missing.
+
+| File | Tests | Guards |
+|------|:---:|--------|
+| `smoke.spec.ts` | 8 | Every route renders with its heading. Catches the failure mode that hit this project twice: a bad import or out-of-scope variable blanks a panel while the shell stays up, so it looks like an empty state rather than a crash |
+| `conversations.spec.ts` | 10 | The rail, filters, search, agent filter, Load more; the detail pane and the Overview ↔ Transcript switch that blanked once before |
+| `agents.spec.ts` | 5 | Paging, the view toggle, keyboard operation, stat tiles counting the whole list, and the destructive-action confirm |
+| `analytics.spec.ts` | 5 | The over-time chart across all three intervals, credits, the log's filters and CSV export, and the page's behaviour with the API cut off |
+| `new-conversation.spec.ts` | 3 | The dialog's focus trap, Escape, scroll lock and per-channel agent gating |
+| `responsive.spec.ts` | 3 | Phone layout: no horizontal overflow on any route, the drawer, and the single-column conversation view |
+
+### Nothing in the suite sends
+
+No test places a call, sends a message, or publishes or unpublishes an agent.
+
+| Flow | Covered to | Not done |
+|------|-----------|----------|
+| Composer send | channel gating, disabled reasons | Send is never clicked |
+| Call button | presence, gating, explanation | never clicked |
+| New conversation | dialog contract, agent gating, Send disabled | never submitted |
+| Agent activate / deactivate | confirm opens and names the agent | always cancelled |
+
+### Two design decisions worth knowing
+
+**These are integration tests, against the live API.** Almost everything that
+has broken in this project broke at the seam between the UI and the API, and a
+mocked suite would have caught none of it. The cost is that the data is not
+fixed, so assertions check invariants — "filtering never grows the list" —
+rather than figures like "41 rows". A suite that fails because somebody added
+a conversation teaches people to ignore it. Where a figure genuinely matters,
+the test reads it from the API in the same run.
+
+**Every test fails if the page logged an error.** The console watch is part of
+the shared fixture rather than something each test remembers to check. A test
+that provokes an error deliberately declares it; upstream 429s are excluded
+with the reasoning recorded in `tests/helpers.ts`.

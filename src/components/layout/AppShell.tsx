@@ -50,7 +50,7 @@ export default function AppShell({ source }: { source: DataSource }) {
       {/* Page-level, inside the shell: a page that throws leaves the sidebar
           and navigation working, so you can move on instead of reloading.
           Keyed by path so navigating away clears a caught error. */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col">
         <ErrorBoundary resetKey={location.pathname}>
           {/* Routes are code-split, so the first visit to one waits on its
               chunk. Inside the boundary: a chunk that fails to load is a
@@ -65,7 +65,7 @@ export default function AppShell({ source }: { source: DataSource }) {
             />
           </Suspense>
         </ErrorBoundary>
-      </div>
+      </main>
 
       <CallScreen call={call} onEnd={() => setCall(null)} />
     </div>

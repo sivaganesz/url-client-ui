@@ -93,6 +93,31 @@ export default [
     },
   },
 
+  /**
+   * The regression suite.
+   *
+   * Browser globals, because the assertions run `page.evaluate` bodies that
+   * execute in the page; Node globals too, for `process.env.CI`. Playwright's
+   * own types cover the rest, and tsc checks them along with the app.
+   */
+  {
+    files: ['tests/**/*.ts', 'playwright.config.ts'],
+    ...js.configs.recommended,
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: { ...globals.browser, ...globals.node },
+      parser: tseslint.parser,
+    },
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+      'no-undef': 'off',
+    },
+  },
+
   // ── the proxies ──────────────────────────────────────────
   {
     files: ['server/**/*.js', 'api/**/*.js'],

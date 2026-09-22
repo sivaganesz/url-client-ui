@@ -14,3 +14,7 @@ SKILL.MD
 
 # local design reference, not part of the app
 wireframe.html
+
+# Playwright
+test-results/
+playwright-report/
