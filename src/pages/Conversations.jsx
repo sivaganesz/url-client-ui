@@ -5,6 +5,7 @@ import Badge, { StatusBadge } from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card, { ReservedPanel } from '../components/ui/Card'
 import DataBanner from '../components/ui/DataBanner'
+import RecordingPlayer from '../components/RecordingPlayer'
 import { ChipGroup, SearchInput, Tabs } from '../components/ui/Field'
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States'
 import {
@@ -18,7 +19,6 @@ import {
   IconMail,
   IconNote,
   IconPhone,
-  IconPlay,
   IconPlus,
   IconSearch,
   IconSms,
@@ -426,31 +426,16 @@ function OverviewTab({ conversation, thread, spoken, call }) {
           </div>
         }
       >
-        {call.hasRecording ? (
-          <div className="mb-3 flex items-start gap-3 rounded-lg border border-warn/25 bg-warn-bg px-3 py-2.5">
-            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface text-ink-4">
-              <IconPlay size={14} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[12.5px] font-semibold text-ink">Call recording exists</p>
-              <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-2">
-                The workspace logged a <code className="font-mono">call_recorded</code> event at{' '}
-                {new Date(call.recordedAt).toLocaleString('en-GB')}, but returns no audio URL for
-                it — not under <code className="font-mono">include=files</code>, and there is no
-                REST route for it. The Perfox console can play it; this API key cannot fetch it.
-              </p>
-            </div>
-          </div>
-        ) : (
-          conversation.channel === 'Phone' && (
-            <p className="mb-3 text-xs leading-relaxed text-ink-3">
-              No <code className="font-mono">call_recorded</code> event on this call.
+        {(call.hasRecording || conversation.channel === 'Phone') && (
+          <div className="mb-4">
+            <p className="mb-2 text-[11px] font-semibold tracking-wide text-ink-3 uppercase">
+              Call recording
             </p>
-          )
+            <RecordingPlayer conversationId={conversation.id} />
+          </div>
         )}
         <p className="text-xs leading-relaxed text-ink-3">
-          Export the transcript as JSON, plain text or Markdown. QA scores and token costs aren’t
-          exposed by this workspace’s API.
+          Export the transcript as JSON, plain text or Markdown.
         </p>
       </Section>
     </div>

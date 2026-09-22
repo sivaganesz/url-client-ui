@@ -11,12 +11,13 @@ import BarChart from '../components/charts/BarChart'
 import BarList from '../components/charts/BarList'
 import { ChartFrame } from '../components/charts/ChartPrimitives'
 import {
-  IconAgent,
   IconCalendar,
   IconChat,
   IconChevronDown,
   IconChevronRight,
   IconDownload,
+  IconGlobe,
+  IconSms,
   IconPhone,
   channelIcon,
 } from '../components/icons'
@@ -85,23 +86,23 @@ export default function Dashboard() {
           />
           <StatTile
             label="Phone conversations"
-            value={num(s.phoneConversations ?? s.inboundCalls)}
+            value={num(s.phoneConversations)}
             foot="Started on the phone channel"
             icon={IconPhone}
             loading={loading}
           />
           <StatTile
-            label="Web conversations"
-            value={num(s.webConversations ?? s.outboundCalls)}
-            foot="Started in the web widget"
-            icon={IconChat}
+            label="WhatsApp conversations"
+            value={num(s.whatsappConversations)}
+            foot="Started on WhatsApp"
+            icon={IconSms}
             loading={loading}
           />
           <StatTile
-            label="Total AI agents"
-            value={num(s.totalAgents)}
-            foot={`${s.activeAgents} active · ${s.pausedAgents} paused`}
-            icon={IconAgent}
+            label="Web conversations"
+            value={num(s.webConversations)}
+            foot="Started in the web widget"
+            icon={IconGlobe}
             loading={loading}
           />
         </div>

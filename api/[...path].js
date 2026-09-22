@@ -8,8 +8,8 @@
  * anyone with the link could create agents or delete knowledge-base files.
  *
  * So the deployed surface is deliberately narrower:
- *   · GET only
- *   · only the paths the app actually calls (ALLOWED below)
+ *   · reads: GET, and only the paths the app actually calls (ALLOWED below)
+ *   · writes: only the exact method + path pairs in WRITES below
  *   · no /api/discover, no /api/mcp/call
  *
  * Environment variables to set in the Vercel project:
@@ -49,8 +49,22 @@ const ALLOWED = [
   new RegExp(`^conversations$`),
   new RegExp(`^conversations/${ID}$`),
   new RegExp(`^conversations/${ID}/events$`),
+  new RegExp(`^conversations/${ID}/recordings$`),
   new RegExp(`^customers$`),
   new RegExp(`^customers/${ID}$`),
+  new RegExp(`^analytics/summary$`),
+  new RegExp(`^calls$`),
+]
+
+/**
+ * The only workspace writes this deployment permits.
+ *
+ * Taking an agent live and standing it down are separate operations upstream:
+ * PATCH rejects "published", because going live runs validation of its own.
+ */
+const WRITES = [
+  { method: 'POST', re: new RegExp(`^agents/${ID}/publish$`) },
+  { method: 'PATCH', re: new RegExp(`^agents/${ID}$`) },
 ]
 
 /** Never echo the key back, even if upstream includes it in an error. */
@@ -108,12 +122,6 @@ export default async function handler(req, res) {
   }
 
 
-  if (req.method !== 'GET') {
-    return json(res, 405, { error: 'This deployment is read-only apart from sending WhatsApp.' })
-  }
-
-
-
   if (!KEY) {
     return json(res, 503, { error: 'Not configured. PERFOX_API_KEY is missing.' })
   }
@@ -124,13 +132,22 @@ export default async function handler(req, res) {
   }
 
   const resource = path.slice('/api/perfox/'.length)
-  if (!ALLOWED.some((re) => re.test(resource))) {
-    return json(res, 403, { error: 'That resource is not available on this deployment.' })
+
+  // Reads are matched against ALLOWED; anything that changes state has to be
+  // named explicitly in WRITES, method included.
+  const isRead = req.method === 'GET' && ALLOWED.some((re) => re.test(resource))
+  const isWrite = WRITES.some((w) => w.method === req.method && w.re.test(resource))
+
+  if (!isRead && !isWrite) {
+    return json(res, 403, { error: 'That operation is not available on this deployment.' })
   }
 
   try {
+    const body = isWrite ? await readJson(req) : null
     const upstream = await fetch(`${API_BASE}/${resource}${url.search}`, {
+      method: req.method,
       headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+      body: isWrite ? JSON.stringify(body ?? {}) : undefined,
     })
     const text = await upstream.text()
     res.setHeader('content-type', upstream.headers.get('content-type') ?? 'application/json')

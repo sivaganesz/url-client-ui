@@ -18,9 +18,9 @@ import {
   IconNote,
   IconSparkle,
 } from '../components/icons'
-import { num, pct } from '../lib/format'
+import { compact, num, pct } from '../lib/format'
 import { useResource } from '../lib/useResource'
-import { getSummary, UNAVAILABLE } from '../lib/api'
+import { getSummary } from '../lib/api'
 import {
   channelSplit as sampleSplit,
   summary as sampleSummary,
@@ -70,19 +70,6 @@ export default function Analytics() {
           note="Showing bundled samples."
         />
 
-        {live && (
-          <div
-            role="status"
-            className="flex items-start gap-2.5 rounded-card border border-brand-line bg-brand-soft px-4 py-3"
-          >
-            <IconNote size={16} className="mt-0.5 shrink-0 text-brand-dark" />
-            <p className="text-xs leading-relaxed text-ink-2">
-              <span className="font-semibold text-brand-dark">Partly derived.</span>{' '}
-              {UNAVAILABLE.analytics}
-            </p>
-          </div>
-        )}
-
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatTile
             label="Total conversations"
@@ -94,20 +81,31 @@ export default function Analytics() {
           <StatTile
             label="Resolution rate"
             value={s.resolutionRate === null || s.resolutionRate === undefined ? '—' : pct(s.resolutionRate)}
-            foot={live ? 'Ended ÷ (ended + abandoned) — confirm definition' : 'Closed without handoff'}
+            foot={
+              s.analytics?.resolved != null
+                ? `${num(s.analytics.resolved)} resolved of ${num(s.analytics.total)}`
+                : 'Closed without handoff'
+            }
             icon={IconCheck}
             loading={loading}
           />
           <StatTile
-            label="Credits used today"
-            value="3.4K"
+            label="Tokens used today"
+            value={s.today?.tokensTotal == null ? '—' : compact(s.today.tokensTotal)}
+            foot={
+              s.today?.llmCalls != null ? `${num(s.today.llmCalls)} model calls` : 'Resets at midnight'
+            }
             icon={IconSparkle}
             loading={loading}
           />
           <StatTile
-            label="Total credits used"
-            value="43.4K"
-            foot="Lifetime, all agents"
+            label="Total tokens used"
+            value={s.analytics?.tokensTotal == null ? '—' : compact(s.analytics.tokensTotal)}
+            foot={
+              s.analytics?.tokensIn != null
+                ? `${compact(s.analytics.tokensIn)} in · ${compact(s.analytics.tokensOut)} out`
+                : 'Lifetime, all agents'
+            }
             icon={IconLines}
             loading={loading}
           />
@@ -154,8 +152,8 @@ export default function Analytics() {
 
         <ReservedPanel
           icon={IconNote}
-          title="Top intents & credit usage over time"
-          note="Reserved — this workspace has no analytics or billing resource, and no intent taxonomy to group by."
+          title="Top intents & credit balance"
+          note="Reserved — the analytics endpoint reports tokens and model calls, but no credit balance and no intent grouping."
           className="min-h-40"
         />
       </PageBody>

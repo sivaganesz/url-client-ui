@@ -3,6 +3,7 @@ import { EmptyState, ErrorState, Skeleton } from './States'
 
 /**
  * Column: { key, header, width?, align?, mono?, muted?, className?, render? }
+
  * `width` drives a <colgroup>, so a wide table scrolls horizontally instead of
  * squashing every column to illegibility.
  */

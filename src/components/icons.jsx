@@ -59,6 +59,14 @@ export const IconAgent = (p) => (
   </Svg>
 )
 
+export const IconGlobe = (p) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18" />
+    <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z" />
+  </Svg>
+)
+
 export const IconHash = (p) => (
   <Svg {...p}>
     <path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18" />
@@ -113,6 +121,13 @@ export const IconMore = ({ size = 16, ...rest }) => (
 export const IconPlay = ({ size = 16, ...rest }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...rest}>
     <path d="M8 5v14l11-7z" />
+  </svg>
+)
+
+export const IconPause = ({ size = 16, ...rest }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...rest}>
+    <rect x="6" y="5" width="4" height="14" rx="1" />
+    <rect x="14" y="5" width="4" height="14" rx="1" />
   </svg>
 )
 
@@ -229,6 +244,29 @@ export const IconRefresh = (p) => (
   <Svg {...p}>
     <path d="M21 12a9 9 0 1 1-2.6-6.4" />
     <path d="M21 4v5h-5" />
+  </Svg>
+)
+
+export const IconGrid = (p) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
+    <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+    <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
+    <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+  </Svg>
+)
+
+export const IconRows = (p) => (
+  <Svg {...p}>
+    <rect x="3" y="4.5" width="18" height="15" rx="2" />
+    <path d="M3 9.5h18M3 14.5h18M8.5 9.5v10" />
+  </Svg>
+)
+
+export const IconPower = (p) => (
+  <Svg {...p}>
+    <path d="M12 3v9" />
+    <path d="M7.4 6.4a7.5 7.5 0 1 0 9.2 0" />
   </Svg>
 )
 

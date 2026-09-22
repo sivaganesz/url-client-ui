@@ -19,8 +19,9 @@
  *     reads like an auth failure but means the route doesn't exist.
  *   · The transcript lives at /events. /transcript and /messages both 401.
  *   · limit/offset are ignored on /conversations — it always returns one page.
- *   · There is no calls, phone-numbers or analytics resource at all, hence
- *     UNAVAILABLE below, which drives the banner those pages render.
+ *   · /analytics/summary, /calls and /conversations/{id}/recordings went live
+ *     in Sept 2026 — real totals, token usage and call audio. Phone numbers
+ *     are still the only missing resource.
  */
 
 const CHANNEL_LABELS = {
@@ -30,6 +31,7 @@ const CHANNEL_LABELS = {
   sms: 'SMS',
   email: 'Email',
   mobile: 'Mobile',
+  web_voice: 'Web voice',
   heartbeat: 'Heartbeat',
 }
 
@@ -59,6 +61,21 @@ export const UNAVAILABLE = {
     'This workspace has no analytics resource — resolution rate and credit usage aren’t exposed. The figures below are derived from conversation records where that’s possible, and sampled where it isn’t.',
 }
 
+/**
+ * Failures come back three ways: a string `error`, an object `error` carrying
+ * validation detail, or a separate `message`. Pull whatever is there into one
+ * readable line — "[object Object]" in a banner helps nobody.
+ */
+function messageOf(body) {
+  if (!body) return null
+  const { error, message } = body
+  const parts = [
+    typeof error === 'string' ? error : error ? JSON.stringify(error) : null,
+    typeof message === 'string' ? message : null,
+  ].filter(Boolean)
+  return [...new Set(parts)].join(' — ') || null
+}
+
 async function request(path, options = {}) {
   const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...options })
   const text = await res.text()
@@ -68,7 +85,7 @@ async function request(path, options = {}) {
   } catch {
     body = { raw: text }
   }
-  if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status} from ${path}`)
+  if (!res.ok) throw new Error(messageOf(body) ?? `HTTP ${res.status} from ${path}`)
   return body
 }
 
@@ -83,6 +100,23 @@ function rest(path, params) {
   const qs = params ? `?${new URLSearchParams(params)}` : ''
   return request(`/api/perfox/${path}${qs}`)
 }
+
+/** A write against the workspace. Kept separate so reads stay obviously safe. */
+function write(path, method, body) {
+  return request(`/api/perfox/${path}`, {
+    method,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+}
+
+/**
+ * Taking an agent live and standing it down are two different operations.
+ *
+ * PATCH accepts only draft | testing | archived | paused — "published" is
+ * rejected, because going live runs validation and is its own endpoint.
+ */
+export const activateAgent = (id) => write(`agents/${id}/publish`, 'POST', {})
+export const deactivateAgent = (id) => write(`agents/${id}`, 'PATCH', { status: 'paused' })
 
 export class UnavailableError extends Error {
   constructor(resource) {
@@ -285,8 +319,68 @@ export async function getCustomer(customerId) {
 }
 
 /** Dashboard/Analytics figures derived from the records that do exist. */
+/**
+ * Signed recording URLs for a call, one per leg (caller / ai / combined).
+ *
+ * The links expire — the response says how soon, 900s at present — so they are
+ * fetched when the player is opened rather than with the conversation, and can
+ * be re-fetched when they lapse.
+ */
+export async function getRecordings(conversationId) {
+  const res = await rest(`conversations/${conversationId}/recordings`)
+  const legs = Array.isArray(res?.recordings) ? res.recordings : []
+  const LABEL = { combined: 'Full call', caller: 'Customer only', ai: 'Assistant only' }
+  return {
+    expiresInSeconds: res?.expires_in_seconds ?? null,
+    fetchedAt: Date.now(),
+    // Combined first — it is what someone almost always wants to hear.
+    legs: legs
+      .map((r) => ({ leg: r.leg, label: LABEL[r.leg] ?? r.leg, url: r.url }))
+      .sort((a, b) => (a.leg === 'combined' ? -1 : b.leg === 'combined' ? 1 : 0)),
+  }
+}
+
+/**
+ * Figures from the analytics endpoint.
+ *
+ * Pass { from, to } as YYYY-MM-DD to scope it; omit for all time. The endpoint
+ * reports resolution_rate as a percentage (13.78), not a fraction.
+ */
+export async function getAnalytics(window) {
+  const params = window?.from && window?.to ? { start_date: window.from, end_date: window.to } : null
+  const a = await rest('analytics/summary', params)
+  const c = a?.conversations ?? {}
+  const t = a?.tokens ?? {}
+  return {
+    total: c.total ?? null,
+    active: c.active ?? null,
+    resolved: c.resolved ?? null,
+    escalated: c.escalated ?? null,
+    abandoned: c.abandoned ?? null,
+    // The API reports this as a percentage (13.78), not a fraction.
+    resolutionRate: typeof c.resolution_rate === 'number' ? c.resolution_rate / 100 : null,
+    window: a?.window ?? null,
+    tokensIn: t.input ?? null,
+    tokensOut: t.output ?? null,
+    tokensTotal: t.total ?? null,
+    llmCalls: t.llm_calls ?? null,
+    channels: (a?.channels ?? []).map((x) => ({
+      channel: channelLabel(x.channel),
+      count: x.count,
+    })),
+  }
+}
+
 export async function getSummary() {
-  const [convos, agents] = await Promise.all([getConversations(), getAgents()])
+  // Totals come from the analytics endpoint (authoritative, covers everything);
+  // the per-day series still has to be derived, since nothing returns it.
+  const today = new Date().toISOString().slice(0, 10)
+  const [convos, agents, analytics, todayStats] = await Promise.all([
+    getConversations(),
+    getAgents(),
+    getAnalytics().catch(() => null),
+    getAnalytics({ from: today, to: today }).catch(() => null),
+  ])
 
   const byChannel = new Map()
   for (const c of convos) byChannel.set(c.channel, (byChannel.get(c.channel) ?? 0) + 1)
@@ -314,21 +408,69 @@ export async function getSummary() {
   const closable = convos.filter((c) => TERMINAL.has(c.status)).length
 
   return {
-    totalConversations: convos.length,
+    analytics,
+    today: todayStats,
+    totalConversations: analytics?.total ?? convos.length,
     totalAgents: agents.length,
     activeAgents: agents.filter((a) => a.status === 'Active').length,
     pausedAgents: agents.filter((a) => a.status !== 'Active').length,
-    phoneConversations: convos.filter((c) => c.channel === 'Phone').length,
-    webConversations: convos.filter((c) => c.channel === 'Web').length,
+    // From analytics where available: the conversations list is capped at one
+    // page, so counting it under-reports once the workspace passes 200.
+    phoneConversations:
+      analytics?.channels?.find((x) => x.channel === 'Phone')?.count ??
+      convos.filter((c) => c.channel === 'Phone').length,
+    whatsappConversations:
+      analytics?.channels?.find((x) => x.channel === 'WhatsApp')?.count ??
+      convos.filter((c) => c.channel === 'WhatsApp').length,
+    webConversations:
+      analytics?.channels?.find((x) => x.channel === 'Web')?.count ??
+      convos.filter((c) => c.channel === 'Web').length,
     // "Ended" vs "ended or abandoned" is the closest thing to a resolution rate
     // the data supports. Confirm the intended definition before trusting it.
-    resolutionRate: closable > 0 ? resolved / closable : null,
-    channelSplit: [...byChannel.entries()]
-      .map(([channel, count]) => ({ channel, count }))
-      .sort((a, b) => b.count - a.count),
+    resolutionRate: analytics?.resolutionRate ?? (closable > 0 ? resolved / closable : null),
+    channelSplit:
+      analytics?.channels?.length
+        ? [...analytics.channels].sort((a, b) => b.count - a.count)
+        : [...byChannel.entries()]
+            .map(([channel, count]) => ({ channel, count }))
+            .sort((a, b) => b.count - a.count),
     volumeSeries: days.map(({ label, value }) => ({ label, value })),
   }
 }
 
-export const getCalls = () => Promise.reject(new UnavailableError('calls'))
+/**
+ * Call history.
+ *
+ * Two fields carry caveats from the API team, so neither is surfaced as fact:
+ *   · direction is always "unknown" — it isn't recorded against a call, and a
+ *     guessed direction is worse than a blank, so the column is omitted
+ *   · has_recording flips to false once a recording passes the workspace's
+ *     retention window, so it means "available now", not "was ever recorded"
+ */
+export async function getCalls() {
+  const list = rows(await rest('calls'))
+  return list.map((c) => ({
+    id: c.conversation_id,
+    customerId: c.customer_id,
+    name: c.end_user?.name || null,
+    phone: c.end_user?.phone || null,
+    channel: channelLabel(c.channel),
+    status: statusLabel(c.status),
+    summary: c.summary?.trim() || null,
+    startedAt: c.started_at,
+    endedAt: c.ended_at,
+    durationSeconds: typeof c.duration_seconds === 'number' ? c.duration_seconds : null,
+    hasRecording: Boolean(c.has_recording),
+  }))
+}
+
+/** Seconds to a readable span: 8 -> "8s", 147 -> "2m 27s". */
+export function spoken(seconds) {
+  if (seconds === null || seconds === undefined) return null
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  if (m < 60) return rest ? `${m}m ${rest}s` : `${m}m`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
 export const getPhoneNumbers = () => Promise.reject(new UnavailableError('phoneNumbers'))

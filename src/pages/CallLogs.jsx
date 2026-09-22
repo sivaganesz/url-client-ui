@@ -1,103 +1,185 @@
 import { useMemo, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
 import { PageBody, PageHeader } from '../components/layout/AppShell'
 import StatTile from '../components/ui/StatTile'
 import DataTable from '../components/ui/DataTable'
-import Button from '../components/ui/Button'
-import { StatusBadge } from '../components/ui/Badge'
+import Badge, { StatusBadge } from '../components/ui/Badge'
+import DataBanner from '../components/ui/DataBanner'
 import { SearchInput, Select } from '../components/ui/Field'
 import { EmptyState } from '../components/ui/States'
 import {
-  IconCalendar,
-  IconChevronDown,
-  IconDownload,
-  IconInbound,
-  IconOutbound,
+  IconCheck,
+  IconClock,
+  IconEye,
+  IconPause,
   IconPhone,
   IconPlay,
-  IconEye,
   IconSearch,
 } from '../components/icons'
-import DataBanner from '../components/ui/DataBanner'
-import { dash, num, pct } from '../lib/format'
+import { cn } from '../lib/cn'
+import { num, pct } from '../lib/format'
 import { useResource } from '../lib/useResource'
-import { getCalls, UNAVAILABLE } from '../lib/api'
-import { calls as sampleCalls, summary } from '../data/sample'
+import { getCalls, spoken } from '../lib/api'
+import { useCallAudio } from '../components/useCallAudio'
 
-const uniq = (rows, key) => ['All', ...Array.from(new Set(rows.map((r) => r[key]).filter(Boolean)))]
+const ALL = 'All'
+const uniq = (rows, key) => [ALL, ...new Set(rows.map((r) => r[key]).filter(Boolean))]
+
+/** Player clock: 147 -> "2:27". Padded so the width doesn't jitter per tick. */
+const mmss = (seconds) => {
+  const t = Math.max(0, Math.floor(seconds || 0))
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`
+}
+
+const stamp = (iso) =>
+  iso
+    ? new Date(iso).toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—'
 
 export default function CallLogs() {
   const { openDrawer } = useOutletContext()
-  const { data: calls, status, error, reload } = useResource(getCalls, sampleCalls, [])
-  const [query, setQuery] = useState('')
-  const [filters, setFilters] = useState({
-    Direction: 'All',
-    Agent: 'All',
-    Campaign: 'All',
-    Outcome: 'All',
-  })
+  const { data: calls, status, error, reload } = useResource(getCalls, [], [])
 
-  const setFilter = (key) => (value) => setFilters((f) => ({ ...f, [key]: value }))
+  const [query, setQuery] = useState('')
+  const [channel, setChannel] = useState(ALL)
+  const [outcome, setOutcome] = useState(ALL)
+  const [recorded, setRecorded] = useState(ALL)
+  const audio = useCallAudio()
+
+  const loading = status === 'loading'
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
     return calls.filter((c) => {
-      if (filters.Direction !== 'All' && c.direction !== filters.Direction) return false
-      if (filters.Agent !== 'All' && c.agent !== filters.Agent) return false
-      if (filters.Campaign !== 'All' && c.campaign !== filters.Campaign) return false
-      if (filters.Outcome !== 'All' && c.outcome !== filters.Outcome) return false
-      if (q === '') return true
-      return [c.from, c.to, c.agent, c.campaign].join(' ').toLowerCase().includes(q)
+      if (channel !== ALL && c.channel !== channel) return false
+      if (outcome !== ALL && c.status !== outcome) return false
+      if (recorded === 'Recorded' && !c.hasRecording) return false
+      if (recorded === 'Not recorded' && c.hasRecording) return false
+      if (!q) return true
+      return [c.name, c.phone, c.summary].filter(Boolean).join(' ').toLowerCase().includes(q)
     })
-  }, [calls, query, filters])
+  }, [calls, query, channel, outcome, recorded])
+
+  const withRecording = calls.filter((c) => c.hasRecording).length
+  const resolved = calls.filter((c) => c.status === 'Resolved').length
+  const timed = calls.filter((c) => c.durationSeconds !== null)
+  const totalTalk = timed.reduce((sum, c) => sum + c.durationSeconds, 0)
 
   const columns = [
-    { key: 'startedAt', header: 'Started at', width: 104, mono: true },
+    { key: 'startedAt', header: 'Started at', width: 116, mono: true, render: (c) => stamp(c.startedAt) },
     {
-      key: 'direction',
-      header: 'Direction',
-      width: 76,
-      render: (r) => (
-        <span className="inline-flex items-center gap-1.5 text-ink-2">
-          {r.direction === 'Inbound' ? <IconInbound size={12} /> : <IconOutbound size={12} />}
-          {r.direction}
-        </span>
+      key: 'name',
+      header: 'Customer',
+      width: 150,
+      render: (c) => c.name ?? <span className="text-ink-4">Unknown</span>,
+    },
+    {
+      key: 'phone',
+      header: 'Phone',
+      width: 128,
+      mono: true,
+      render: (c) => c.phone ?? <span className="text-ink-4">—</span>,
+    },
+    {
+      key: 'channel',
+      header: 'Channel',
+      width: 104,
+      render: (c) => (
+        <Badge tone="muted" size="sm">
+          {c.channel}
+        </Badge>
       ),
     },
-    { key: 'from', header: 'From number', width: 104, mono: true },
-    { key: 'to', header: 'To number', width: 104, mono: true },
-    { key: 'agent', header: 'Agent', width: 92 },
-    { key: 'campaign', header: 'Campaign', width: 92, muted: true },
-    { key: 'outcome', header: 'Outcome', width: 90, render: (r) => <StatusBadge label={r.outcome} size="sm" /> },
-    { key: 'ringingAt', header: 'Ringing at', width: 72, mono: true, muted: true },
-    { key: 'answeredAt', header: 'Answered at', width: 76, mono: true, muted: true, render: (r) => dash(r.answeredAt) },
-    { key: 'endedAt', header: 'Ended at', width: 70, mono: true, muted: true },
-    { key: 'duration', header: 'Duration', width: 64, mono: true, render: (r) => dash(r.duration) },
-    { key: 'sentiment', header: 'Sentiment', width: 82, render: (r) => <StatusBadge label={r.sentiment} size="sm" /> },
     {
-      key: 'recording',
-      header: 'Recording',
-      width: 80,
-      render: (r) =>
-        r.recording ? (
-          <Button size="sm" aria-label={`Play recording, ${r.recording}`}>
-            <IconPlay size={10} />
-            {r.recording}
-          </Button>
+      key: 'status',
+      header: 'Outcome',
+      width: 104,
+      render: (c) => <StatusBadge label={c.status} size="sm" />,
+    },
+    {
+      key: 'durationSeconds',
+      header: 'Duration',
+      width: 84,
+      mono: true,
+      render: (c) => spoken(c.durationSeconds) ?? <span className="text-ink-4">—</span>,
+    },
+    {
+      key: 'summary',
+      header: 'What happened',
+      width: 340,
+      muted: true,
+      render: (c) =>
+        c.summary ? (
+          <span className="block truncate" title={c.summary}>
+            {c.summary}
+          </span>
         ) : (
-          <span className="text-ink-4">—</span>
+          <span className="text-ink-4">No summary</span>
         ),
     },
     {
-      key: 'review',
+      key: 'recording',
+      header: 'Recording',
+      width: 82,
+      render: (c) => {
+        if (!c.hasRecording) return <span className="text-ink-4">—</span>
+        const mine = audio.id === c.id
+        const failed = mine && audio.status === 'error'
+        const playing = mine && audio.status === 'playing'
+        const live = mine && (playing || audio.status === 'paused')
+        const busy = mine && audio.status === 'loading'
+        return (
+          <button
+            type="button"
+            onClick={() => audio.toggle(c.id)}
+            aria-label={playing ? 'Pause recording' : 'Play the full call'}
+            title={failed ? audio.error?.message : playing ? 'Pause' : 'Play the full call'}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded px-1 py-0.5 -ml-1 transition-colors',
+              'font-mono text-[11.5px] tabular-nums',
+              failed
+                ? 'text-danger'
+                : live || busy
+                  ? 'text-brand'
+                  : 'text-ink-2 hover:text-brand',
+            )}
+          >
+            {busy ? (
+              <span
+                aria-hidden="true"
+                className="h-[11px] w-[11px] shrink-0 animate-spin rounded-full border border-current border-t-transparent"
+              />
+            ) : playing ? (
+              <IconPause size={11} />
+            ) : (
+              <IconPlay size={11} />
+            )}
+            {live
+              ? mmss(audio.at)
+              : failed
+                ? 'Retry'
+                : mmss(c.durationSeconds ?? 0)}
+          </button>
+        )
+      },
+    },
+    {
+      key: 'open',
       header: 'Review',
-      width: 64,
-      // An eye reads as "open this call", so it is a plain action rather than
-      // the toggled flag a star implied.
-      render: (r) => (
-        <Button size="sm" iconOnly aria-label={`Review call from ${r.startedAt}`} className="text-ink-3">
+      width: 72,
+      render: (c) => (
+        <Link
+          to={`/conversations/${c.id}`}
+          aria-label={`Open the conversation for this call`}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line-strong text-ink-3 transition-colors hover:border-brand-line hover:bg-brand-soft hover:text-brand"
+        >
           <IconEye size={14} />
-        </Button>
+        </Link>
       ),
     },
   ]
@@ -106,88 +188,89 @@ export default function CallLogs() {
     <>
       <PageHeader
         title="Call Log Analytics"
-        subtitle={`${num(summary.totalCalls)} calls`}
+        subtitle={loading ? undefined : `${num(calls.length)} calls`}
         onOpenDrawer={openDrawer}
-        actions={
-          <>
-            <Button className="hidden sm:inline-flex">
-              <IconCalendar size={15} />
-              Last 30 days
-              <IconChevronDown size={13} />
-            </Button>
-            <Button iconOnly aria-label="Export call log">
-              <IconDownload size={15} />
-            </Button>
-          </>
-        }
       />
 
       <PageBody className="flex flex-col gap-4">
-        <DataBanner
-          status={status}
-          error={error}
-          onRetry={reload}
-          note={UNAVAILABLE.calls}
-        />
+        <DataBanner status={status} error={error} onRetry={reload} note="Showing bundled samples." />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <StatTile label="Total calls" value={num(summary.totalCalls)} foot="Last 30 days" icon={IconPhone} />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatTile
-            label="Inbound calls"
-            value={num(summary.inboundCalls)}
-            foot={`${pct(summary.inboundCalls / summary.totalCalls)} of total`}
-            icon={IconInbound}
+            label="Total calls"
+            value={num(calls.length)}
+            foot="Phone and web voice"
+            icon={IconPhone}
+            loading={loading}
           />
           <StatTile
-            label="Outbound calls"
-            value={num(summary.outboundCalls)}
-            foot={`${pct(summary.outboundCalls / summary.totalCalls)} of total`}
-            icon={IconOutbound}
+            label="Resolved"
+            value={num(resolved)}
+            foot={calls.length ? `${pct(resolved / calls.length)} of all calls` : undefined}
+            icon={IconCheck}
+            loading={loading}
+          />
+          <StatTile
+            label="Recordings available"
+            value={num(withRecording)}
+            foot="Older audio ages out of retention"
+            icon={IconPlay}
+            loading={loading}
+          />
+          <StatTile
+            label="Total talk time"
+            value={spoken(totalTalk) ?? '—'}
+            foot={timed.length ? `across ${num(timed.length)} timed calls` : undefined}
+            icon={IconClock}
+            loading={loading}
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
           <SearchInput
-            label="Search calls by number, agent or campaign"
-            placeholder="Search number, agent, campaign"
+            label="Search calls by customer, number or summary"
+            placeholder="Search name, number or summary"
             value={query}
             onChange={setQuery}
             className="w-full sm:w-72"
           />
-          <Select label="Direction" value={filters.Direction} onChange={setFilter('Direction')} options={uniq(calls, 'direction')} />
-          <Select label="Agent" value={filters.Agent} onChange={setFilter('Agent')} options={uniq(calls, 'agent')} />
-          <Select label="Campaign" value={filters.Campaign} onChange={setFilter('Campaign')} options={uniq(calls, 'campaign')} />
-          <Select label="Outcome" value={filters.Outcome} onChange={setFilter('Outcome')} options={uniq(calls, 'outcome')} />
-          <div className="flex-1" />
-          <Button className="hidden lg:inline-flex">
-            <IconDownload size={14} />
-            Export
-          </Button>
+          <Select label="Channel" value={channel} onChange={setChannel} options={uniq(calls, 'channel')} />
+          <Select label="Outcome" value={outcome} onChange={setOutcome} options={uniq(calls, 'status')} />
+          <Select
+            label="Recording"
+            value={recorded}
+            onChange={setRecorded}
+            options={[ALL, 'Recorded', 'Not recorded']}
+          />
         </div>
 
         <DataTable
           className="min-h-96 flex-1"
           columns={columns}
           rows={rows}
-          rowKey={(r) => r.startedAt}
+          rowKey={(c) => c.id}
+          loading={loading}
+          error={status === 'error' ? error : null}
+          onRetry={reload}
           empty={
             <EmptyState
               icon={IconSearch}
-              title="No calls match these filters"
-              note="Try a different search term, or reset the dropdowns to All."
+              title={calls.length ? 'No calls match these filters' : 'No calls yet'}
+              note={
+                calls.length
+                  ? 'Try a different search, or reset the dropdowns to All.'
+                  : 'Calls appear here once customers reach you by phone or web voice.'
+              }
             />
           }
           footer={
             <>
               <span>
-                Showing {rows.length} of {num(summary.totalCalls)} calls
+                Showing {num(rows.length)} of {num(calls.length)} calls
               </span>
-              <span className="flex gap-1.5">
-                <Button size="sm" disabled>
-                  Previous
-                </Button>
-                <Button size="sm">Next</Button>
-              </span>
+              {/* The API reports direction as "unknown" on every call, so the
+                  column is left out rather than shown blank or guessed. */}
+              <span className="text-ink-4">Call direction isn’t recorded by the platform</span>
             </>
           }
         />
