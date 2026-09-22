@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import CallScreen from '../CallScreen'
 import ErrorBoundary from '../ErrorBoundary'
+import { PageSkeleton } from '../ui/States'
 import { cn } from '../../lib/cn'
 
 /**
@@ -50,13 +51,18 @@ export default function AppShell({ source }) {
           Keyed by path so navigating away clears a caught error. */}
       <div className="flex min-w-0 flex-1 flex-col">
         <ErrorBoundary resetKey={location.pathname}>
-          <Outlet
-            context={{
-              openDrawer: () => setDrawerOpen(true),
-              startCall: setCall,
-              endCall: () => setCall(null),
-            }}
-          />
+          {/* Routes are code-split, so the first visit to one waits on its
+              chunk. Inside the boundary: a chunk that fails to load is a
+              render error, and should be caught like any other. */}
+          <Suspense fallback={<PageSkeleton />}>
+            <Outlet
+              context={{
+                openDrawer: () => setDrawerOpen(true),
+                startCall: setCall,
+                endCall: () => setCall(null),
+              }}
+            />
+          </Suspense>
         </ErrorBoundary>
       </div>
 

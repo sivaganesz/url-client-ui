@@ -93,12 +93,79 @@ export const health = () => request('/api/health')
 export const discover = () => request('/api/discover')
 
 /**
+ * Reads already in flight, keyed by URL.
+ *
+ * Loaders compose — getSummary calls getConversations, which itself reads
+ * conversations, customers and agents, while getAgents reads agents again —
+ * so one page load asked for the same URL up to three times in the same tick.
+ * Sharing the promise collapses those to one request without any page having
+ * to know what the others are doing.
+ *
+ * Only in-flight, deliberately: an entry is dropped the moment it settles, so
+ * this dedupes concurrent reads and never serves a stale response. Caching
+ * across navigations is a different decision, with staleness to answer for.
+ */
+const inFlight = new Map()
+
+/**
+ * `waiting` counts the callers still interested. A caller that aborts drops
+ * its claim, and the underlying request is only cancelled when the last one
+ * lets go — otherwise one component unmounting would cancel a request another
+ * is still waiting on.
+ */
+function sharedGet(url, signal) {
+  let entry = inFlight.get(url)
+
+  if (!entry) {
+    const controller = new AbortController()
+    entry = { controller, waiting: 0 }
+    entry.promise = request(url, { signal: controller.signal })
+    inFlight.set(url, entry)
+    // Settled entries are never reused; the catch keeps this bookkeeping from
+    // surfacing as an unhandled rejection.
+    entry.promise.catch(() => {}).then(() => inFlight.delete(url))
+  }
+
+  entry.waiting += 1
+
+  let released = false
+  const release = (abort) => {
+    if (released) return
+    released = true
+    entry.waiting -= 1
+    if (abort && entry.waiting === 0) entry.controller.abort()
+  }
+
+  const onAbort = () => release(true)
+  signal?.addEventListener('abort', onAbort, { once: true })
+
+  const settle = () => {
+    release(false)
+    signal?.removeEventListener('abort', onAbort)
+  }
+
+  return entry.promise.then(
+    (value) => {
+      settle()
+      return value
+    },
+    (err) => {
+      settle()
+      throw err
+    },
+  )
+}
+
+/**
  * GET a workspace resource. `path` is relative to the API base, e.g.
  * 'conversations' or `conversations/${id}/events`.
+ *
+ * `signal` is optional and threaded from the calling hook, so a component that
+ * unmounts or refetches stops waiting on the old request.
  */
-function rest(path, params) {
+function rest(path, params, signal) {
   const qs = params ? `?${new URLSearchParams(params)}` : ''
-  return request(`/api/perfox/${path}${qs}`)
+  return sharedGet(`/api/perfox/${path}${qs}`, signal)
 }
 
 /**
@@ -109,12 +176,12 @@ function rest(path, params) {
  * paginating the browser over it would silently hide everything past the cap,
  * so follow the cursor to the end. `max` stops a bad cursor spinning forever.
  */
-async function restAll(path, params, max = 20) {
+async function restAll(path, params, signal, max = 20) {
   const out = []
   let cursor = null
   for (let page = 0; page < max; page++) {
     const q = { ...params, ...(cursor ? { cursor } : null) }
-    const body = await rest(path, Object.keys(q).length ? q : undefined)
+    const body = await rest(path, Object.keys(q).length ? q : undefined, signal)
     out.push(...rows(body))
     cursor = body?.next_cursor ?? null
     if (!cursor) break
@@ -146,9 +213,9 @@ export const deactivateAgent = (id) => write(`agents/${id}`, 'PATCH', { status: 
  * agent they mean — a conversation knows its own, and reading fourteen graphs
  * to learn about one would be silly.
  */
-export async function getAgentReach(agentId) {
+export async function getAgentReach(agentId, signal) {
   if (!agentId) return { channels: [], senders: [] }
-  const a = await rest(`agents/${agentId}`).then((r) => r?.data ?? r)
+  const a = await rest(`agents/${agentId}`, undefined, signal).then((r) => r?.data ?? r)
   const nodes = a?.nodes ?? []
   return {
     published: a?.status === 'published',
@@ -240,8 +307,8 @@ const mapAgent = (a) => ({
   updatedAt: a.updated_at,
 })
 
-export async function getAgents() {
-  return rows(await rest('agents')).map(mapAgent)
+export async function getAgents(signal) {
+  return rows(await rest('agents', undefined, signal)).map(mapAgent)
 }
 
 /**
@@ -295,11 +362,11 @@ export async function getAgentsWithChannels() {
  * Conversations joined to customers — list_conversations returns a customer_id
  * but no name, and the list view is unreadable without one.
  */
-export async function getConversations() {
+export async function getConversations(signal) {
   const [convoRes, custRes, agentRes] = await Promise.all([
-    rest('conversations'),
-    rest('customers').catch(() => ({ data: [] })),
-    rest('agents').catch(() => ({ data: [] })),
+    rest('conversations', undefined, signal),
+    rest('customers', undefined, signal).catch(() => ({ data: [] })),
+    rest('agents', undefined, signal).catch(() => ({ data: [] })),
   ])
 
   const byId = new Map(rows(custRes).map((c) => [c.id, c]))
@@ -373,11 +440,11 @@ export function duration(fromIso, toIso) {
  * tool_result, call_started, call_ended, call_recorded, status_change,
  * identity_resolved.
  */
-export async function getMessages(conversationId) {
+export async function getMessages(conversationId, signal) {
   const res = await rest(`conversations/${conversationId}/events`, {
     limit: 1000,
     include: 'tool_io,files',
-  })
+  }, signal)
   return rows(res).map((e) => {
     const isUser = e.event_type === 'user_message' || e.actor === 'user'
     const isAi = e.event_type === 'ai_response' || e.actor === 'ai'
@@ -478,9 +545,9 @@ export async function getRecordings(conversationId) {
  * Pass { from, to } as YYYY-MM-DD to scope it; omit for all time. The endpoint
  * reports resolution_rate as a percentage (13.78), not a fraction.
  */
-export async function getAnalytics(window) {
+export async function getAnalytics(window, signal) {
   const params = window?.from && window?.to ? { start_date: window.from, end_date: window.to } : null
-  const a = await rest('analytics/summary', params)
+  const a = await rest('analytics/summary', params, signal)
   const c = a?.conversations ?? {}
   const t = a?.tokens ?? {}
   return {
@@ -503,13 +570,13 @@ export async function getAnalytics(window) {
   }
 }
 
-export async function getSummary() {
+export async function getSummary(signal) {
   // Totals come from the analytics endpoint (authoritative, covers everything);
   // the per-day series still has to be derived, since nothing returns it.
   const [convos, agents, analytics] = await Promise.all([
-    getConversations(),
-    getAgents(),
-    getAnalytics().catch(() => null),
+    getConversations(signal),
+    getAgents(signal),
+    getAnalytics(undefined, signal).catch(() => null),
   ])
 
   const byChannel = new Map()
@@ -659,8 +726,8 @@ const MAX_BUCKETS = 800
  * The two flags are the workspace's own judgement of when a balance is low,
  * so the threshold lives there rather than being guessed at here.
  */
-export async function getCredits() {
-  const r = await rest('billing/credits')
+export async function getCredits(signal) {
+  const r = await rest('billing/credits', undefined, signal)
   const mc = r?.balance_mc
   return {
     balance: typeof mc === 'number' ? mc / 1000 : (r?.balance ?? null),
@@ -669,13 +736,13 @@ export async function getCredits() {
   }
 }
 
-export async function getConversationsOverTime({ interval = 'day', start_date, end_date } = {}) {
+export async function getConversationsOverTime({ interval = 'day', start_date, end_date } = {}, signal) {
   const step = INTERVALS[interval] ?? INTERVALS.day
   const query = { interval }
   if (start_date) query.start_date = start_date
   if (end_date) query.end_date = end_date
 
-  const list = rows(await rest('analytics/conversations-over-time', query))
+  const list = rows(await rest('analytics/conversations-over-time', query, signal))
   if (!list.length && !(start_date && end_date)) return []
 
   const byKey = new Map(list.map((d) => [d.date, d]))
@@ -697,8 +764,8 @@ export async function getConversationsOverTime({ interval = 'day', start_date, e
   return out
 }
 
-export async function getCalls() {
-  const list = await restAll('calls')
+export async function getCalls(signal) {
+  const list = await restAll('calls', undefined, signal)
   return list.map((c) => ({
     id: c.conversation_id,
     customerId: c.customer_id,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import Avatar from '../components/ui/Avatar'
 import Badge, { StatusBadge } from '../components/ui/Badge'
@@ -145,23 +145,24 @@ export default function Conversations() {
     })
   }, [conversations, query, channel, agent])
 
-  // The rail renders the first `shown` matches. A new search or channel starts
-  // from the top again — carrying a deep scroll across filters just hides the
-  // best matches behind a button.
-  const visible = filtered.slice(0, shown)
-  const more = filtered.length - visible.length
-
-  useEffect(() => {
-    setShown(PAGE)
-  }, [query, channel, agent])
-
   // A conversation opened by link — from the Dashboard, or a shared URL — can
-  // sit past the loaded window. Load far enough for the rail to show where you
-  // are, rather than highlighting a row that isn't there.
-  useEffect(() => {
-    const at = filtered.findIndex((c) => c.id === id)
-    if (at >= PAGE) setShown((n) => Math.max(n, Math.ceil((at + 1) / PAGE) * PAGE))
-  }, [id, filtered])
+  // sit past the loaded window. How far the rail must reach to show it is a
+  // fact about the current list, not a thing to store: derived here rather
+  // than pushed into state by an effect, which cost a second render each time.
+  const selectedAt = useMemo(() => filtered.findIndex((c) => c.id === id), [filtered, id])
+  const reach = selectedAt >= 0 ? Math.ceil((selectedAt + 1) / PAGE) * PAGE : 0
+
+  // A new search or channel starts from the top again — carrying a deep scroll
+  // across filters just hides the best matches behind a button.
+  const [prevFilters, setPrevFilters] = useState('')
+  const filterKey = `${query}|${channel}|${agent}`
+  if (prevFilters !== filterKey) {
+    setPrevFilters(filterKey)
+    if (shown !== PAGE) setShown(PAGE)
+  }
+
+  const visible = filtered.slice(0, Math.max(shown, reach))
+  const more = filtered.length - visible.length
 
   const selectedId = id ?? null
   const selected = conversations.find((c) => c.id === selectedId) ?? null
@@ -435,12 +436,12 @@ export default function Conversations() {
 function ConversationDetail({ conversation, onBack, onCalling }) {
   const [tab, setTab] = useState('overview')
 
-  const loadMessages = useCallback(() => getMessages(conversation.id), [conversation.id])
+  const loadMessages = useCallback((signal) => getMessages(conversation.id, signal), [conversation.id])
   const thread = useResource(loadMessages, [], [conversation.id])
 
   // What this conversation's own agent can be reached on. One request, and the
   // Call button and the composer chips both read it.
-  const loadReach = useCallback(() => getAgentReach(conversation.agentId), [conversation.agentId])
+  const loadReach = useCallback((signal) => getAgentReach(conversation.agentId, signal), [conversation.agentId])
   const reach = useResource(loadReach, EMPTY_REACH, [conversation.agentId])
 
   const [confirmCall, setConfirmCall] = useState(false)

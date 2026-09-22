@@ -42,12 +42,15 @@ export default function Analytics() {
   // that can load should not wait on the tiles, or fail with them. Changing a
   // control changes the deps, which refetches.
   const overTime = useResource(
-    () =>
-      getConversationsOverTime({
-        interval: interval.toLowerCase(),
-        start_date: start || undefined,
-        end_date: end || undefined,
-      }),
+    (signal) =>
+      getConversationsOverTime(
+        {
+          interval: interval.toLowerCase(),
+          start_date: start || undefined,
+          end_date: end || undefined,
+        },
+        signal,
+      ),
     [],
     [interval, start, end],
   )

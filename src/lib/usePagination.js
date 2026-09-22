@@ -32,8 +32,19 @@ export function usePagination(items, { sizes, initial = sizes[0], resetKey, onLe
   const from = (current - 1) * perPage
   const rows = useMemo(() => items.slice(from, from + perPage), [items, from, perPage])
 
+  // Reset during render rather than in an effect: an effect commits a render
+  // showing page 7 of the old list before correcting it, which is a wasted
+  // render and a visible flicker on a slow list.
+  const key = `${resetKey}|${perPage}`
+  const [prevKey, setPrevKey] = useState(key)
+  if (prevKey !== key) {
+    setPrevKey(key)
+    if (page !== 1) setPage(1)
+  }
+
+  // The teardown stays in an effect — it stops audio, which is the outside
+  // world, and render has to remain pure.
   useEffect(() => {
-    setPage(1)
     leave.current?.()
   }, [resetKey, perPage])
 

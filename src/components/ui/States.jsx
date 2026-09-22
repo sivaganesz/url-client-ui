@@ -6,6 +6,26 @@ export function Skeleton({ className, ...rest }) {
   return <div className={cn('animate-pulse rounded bg-muted-bg', className)} {...rest} />
 }
 
+/**
+ * Stands in while a lazily-loaded route arrives — a few milliseconds, and only
+ * the first visit to that route. Shaped like a page rather than a spinner, so
+ * the layout doesn't jump when the real one renders.
+ */
+export function PageSkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-5 p-5 sm:p-6" aria-busy="true">
+      <span className="sr-only">Loading page…</span>
+      <Skeleton className="h-8 w-48" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full rounded-card" />
+        ))}
+      </div>
+      <Skeleton className="h-64 w-full rounded-card" />
+    </div>
+  )
+}
+
 export function EmptyState({ icon: Icon, title, note, action, className }) {
   return (
     <div className={cn('flex flex-col items-center justify-center gap-2 px-6 py-14 text-center', className)}>
