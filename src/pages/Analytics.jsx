@@ -1,9 +1,10 @@
 import { useOutletContext } from 'react-router-dom'
 import { PageBody, PageHeader } from '../components/layout/AppShell'
 import StatTile from '../components/ui/StatTile'
-import Card, { CardBody, CardHeader, ReservedPanel } from '../components/ui/Card'
+import Card, { CardBody, CardHeader } from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import DataBanner from '../components/ui/DataBanner'
+import ConversationLog from '../components/ConversationLog'
 import { Skeleton } from '../components/ui/States'
 import LineChart from '../components/charts/LineChart'
 import BarList from '../components/charts/BarList'
@@ -15,7 +16,6 @@ import {
   IconChevronDown,
   IconDownload,
   IconLines,
-  IconNote,
   IconSparkle,
 } from '../components/icons'
 import { compact, num, pct } from '../lib/format'
@@ -26,6 +26,7 @@ import {
   summary as sampleSummary,
   volumeSeries as sampleVolume,
 } from '../data/sample'
+import { conversationLog } from '../data/conversationLog'
 
 const fallback = {
   ...sampleSummary,
@@ -150,12 +151,7 @@ export default function Analytics() {
           </Card>
         </div>
 
-        <ReservedPanel
-          icon={IconNote}
-          title="Top intents & credit balance"
-          note="Reserved — the analytics endpoint reports tokens and model calls, but no credit balance and no intent grouping."
-          className="min-h-40"
-        />
+        <ConversationLog rows={conversationLog} />
       </PageBody>
     </>
   )

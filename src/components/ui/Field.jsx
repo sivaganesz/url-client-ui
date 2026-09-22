@@ -76,18 +76,30 @@ export function Select({
   )
 }
 
-/** Filter pills. `value` is the selected option; options are plain strings. */
-export function ChipGroup({ label, options, value, onChange, className }) {
+/**
+ * Filter pills. `value` is the selected option; options are plain strings.
+ *
+ * With `multiple`, `value` is an array and each pill toggles. An empty array
+ * means no restriction — the same as picking every pill, but it says "I don't
+ * care about this" rather than making the reader check all five are lit.
+ */
+export function ChipGroup({ label, options, value, onChange, multiple = false, className }) {
+  const isOn = (o) => (multiple ? value.includes(o) : o === value)
+  const pick = (o) => {
+    if (!multiple) return onChange?.(o)
+    onChange?.(value.includes(o) ? value.filter((v) => v !== o) : [...value, o])
+  }
+
   return (
     <div role="group" aria-label={label} className={cn('flex flex-wrap gap-1.5', className)}>
       {options.map((o) => {
-        const selected = o === value
+        const selected = isOn(o)
         return (
           <button
             key={o}
             type="button"
             aria-pressed={selected}
-            onClick={() => onChange?.(o)}
+            onClick={() => pick(o)}
             className={cn(
               'h-7 rounded-full border px-2.5 text-[11.5px] transition-colors',
               selected
@@ -99,6 +111,43 @@ export function ChipGroup({ label, options, value, onChange, className }) {
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * From / to date range.
+ *
+ * Native date inputs, so the calendar, keyboard entry and the locale's own
+ * format come free — and the value is always a real `yyyy-mm-dd`, never a
+ * string someone typed in the wrong order.
+ */
+export function DateRange({ from, to, onFrom, onTo, className }) {
+  const fromId = useId()
+  const toId = useId()
+  const field =
+    'h-8 rounded-lg border border-line-strong bg-surface px-2 text-[11.5px] text-ink transition-colors hover:border-ink-4 focus:border-brand focus:outline-none'
+
+  return (
+    <div className={cn('flex items-center gap-2 text-[11.5px] text-ink-3', className)}>
+      <label htmlFor={fromId}>From</label>
+      <input
+        id={fromId}
+        type="date"
+        value={from}
+        max={to || undefined}
+        onChange={(e) => onFrom?.(e.target.value)}
+        className={field}
+      />
+      <label htmlFor={toId}>to</label>
+      <input
+        id={toId}
+        type="date"
+        value={to}
+        min={from || undefined}
+        onChange={(e) => onTo?.(e.target.value)}
+        className={field}
+      />
     </div>
   )
 }

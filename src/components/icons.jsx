@@ -270,6 +270,40 @@ export const IconPower = (p) => (
   </Svg>
 )
 
+/** Sentiment, drawn rather than emoji — the console has no other emoji, and
+    their rendering varies by platform in a way tone colours don't. */
+export const IconMood = ({ mood = 'neutral', size = 16, ...rest }) => (
+  <Svg size={size} {...rest}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9 10v.01M15 10v.01" />
+    {mood === 'positive' ? (
+      <path d="M8.5 14a4.5 4.5 0 0 0 7 0" />
+    ) : mood === 'negative' ? (
+      <path d="M8.5 15.5a4.5 4.5 0 0 1 7 0" />
+    ) : (
+      <path d="M9 14.5h6" />
+    )}
+  </Svg>
+)
+
+export const IconFlag = (p) => (
+  <Svg {...p}>
+    <path d="M5 21V4M5 4h11l-2 3.5L16 11H5" />
+  </Svg>
+)
+
+export const IconX = (p) => (
+  <Svg {...p}>
+    <path d="M7 7l10 10M17 7L7 17" />
+  </Svg>
+)
+
+export const IconSystem = (p) => (
+  <Svg {...p}>
+    <path d="M12 3l9 9-9 9-9-9z" />
+  </Svg>
+)
+
 /** Channel name -> icon, so every surface labels a channel the same way. */
 export const channelIcon = {
   WhatsApp: IconChat,

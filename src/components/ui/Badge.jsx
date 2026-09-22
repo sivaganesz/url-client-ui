@@ -49,6 +49,7 @@ const TONE_BY_LABEL = {
   // conversation lifecycle as the workspace reports it
   Ended: 'ok',
   Abandoned: 'warn',
+  Escalated: 'warn',
   Unknown: 'muted',
 }
 

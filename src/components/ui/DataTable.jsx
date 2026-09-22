@@ -6,6 +6,10 @@ import { EmptyState, ErrorState, Skeleton } from './States'
 
  * `width` drives a <colgroup>, so a wide table scrolls horizontally instead of
  * squashing every column to illegibility.
+ *
+ * `dense` (the default) fixes every row at one line and truncates — right for
+ * scanning a long log. Set it false where a cell stacks several facts and the
+ * row has to grow to fit them; cells then wrap and align to the top.
  */
 export default function DataTable({
   columns,
@@ -16,6 +20,7 @@ export default function DataTable({
   onRetry,
   empty,
   footer,
+  dense = true,
   className,
 }) {
   const colCount = columns.length
@@ -86,8 +91,10 @@ export default function DataTable({
                     <td
                       key={c.key}
                       className={cn(
-                        'h-[38px] overflow-hidden px-1.5 text-[11.5px] text-ellipsis whitespace-nowrap',
-                        'first:pl-4 last:pr-4',
+                        'px-1.5 text-[11.5px] first:pl-4 last:pr-4',
+                        dense
+                          ? 'h-[38px] overflow-hidden text-ellipsis whitespace-nowrap'
+                          : 'py-3 align-top',
                         c.mono && 'font-mono tabular-nums',
                         c.muted && 'text-ink-2',
                         c.align === 'right' && 'text-right',
