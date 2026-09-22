@@ -3,27 +3,23 @@ import { Link, useOutletContext } from 'react-router-dom'
 import { PageBody, PageHeader } from '../components/layout/AppShell'
 import StatTile from '../components/ui/StatTile'
 import DataTable from '../components/ui/DataTable'
+import TablePager from '../components/ui/TablePager'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import DataBanner from '../components/ui/DataBanner'
 import { SearchInput, Select } from '../components/ui/Field'
 import { EmptyState } from '../components/ui/States'
-import {
-  IconCheck,
-  IconClock,
-  IconEye,
-  IconPause,
-  IconPhone,
-  IconPlay,
-  IconSearch,
-} from '../components/icons'
+import { IconCheck, IconClock, IconEye, IconPause, IconPhone, IconPlay, IconSearch } from '../components/icons'
 import { cn } from '../lib/cn'
 import { num, pct } from '../lib/format'
 import { useResource } from '../lib/useResource'
+import { usePagination } from '../lib/usePagination'
 import { getCalls, spoken } from '../lib/api'
 import { useCallAudio } from '../components/useCallAudio'
 
 const ALL = 'All'
 const uniq = (rows, key) => [ALL, ...new Set(rows.map((r) => r[key]).filter(Boolean))]
+
+const PAGE_SIZES = [25, 50, 100]
 
 /** Player clock: 147 -> "2:27". Padded so the width doesn't jitter per tick. */
 const mmss = (seconds) => {
@@ -53,7 +49,7 @@ export default function CallLogs() {
 
   const loading = status === 'loading'
 
-  const rows = useMemo(() => {
+  const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
     return calls.filter((c) => {
       if (channel !== ALL && c.channel !== channel) return false
@@ -64,6 +60,13 @@ export default function CallLogs() {
       return [c.name, c.phone, c.summary].filter(Boolean).join(' ').toLowerCase().includes(q)
     })
   }, [calls, query, channel, outcome, recorded])
+
+  const pager = usePagination(matches, {
+    sizes: PAGE_SIZES,
+    resetKey: `${query}|${channel}|${outcome}|${recorded}`,
+    onLeavePage: audio.stop,
+  })
+  const rows = pager.rows
 
   const withRecording = calls.filter((c) => c.hasRecording).length
   const resolved = calls.filter((c) => c.status === 'Resolved').length
@@ -263,16 +266,7 @@ export default function CallLogs() {
               }
             />
           }
-          footer={
-            <>
-              <span>
-                Showing {num(rows.length)} of {num(calls.length)} calls
-              </span>
-              {/* The API reports direction as "unknown" on every call, so the
-                  column is left out rather than shown blank or guessed. */}
-              <span className="text-ink-4">Call direction isn’t recorded by the platform</span>
-            </>
-          }
+          footer={<TablePager pager={pager} noun="calls" loading={loading} />}
         />
       </PageBody>
     </>

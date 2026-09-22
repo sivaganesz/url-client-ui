@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import Avatar from '../components/ui/Avatar'
 import Badge, { StatusBadge } from '../components/ui/Badge'
@@ -34,6 +34,9 @@ import {
   messagesByConversation,
 } from '../data/sample'
 
+/** Conversations added to the rail per click of Load more. */
+const PAGE = 50
+
 export default function Conversations() {
   const { openDrawer } = useOutletContext()
   const { id } = useParams()
@@ -41,6 +44,7 @@ export default function Conversations() {
 
   const [query, setQuery] = useState('')
   const [channel, setChannel] = useState('All')
+  const [shown, setShown] = useState(PAGE)
 
   const list = useResource(getConversations, sampleConversations, [])
   const conversations = list.data
@@ -59,6 +63,24 @@ export default function Conversations() {
           [c.title, c.name, c.phone, c.email].filter(Boolean).join(' ').toLowerCase().includes(q)),
     )
   }, [conversations, query, channel])
+
+  // The rail renders the first `shown` matches. A new search or channel starts
+  // from the top again — carrying a deep scroll across filters just hides the
+  // best matches behind a button.
+  const visible = filtered.slice(0, shown)
+  const more = filtered.length - visible.length
+
+  useEffect(() => {
+    setShown(PAGE)
+  }, [query, channel])
+
+  // A conversation opened by link — from the Dashboard, or a shared URL — can
+  // sit past the loaded window. Load far enough for the rail to show where you
+  // are, rather than highlighting a row that isn't there.
+  useEffect(() => {
+    const at = filtered.findIndex((c) => c.id === id)
+    if (at >= PAGE) setShown((n) => Math.max(n, Math.ceil((at + 1) / PAGE) * PAGE))
+  }, [id, filtered])
 
   const selectedId = id ?? null
   const selected = conversations.find((c) => c.id === selectedId) ?? null
@@ -126,7 +148,7 @@ export default function Conversations() {
             />
           ) : (
             <ul>
-              {filtered.map((c) => {
+              {visible.map((c) => {
                 const ChannelIcon = channelIcon[c.channel] ?? IconChat
                 const active = c.id === selectedId
                 return (
@@ -164,6 +186,18 @@ export default function Conversations() {
                   </li>
                 )
               })}
+
+              {more > 0 && (
+                <li className="p-3">
+                  <button
+                    type="button"
+                    onClick={() => setShown((n) => n + PAGE)}
+                    className="w-full rounded-lg border border-line-strong bg-surface py-2 text-[11.5px] font-medium text-ink-2 transition-colors hover:border-brand-line hover:bg-brand-soft hover:text-brand"
+                  >
+                    Load more ({visible.length} of {filtered.length})
+                  </button>
+                </li>
+              )}
             </ul>
           )}
         </div>
@@ -171,7 +205,7 @@ export default function Conversations() {
         <div className="shrink-0 border-t border-line px-3 py-2 text-center text-[11px] text-ink-3">
           {list.status === 'loading'
             ? 'Loading…'
-            : `${filtered.length} of ${conversations.length} conversations`}
+            : `${visible.length} of ${filtered.length} conversations`}
         </div>
       </aside>
 

@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 import { PageBody, PageHeader } from '../components/layout/AppShell'
 import StatTile from '../components/ui/StatTile'
 import DataTable from '../components/ui/DataTable'
+import TablePager from '../components/ui/TablePager'
 import Card, { ReservedPanel } from '../components/ui/Card'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -13,8 +14,11 @@ import { IconAgent, IconAlert, IconGrid, IconPower, IconRows, IconTrend } from '
 import { cn } from '../lib/cn'
 import { num } from '../lib/format'
 import { useResource } from '../lib/useResource'
+import { usePagination } from '../lib/usePagination'
 import { activateAgent, deactivateAgent, getAgents } from '../lib/api'
 import { agents as sampleAgents } from '../data/sample'
+
+const PAGE_SIZES = [10, 25, 50, 100]
 
 const shortDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
@@ -172,8 +176,12 @@ export default function Agents() {
     [agents, changed],
   )
 
+  // Counts stay over the whole list — a page is a window on it, not the total.
   const active = rows.filter((a) => a.status === 'Active').length
   const paused = rows.length - active
+
+  const pager = usePagination(rows, { sizes: PAGE_SIZES })
+  const visible = pager.rows
 
   async function apply(agent, next) {
     setConfirming(null)
@@ -307,7 +315,7 @@ export default function Agents() {
           <DataTable
             className="min-h-96 flex-1"
             columns={columns}
-            rows={rows}
+            rows={visible}
             rowKey={(a) => a.id}
             loading={loading}
             error={status === 'error' ? error : null}
@@ -319,7 +327,7 @@ export default function Agents() {
                 note="This workspace has no agents set up."
               />
             }
-            footer={<span>{rows.length} agents</span>}
+            footer={<TablePager pager={pager} noun="agents" loading={loading} />}
           />
         ) : loading ? (
           grid(
@@ -340,7 +348,14 @@ export default function Agents() {
             />
           </Card>
         ) : (
-          grid(rows.map((a) => <AgentCard key={a.id} agent={a} {...actions} />))
+          <>
+            {grid(visible.map((a) => <AgentCard key={a.id} agent={a} {...actions} />))}
+            {/* The table gets its pager from DataTable's footer slot; the grid
+                has no such frame, so it carries a matching strip of its own. */}
+            <div className="flex h-12 shrink-0 items-center rounded-card border border-line bg-sunken px-4 text-[11.5px] text-ink-3">
+              <TablePager pager={pager} noun="agents" />
+            </div>
+          </>
         )}
       </PageBody>
 

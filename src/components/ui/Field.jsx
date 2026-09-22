@@ -24,10 +24,26 @@ export function SearchInput({ label, placeholder, value, onChange, className, id
   )
 }
 
-/** Native select — keyboard and screen-reader behaviour for free. */
-export function Select({ label, value, onChange, options, className, id }) {
+/**
+ * Native select — keyboard and screen-reader behaviour for free.
+ *
+ * Filter bars read better when the closed select carries its own subject
+ * ("Channel: Phone"), so options are prefixed with the label by default. Set
+ * `prefixLabel={false}` where the options already say what they are.
+ */
+export function Select({
+  label,
+  value,
+  onChange,
+  options,
+  size = 'md',
+  prefixLabel = true,
+  className,
+  id,
+}) {
   const generated = useId()
   const selectId = id ?? generated
+  const small = size === 'sm'
   return (
     <div className={cn('relative flex items-center', className)}>
       <label htmlFor={selectId} className="sr-only">
@@ -37,19 +53,25 @@ export function Select({ label, value, onChange, options, className, id }) {
         id={selectId}
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
-        className="h-10 appearance-none rounded-lg border border-line-strong bg-surface py-0 pr-8 pl-3 text-[13px] text-ink transition-colors hover:border-ink-4 focus:border-brand focus:outline-none"
+        className={cn(
+          'appearance-none rounded-lg border border-line-strong bg-surface py-0 text-ink transition-colors hover:border-ink-4 focus:border-brand focus:outline-none',
+          small ? 'h-8 pr-7 pl-2.5 text-[11.5px]' : 'h-10 pr-8 pl-3 text-[13px]',
+        )}
       >
         {options.map((o) => {
           const val = typeof o === 'string' ? o : o.value
           const text = typeof o === 'string' ? o : o.label
           return (
             <option key={val} value={val}>
-              {label}: {text}
+              {prefixLabel ? `${label}: ${text}` : text}
             </option>
           )
         })}
       </select>
-      <IconChevronDown size={13} className="pointer-events-none absolute right-2.5 text-ink-3" />
+      <IconChevronDown
+        size={small ? 12 : 13}
+        className={cn('pointer-events-none absolute text-ink-3', small ? 'right-2' : 'right-2.5')}
+      />
     </div>
   )
 }

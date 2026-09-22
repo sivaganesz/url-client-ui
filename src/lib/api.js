@@ -101,6 +101,27 @@ function rest(path, params) {
   return request(`/api/perfox/${path}${qs}`)
 }
 
+/**
+ * Every page of a cursor-paginated resource.
+ *
+ * The workspace caps a single response and returns `next_cursor` when more
+ * records exist — `offset` and `page` are ignored. Reading one page and then
+ * paginating the browser over it would silently hide everything past the cap,
+ * so follow the cursor to the end. `max` stops a bad cursor spinning forever.
+ */
+async function restAll(path, params, max = 20) {
+  const out = []
+  let cursor = null
+  for (let page = 0; page < max; page++) {
+    const q = { ...params, ...(cursor ? { cursor } : null) }
+    const body = await rest(path, Object.keys(q).length ? q : undefined)
+    out.push(...rows(body))
+    cursor = body?.next_cursor ?? null
+    if (!cursor) break
+  }
+  return out
+}
+
 /** A write against the workspace. Kept separate so reads stay obviously safe. */
 function write(path, method, body) {
   return request(`/api/perfox/${path}`, {
@@ -448,7 +469,7 @@ export async function getSummary() {
  *     retention window, so it means "available now", not "was ever recorded"
  */
 export async function getCalls() {
-  const list = rows(await rest('calls'))
+  const list = await restAll('calls')
   return list.map((c) => ({
     id: c.conversation_id,
     customerId: c.customer_id,
