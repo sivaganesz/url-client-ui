@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getRecordings } from '../lib/api'
+import { getRecordings } from './api'
 
 /**
  * Plays one call recording at a time, with no player UI.

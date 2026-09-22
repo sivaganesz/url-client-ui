@@ -6,36 +6,19 @@ import DataTable from '../components/ui/DataTable'
 import TablePager from '../components/ui/TablePager'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import DataBanner from '../components/ui/DataBanner'
+import Spinner from '../components/ui/Spinner'
 import { SearchInput, Select } from '../components/ui/Field'
 import { EmptyState } from '../components/ui/States'
 import { IconCheck, IconClock, IconEye, IconPause, IconPhone, IconPlay, IconSearch } from '../components/icons'
 import { cn } from '../lib/cn'
-import { num, pct } from '../lib/format'
+import { clock, dateTime, num, pct } from '../lib/format'
 import { useResource } from '../lib/useResource'
 import { usePagination } from '../lib/usePagination'
+import { ALL, options } from '../lib/collections'
 import { getCalls, spoken } from '../lib/api'
-import { useCallAudio } from '../components/useCallAudio'
-
-const ALL = 'All'
-const uniq = (rows, key) => [ALL, ...new Set(rows.map((r) => r[key]).filter(Boolean))]
+import { useCallAudio } from '../lib/useCallAudio'
 
 const PAGE_SIZES = [25, 50, 100]
-
-/** Player clock: 147 -> "2:27". Padded so the width doesn't jitter per tick. */
-const mmss = (seconds) => {
-  const t = Math.max(0, Math.floor(seconds || 0))
-  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`
-}
-
-const stamp = (iso) =>
-  iso
-    ? new Date(iso).toLocaleString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : '—'
 
 export default function CallLogs() {
   const { openDrawer } = useOutletContext()
@@ -74,7 +57,7 @@ export default function CallLogs() {
   const totalTalk = timed.reduce((sum, c) => sum + c.durationSeconds, 0)
 
   const columns = [
-    { key: 'startedAt', header: 'Started at', width: 116, mono: true, render: (c) => stamp(c.startedAt) },
+    { key: 'startedAt', header: 'Started at', width: 116, mono: true, render: (c) => dateTime(c.startedAt) },
     {
       key: 'name',
       header: 'Customer',
@@ -153,20 +136,17 @@ export default function CallLogs() {
             )}
           >
             {busy ? (
-              <span
-                aria-hidden="true"
-                className="h-[11px] w-[11px] shrink-0 animate-spin rounded-full border border-current border-t-transparent"
-              />
+              <Spinner />
             ) : playing ? (
               <IconPause size={11} />
             ) : (
               <IconPlay size={11} />
             )}
             {live
-              ? mmss(audio.at)
+              ? clock(audio.at)
               : failed
                 ? 'Retry'
-                : mmss(c.durationSeconds ?? 0)}
+                : clock(c.durationSeconds ?? 0)}
           </button>
         )
       },
@@ -237,8 +217,8 @@ export default function CallLogs() {
             onChange={setQuery}
             className="w-full sm:w-72"
           />
-          <Select label="Channel" value={channel} onChange={setChannel} options={uniq(calls, 'channel')} />
-          <Select label="Outcome" value={outcome} onChange={setOutcome} options={uniq(calls, 'status')} />
+          <Select label="Channel" value={channel} onChange={setChannel} options={options(calls, 'channel')} />
+          <Select label="Outcome" value={outcome} onChange={setOutcome} options={options(calls, 'status')} />
           <Select
             label="Recording"
             value={recorded}

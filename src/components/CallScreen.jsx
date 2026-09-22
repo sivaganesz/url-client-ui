@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react'
 import Avatar from './ui/Avatar'
 import { IconMicOff, IconPause, IconPhoneDown, IconPlay } from './icons'
 import { cn } from '../lib/cn'
-
-/** 74 -> "1:14". Padded so the width doesn't jitter every second. */
-const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+import { clock } from '../lib/format'
 
 /**
  * The live call, pinned to the corner.
@@ -61,7 +59,7 @@ export default function CallScreen({ call, onEnd }) {
           />
           {state}
         </span>
-        <span className="font-mono text-[11.5px] tabular-nums text-ink-3">{mmss(seconds)}</span>
+        <span className="font-mono text-[11.5px] tabular-nums text-ink-3">{clock(seconds)}</span>
       </div>
 
       <div className="grid grid-cols-3 gap-1.5 p-3">

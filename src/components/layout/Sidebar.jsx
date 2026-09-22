@@ -91,13 +91,11 @@ export default function Sidebar({ onNavigate, source }) {
         </div>
       )}
 
-      <div className="mx-2.5 flex items-center gap-2.5 border-t border-line px-3 pt-3">
-        <span className="h-7 w-7 shrink-0 rounded-full bg-muted-bg" />
-        <div className="flex min-w-0 flex-col">
-          <span className="truncate text-[12px] font-semibold">[Account name]</span>
-          <span className="truncate text-[11px] text-ink-3">siva-workspace</span>
-        </div>
-      </div>
+      {/* The account block that sat here showed "[Account name]" over a
+          hardcoded workspace — a placeholder identity presented to whoever was
+          looking. There is no sign-in in this console, so there is no account
+          to name; the source indicator above already says which workspace the
+          data comes from. */}
     </nav>
   )
 }

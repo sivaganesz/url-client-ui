@@ -35,3 +35,26 @@ export function credits(value) {
     maximumFractionDigits: 2,
   }).format(value)
 }
+
+/**
+ * Seconds to a player clock: 147 -> "2:27".
+ *
+ * Padded so a running counter doesn't change width every tick. Distinct from
+ * `spoken()` in api.js, which writes a duration out longhand ("2m 27s") for
+ * reading rather than for watching.
+ */
+export function clock(seconds) {
+  const t = Math.max(0, Math.floor(seconds || 0))
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`
+}
+
+/** A timestamp as the tables show it: "22 Sept, 14:05". */
+export function dateTime(iso) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}

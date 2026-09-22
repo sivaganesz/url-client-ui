@@ -3,6 +3,7 @@ import { useResource } from '../lib/useResource'
 import { getAgentsWithChannels, startOutbound } from '../lib/api'
 import Modal from './ui/Modal'
 import Button from './ui/Button'
+import Spinner from './ui/Spinner'
 import { FormField, controlClass } from './ui/Field'
 import { IconAlert, IconChat, IconChevronRight, IconMail, IconPhone, IconPlay, IconSms } from './icons'
 import { cn } from '../lib/cn'
@@ -139,10 +140,7 @@ export default function NewConversationDialog({ open, onClose, onStarted }) {
             >
               {sending ? (
                 <>
-                  <span
-                    aria-hidden="true"
-                    className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
-                  />
+                  <Spinner size={12} />
                   {channel.id === 'Phone' ? 'Calling…' : 'Starting…'}
                 </>
               ) : (

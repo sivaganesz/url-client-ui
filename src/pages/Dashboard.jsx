@@ -2,7 +2,6 @@ import { Link, useOutletContext } from 'react-router-dom'
 import { PageBody, PageHeader } from '../components/layout/AppShell'
 import StatTile from '../components/ui/StatTile'
 import Card, { CardBody, CardHeader } from '../components/ui/Card'
-import Button from '../components/ui/Button'
 import Avatar from '../components/ui/Avatar'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import DataBanner from '../components/ui/DataBanner'
@@ -11,11 +10,8 @@ import BarChart from '../components/charts/BarChart'
 import BarList from '../components/charts/BarList'
 import { ChartFrame } from '../components/charts/ChartPrimitives'
 import {
-  IconCalendar,
   IconChat,
-  IconChevronDown,
   IconChevronRight,
-  IconDownload,
   IconGlobe,
   IconSms,
   IconPhone,
@@ -40,18 +36,6 @@ export default function Dashboard() {
         title="Dashboard"
         subtitle="All channels"
         onOpenDrawer={openDrawer}
-        actions={
-          <>
-            <Button className="hidden sm:inline-flex">
-              <IconCalendar size={15} />
-              Last 7 days
-              <IconChevronDown size={13} />
-            </Button>
-            <Button iconOnly aria-label="Export dashboard">
-              <IconDownload size={15} />
-            </Button>
-          </>
-        }
       />
 
       <PageBody className="flex flex-col gap-5">

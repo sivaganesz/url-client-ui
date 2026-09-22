@@ -9,11 +9,9 @@ import { SearchInput, Select } from '../components/ui/Field'
 import { EmptyState } from '../components/ui/States'
 import { IconHash, IconSearch } from '../components/icons'
 import { num } from '../lib/format'
+import { ALL, options } from '../lib/collections'
 import { useResource } from '../lib/useResource'
 import { getPhoneNumbers, UNAVAILABLE } from '../lib/api'
-
-const ALL = 'All'
-const uniq = (rows, key) => [ALL, ...new Set(rows.map((r) => r[key]).filter(Boolean))]
 
 /**
  * Connected numbers.
@@ -103,8 +101,8 @@ export default function PhoneNumbers() {
               onChange={setQuery}
               className="w-full sm:w-72"
             />
-            <Select label="Agent" value={agent} onChange={setAgent} options={uniq(numbers, 'agent')} />
-            <Select label="Status" value={state} onChange={setState} options={uniq(numbers, 'status')} />
+            <Select label="Agent" value={agent} onChange={setAgent} options={options(numbers, 'agent')} />
+            <Select label="Status" value={state} onChange={setState} options={options(numbers, 'status')} />
           </div>
         )}
 

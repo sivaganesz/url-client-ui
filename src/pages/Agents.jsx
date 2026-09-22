@@ -7,6 +7,7 @@ import TablePager from '../components/ui/TablePager'
 import Card, { ReservedPanel } from '../components/ui/Card'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import Button from '../components/ui/Button'
+import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import DataBanner from '../components/ui/DataBanner'
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States'
@@ -21,13 +22,6 @@ const PAGE_SIZES = [10, 25, 50, 100]
 
 const shortDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
-
-const Spinner = () => (
-  <span
-    aria-hidden="true"
-    className="h-[11px] w-[11px] shrink-0 animate-spin rounded-full border border-current border-t-transparent"
-  />
-)
 
 /**
  * Switches the list between a dense table and browsable cards.

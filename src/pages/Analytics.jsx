@@ -12,12 +12,9 @@ import LineChart from '../components/charts/LineChart'
 import BarList from '../components/charts/BarList'
 import { ChartFrame } from '../components/charts/ChartPrimitives'
 import {
-  IconCalendar,
   IconChat,
   IconCheck,
-  IconChevronDown,
   IconCredit,
-  IconDownload,
 } from '../components/icons'
 import { credits, num, pct } from '../lib/format'
 import { useResource } from '../lib/useResource'
@@ -64,18 +61,6 @@ export default function Analytics() {
         title="Analytics"
         subtitle="All agents"
         onOpenDrawer={openDrawer}
-        actions={
-          <>
-            <Button className="hidden sm:inline-flex">
-              <IconCalendar size={15} />
-              Last 7 days
-              <IconChevronDown size={13} />
-            </Button>
-            <Button iconOnly aria-label="Export analytics">
-              <IconDownload size={15} />
-            </Button>
-          </>
-        }
       />
 
       <PageBody className="flex flex-col gap-5">

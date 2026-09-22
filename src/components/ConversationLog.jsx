@@ -21,6 +21,7 @@ import {
 } from './icons'
 import { cn } from '../lib/cn'
 import { usePagination } from '../lib/usePagination'
+import { dateTime } from '../lib/format'
 
 const STATUSES = ['All', 'Active', 'Ended', 'Resolved', 'Escalated', 'Follow-up']
 const DIRECTIONS = ['All', 'Customer', 'Agent']
@@ -38,14 +39,6 @@ const moverOf = (d) => MOVERS[d] ?? { label: 'Unknown', icon: IconSystem }
 
 const SENTIMENT_TONE = { Positive: 'text-ok', Negative: 'text-danger', Neutral: 'text-ink-3' }
 const MOOD = { Positive: 'positive', Negative: 'negative', Neutral: 'neutral' }
-
-const stamp = (iso) =>
-  new Date(iso).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 
 /** Save a Blob without leaving the page. */
 function save(name, text, type) {
@@ -186,7 +179,7 @@ export default function ConversationLog({ rows }) {
       key: 'at',
       header: 'Date',
       width: 116,
-      render: (r) => <span className="whitespace-nowrap">{stamp(r.at)}</span>,
+      render: (r) => <span className="whitespace-nowrap">{dateTime(r.at)}</span>,
     },
     {
       key: 'who',
