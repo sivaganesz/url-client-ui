@@ -16,7 +16,6 @@ import { num } from '../lib/format'
 import { useResource } from '../lib/useResource'
 import { usePagination } from '../lib/usePagination'
 import { activateAgent, deactivateAgent, getAgents } from '../lib/api'
-import { agents as sampleAgents } from '../data/sample'
 
 const PAGE_SIZES = [10, 25, 50, 100]
 
@@ -73,7 +72,7 @@ function ViewToggle({ value, onChange }) {
  * The state the agent is already in is disabled rather than hidden, which
  * keeps the column from reflowing as statuses change.
  */
-function AgentActions({ agent, pending, disabled, reason, onAct, className }) {
+function AgentActions({ agent, pending, onAct, className }) {
   const live = agent.status === 'Active'
   const busy = pending === agent.id
 
@@ -82,8 +81,8 @@ function AgentActions({ agent, pending, disabled, reason, onAct, className }) {
       <Button
         size="sm"
         className="px-2"
-        disabled={disabled || busy || live}
-        title={reason ?? (live ? `${agent.name} is already live` : `Publish ${agent.name} and take it live`)}
+        disabled={busy || live}
+        title={(live ? `${agent.name} is already live` : `Publish ${agent.name} and take it live`)}
         onClick={() => onAct(agent, 'Active')}
       >
         {busy && !live ? <Spinner /> : <IconPower size={13} />}
@@ -93,8 +92,8 @@ function AgentActions({ agent, pending, disabled, reason, onAct, className }) {
         size="sm"
         variant="danger"
         className="px-2"
-        disabled={disabled || busy || !live}
-        title={reason ?? (live ? `Stop ${agent.name} answering customers` : `${agent.name} is not live`)}
+        disabled={busy || !live}
+        title={(live ? `Stop ${agent.name} answering customers` : `${agent.name} is not live`)}
         onClick={() => onAct(agent, 'Paused')}
       >
         {busy && live ? <Spinner /> : <IconPower size={13} />}
@@ -149,7 +148,7 @@ function AgentCard({ agent, ...actions }) {
 
 export default function Agents() {
   const { openDrawer } = useOutletContext()
-  const { data: agents, status, error, reload, isSample } = useResource(getAgents, sampleAgents, [])
+  const { data: agents, status, error, reload } = useResource(getAgents, [], [])
 
   const [view, setView] = useState('table')
   const [pending, setPending] = useState(null)
@@ -166,10 +165,6 @@ export default function Agents() {
   const [changed, setChanged] = useState({})
 
   const loading = status === 'loading'
-
-  // Sample rows carry made-up ids, so a write against them would fail
-  // upstream. Say so rather than offering a button that can only disappoint.
-  const reason = isSample ? 'Not available while showing sample data' : undefined
 
   const rows = useMemo(
     () => agents.map((a) => (changed[a.id] ? { ...a, status: changed[a.id] } : a)),
@@ -198,12 +193,7 @@ export default function Agents() {
     }
   }
 
-  const actions = {
-    pending,
-    disabled: isSample,
-    reason,
-    onAct: (agent, next) => setConfirming({ agent, next }),
-  }
+  const actions = { pending, onAct: (agent, next) => setConfirming({ agent, next }) }
 
   const columns = [
     {
@@ -274,7 +264,7 @@ export default function Agents() {
       />
 
       <PageBody className="flex flex-col gap-4">
-        <DataBanner status={status} error={error} onRetry={reload} note="Showing bundled samples." />
+        <DataBanner status={status} error={error} onRetry={reload} />
 
         {failure && (
           <div

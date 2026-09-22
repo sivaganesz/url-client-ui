@@ -22,21 +22,17 @@ import {
 import { credits, num, pct } from '../lib/format'
 import { useResource } from '../lib/useResource'
 import { getConversationsOverTime, getCredits, getSummary } from '../lib/api'
-import { channelSplit as sampleSplit, summary as sampleSummary } from '../data/sample'
+import { EMPTY_CREDITS, EMPTY_SUMMARY } from '../lib/shapes'
 import { conversationLog } from '../data/conversationLog'
 
 /** Bucket sizes the endpoint understands, in the casing the chips show. */
 const INTERVALS = ['Day', 'Week', 'Month']
 
-// The series is its own resource now, so the tiles' fallback no longer carries
-// one — only what the tiles and the channel breakdown need.
-const fallback = { ...sampleSummary, channelSplit: sampleSplit }
-
 export default function Analytics() {
   const { openDrawer } = useOutletContext()
-  const { data: s, status, error, reload } = useResource(getSummary, fallback, [])
+  const { data: s, status, error, reload } = useResource(getSummary, EMPTY_SUMMARY, [])
 
-  const credit = useResource(getCredits, { balance: null, low: false, out: false }, [])
+  const credit = useResource(getCredits, EMPTY_CREDITS, [])
 
   const [interval, setInterval] = useState('Day')
   const [start, setStart] = useState('')
@@ -80,12 +76,7 @@ export default function Analytics() {
       />
 
       <PageBody className="flex flex-col gap-5">
-        <DataBanner
-          status={status}
-          error={error}
-          onRetry={reload}
-          note="Showing bundled samples."
-        />
+        <DataBanner status={status} error={error} onRetry={reload} />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatTile
@@ -187,6 +178,16 @@ export default function Analytics() {
                     <Skeleton key={i} className="h-8 w-full" />
                   ))}
                 </div>
+              ) : s.channelSplit.length === 0 ? (
+                <EmptyState
+                  icon={IconChat}
+                  title={status === 'error' ? 'Couldn’t load the breakdown' : 'No conversations yet'}
+                  note={
+                    status === 'error'
+                      ? 'The banner above has the details.'
+                      : 'Channels appear here once conversations start arriving.'
+                  }
+                />
               ) : (
                 <BarList
                   data={s.channelSplit.map((c) => ({ label: c.channel, value: c.count }))}

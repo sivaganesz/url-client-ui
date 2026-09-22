@@ -31,6 +31,7 @@ import {
   channelIcon,
 } from '../components/icons'
 import { cn } from '../lib/cn'
+import { EMPTY_REACH } from '../lib/shapes'
 import { useResource } from '../lib/useResource'
 import {
   callInfoOf,
@@ -42,11 +43,6 @@ import {
   startOutbound,
   timeAgo,
 } from '../lib/api'
-import {
-  conversations as sampleConversations,
-  customerByConversation,
-  messagesByConversation,
-} from '../data/sample'
 
 /** Conversations added to the rail per click of Load more. */
 const PAGE = 50
@@ -102,7 +98,7 @@ export default function Conversations() {
   const [shown, setShown] = useState(PAGE)
   const [starting, setStarting] = useState(false)
 
-  const list = useResource(getConversations, sampleConversations, [])
+  const list = useResource(getConversations, [], [])
   const conversations = list.data
 
   const channels = useMemo(() => {
@@ -274,7 +270,6 @@ export default function Conversations() {
               status={list.status}
               error={list.error}
               onRetry={list.reload}
-              note="Showing bundled samples."
             />
           </div>
         )}
@@ -286,11 +281,17 @@ export default function Conversations() {
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
+          ) : list.status === 'error' ? (
+            <ErrorState error={list.error} onRetry={list.reload} />
           ) : filtered.length === 0 ? (
             <EmptyState
               icon={IconSearch}
-              title="No matches"
-              note={`Nothing matches “${query}”${channel !== 'All' ? ` on ${channel}` : ''}.`}
+              title={conversations.length ? 'No matches' : 'No conversations yet'}
+              note={
+                conversations.length
+                  ? `Nothing matches “${query}”${channel !== 'All' ? ` on ${channel}` : ''}.`
+                  : 'Conversations appear here as customers reach you.'
+              }
             />
           ) : (
             <ul>
@@ -439,16 +440,12 @@ function ConversationDetail({ conversation, onBack, onCalling }) {
   // const [railOpen, setRailOpen] = useState(true) // parked with the profile rail
 
   const loadMessages = useCallback(() => getMessages(conversation.id), [conversation.id])
-  const thread = useResource(
-    loadMessages,
-    messagesByConversation[conversation.id] ?? [],
-    [conversation.id],
-  )
+  const thread = useResource(loadMessages, [], [conversation.id])
 
   // What this conversation's own agent can be reached on. One request, and the
   // Call button and the composer chips both read it.
   const loadReach = useCallback(() => getAgentReach(conversation.agentId), [conversation.agentId])
-  const reach = useResource(loadReach, { channels: [], senders: [] }, [conversation.agentId])
+  const reach = useResource(loadReach, EMPTY_REACH, [conversation.agentId])
 
   const [confirmCall, setConfirmCall] = useState(false)
   const [calling, setCalling] = useState(false)
@@ -1115,11 +1112,10 @@ function ProfileRail({ conversation, messageCount }) {
     () => getCustomer(conversation.customerId),
     [conversation.customerId],
   )
-  const { data: customer, status, error, reload } = useResource(
-    loadCustomer,
-    customerByConversation[conversation.id] ?? null,
-    [conversation.customerId, conversation.id],
-  )
+  const { data: customer, status, error, reload } = useResource(loadCustomer, null, [
+    conversation.customerId,
+    conversation.id,
+  ])
 
   const phone = customer?.details?.find((d) => d.label === 'Phone')?.value
   const tel = phone && phone !== '—' ? phone.replace(/[^\d+]/g, '') : null

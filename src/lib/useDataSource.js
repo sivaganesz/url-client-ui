@@ -19,10 +19,12 @@ export function useDataSource() {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((body) => {
         if (cancelled) return
+        // Only name the workspace when the proxy tells us one. Falling back to
+        // a hardcoded name would state something we don't know.
         setSource(
           body?.keyConfigured
-            ? { live: true, label: `Live · ${body.workspace ?? 'siva-workspace'}` }
-            : { live: false, label: 'Sample data · no API key' },
+            ? { live: true, label: body.workspace ? `Live · ${body.workspace}` : 'Live' }
+            : { live: false, label: 'No API key configured' },
         )
       })
       .catch(() => {

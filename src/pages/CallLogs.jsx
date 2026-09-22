@@ -196,7 +196,7 @@ export default function CallLogs() {
       />
 
       <PageBody className="flex flex-col gap-4">
-        <DataBanner status={status} error={error} onRetry={reload} note="Showing bundled samples." />
+        <DataBanner status={status} error={error} onRetry={reload} />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatTile

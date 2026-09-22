@@ -24,26 +24,12 @@ import {
 import { num } from '../lib/format'
 import { useResource } from '../lib/useResource'
 import { getConversations, getSummary } from '../lib/api'
-import {
-  channelSplit as sampleSplit,
-  conversations as sampleConversations,
-  summary as sampleSummary,
-  volumeSeries as sampleVolume,
-} from '../data/sample'
-
-const fallbackSummary = {
-  ...sampleSummary,
-  channelSplit: sampleSplit,
-  volumeSeries: sampleVolume.map((d) => ({
-    label: d.day,
-    value: d.whatsapp + d.phone + d.email + d.sms,
-  })),
-}
+import { EMPTY_SUMMARY } from '../lib/shapes'
 
 export default function Dashboard() {
   const { openDrawer } = useOutletContext()
-  const summary = useResource(getSummary, fallbackSummary, [])
-  const recent = useResource(getConversations, sampleConversations, [])
+  const summary = useResource(getSummary, EMPTY_SUMMARY, [])
+  const recent = useResource(getConversations, [], [])
 
   const s = summary.data
   const loading = summary.status === 'loading'
@@ -69,12 +55,7 @@ export default function Dashboard() {
       />
 
       <PageBody className="flex flex-col gap-5">
-        <DataBanner
-          status={summary.status}
-          error={summary.error}
-          onRetry={summary.reload}
-          note="Showing bundled samples."
-        />
+        <DataBanner status={summary.status} error={summary.error} onRetry={summary.reload} />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatTile
@@ -115,6 +96,16 @@ export default function Dashboard() {
           >
             {loading ? (
               <Skeleton className="h-60 w-full" />
+            ) : s.volumeSeries.length === 0 ? (
+              <EmptyState
+                icon={IconChat}
+                title={summary.status === 'error' ? 'Couldn’t load this chart' : 'No conversations yet'}
+                note={
+                  summary.status === 'error'
+                    ? 'The banner above has the details.'
+                    : 'The chart fills in as conversations arrive.'
+                }
+              />
             ) : (
               <BarChart
                 data={s.volumeSeries}
@@ -134,6 +125,16 @@ export default function Dashboard() {
                     <Skeleton key={i} className="h-8 w-full" />
                   ))}
                 </div>
+              ) : s.channelSplit.length === 0 ? (
+                <EmptyState
+                  icon={IconChat}
+                  title={summary.status === 'error' ? 'Couldn’t load the breakdown' : 'No conversations yet'}
+                  note={
+                    summary.status === 'error'
+                      ? 'The banner above has the details.'
+                      : 'Channels appear here once conversations start arriving.'
+                  }
+                />
               ) : (
                 <BarList
                   data={s.channelSplit.map((c) => ({ label: c.channel, value: c.count }))}
@@ -166,7 +167,11 @@ export default function Dashboard() {
                 ))}
               </div>
             ) : recent.data.length === 0 ? (
-              <EmptyState icon={IconChat} title="No conversations yet" />
+              <EmptyState
+                icon={IconChat}
+                title={recent.status === 'error' ? 'Couldn’t load conversations' : 'No conversations yet'}
+                note={recent.status === 'error' ? recent.error?.message : undefined}
+              />
             ) : (
               <ul className="divide-y divide-line border-t border-line">
                 {recent.data.slice(0, 5).map((c) => {

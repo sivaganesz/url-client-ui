@@ -1,19 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 
 /**
- * Loads one resource, with a sample fallback.
+ * Loads one resource.
  *
- * Returns `{ data, status, error, isSample, reload }` where status is
- * 'loading' | 'live' | 'sample' | 'error'.
+ * Returns `{ data, status, error, reload }` where status is
+ * 'loading' | 'ready' | 'error' | 'unavailable'.
  *
- * A resource that isn't mapped to the live workspace yet resolves to the
- * sample with `isSample: true` — the page renders, and the sidebar badge plus
- * the page banner say where the numbers came from. A genuine failure (bad key,
- * proxy down mid-session, upstream 500) surfaces as 'error' instead of being
- * silently papered over with samples.
+ * `empty` is the shape to render before anything arrives and after a failure —
+ * an empty array, or an object of nulls. It is deliberately not sample data.
+ * A page that fails must say so; showing invented conversations, agents or
+ * numbers in place of an error is worse than showing nothing, because the
+ * reader has no way to tell which they are looking at.
+ *
+ * 'unavailable' is the separate case of a resource the workspace has no
+ * endpoint for. That is not a failure to retry — it is a feature that does not
+ * exist yet — so pages explain it rather than offering a Retry button.
  */
-export function useResource(load, sample, deps = []) {
-  const [state, setState] = useState({ data: sample, status: 'loading', error: null })
+export function useResource(load, empty = null, deps = []) {
+  const [state, setState] = useState({ data: empty, status: 'loading', error: null })
 
   const run = useCallback(() => {
     let cancelled = false
@@ -22,15 +26,15 @@ export function useResource(load, sample, deps = []) {
     Promise.resolve()
       .then(load)
       .then((data) => {
-        if (!cancelled) setState({ data, status: 'live', error: null })
+        if (!cancelled) setState({ data, status: 'ready', error: null })
       })
       .catch((error) => {
         if (cancelled) return
-        if (error?.notMapped) {
-          setState({ data: sample, status: 'sample', error: null })
-        } else {
-          setState({ data: sample, status: 'error', error })
-        }
+        setState({
+          data: empty,
+          status: error?.notMapped ? 'unavailable' : 'error',
+          error,
+        })
       })
 
     return () => {
@@ -45,7 +49,6 @@ export function useResource(load, sample, deps = []) {
     data: state.data,
     status: state.status,
     error: state.error,
-    isSample: state.status === 'sample' || state.status === 'error',
     reload: run,
   }
 }

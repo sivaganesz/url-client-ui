@@ -44,14 +44,19 @@ export default function AppShell({ source }) {
         </div>
       )}
 
+      {/* Page-level, inside the shell: a page that throws leaves the sidebar
+          and navigation working, so you can move on instead of reloading.
+          Keyed by path so navigating away clears a caught error. */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <Outlet
-          context={{
-            openDrawer: () => setDrawerOpen(true),
-            startCall: setCall,
-            endCall: () => setCall(null),
-          }}
-        />
+        <ErrorBoundary resetKey={location.pathname}>
+          <Outlet
+            context={{
+              openDrawer: () => setDrawerOpen(true),
+              startCall: setCall,
+              endCall: () => setCall(null),
+            }}
+          />
+        </ErrorBoundary>
       </div>
 
       <CallScreen call={call} onEnd={() => setCall(null)} />

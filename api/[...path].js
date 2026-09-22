@@ -15,7 +15,8 @@
  * Environment variables to set in the Vercel project:
  *   PERFOX_API_KEY   required — server-side only, never shipped to the browser
  *   PERFOX_API_BASE  optional — defaults to the siva-workspace base
- *   ACCESS_CODE      optional — set it to require a code on every request
+ *   ACCESS_CODE      strongly recommended — requires a code on every request
+ *   ALLOW_OUTBOUND   set to "true" (with ACCESS_CODE) to permit outbound calls
  */
 const KEY = process.env.PERFOX_API_KEY ?? ''
 // Trailing slashes trimmed: a base ending in "/" builds ".../api/v1//agents",
@@ -26,6 +27,20 @@ const API_BASE = (process.env.PERFOX_API_BASE ?? 'https://siva-workspace-api.per
   '',
 )
 const ACCESS_CODE = process.env.ACCESS_CODE ?? ''
+
+/**
+ * Outbound places real calls and sends real messages, billed to the workspace.
+ *
+ * It is off unless explicitly switched on, and refuses to switch on without an
+ * access code. A deployment that forgets to set either cannot dial anyone —
+ * the failure mode of a mistake here is a disabled button, not a stranger
+ * ringing a customer on your credits.
+ *
+ * Both must be set server-side, in the hosting project's environment:
+ *   ACCESS_CODE=<something long>   gates every request
+ *   ALLOW_OUTBOUND=true            permits POST /outbound
+ */
+const OUTBOUND_ENABLED = process.env.ALLOW_OUTBOUND === 'true' && ACCESS_CODE.length > 0
 
 
 async function readJson(req) {
@@ -66,8 +81,9 @@ const ALLOWED = [
 const WRITES = [
   { method: 'POST', re: new RegExp(`^agents/${ID}/publish$`) },
   { method: 'PATCH', re: new RegExp(`^agents/${ID}$`) },
-  // Reaching out: places a real call, or sends a real message.
-  { method: 'POST', re: /^outbound$/ },
+  // Reaching out: places a real call, or sends a real message. Off by default
+  // — see OUTBOUND_ENABLED above.
+  ...(OUTBOUND_ENABLED ? [{ method: 'POST', re: /^outbound$/ }] : []),
 ]
 
 /** Never echo the key back, even if upstream includes it in an error. */
@@ -87,8 +103,8 @@ export default async function handler(req, res) {
     return json(res, 200, {
       ok: true,
       keyConfigured: KEY.length > 0,
-      workspace: 'siva-workspace',
       gated: ACCESS_CODE.length > 0,
+      outbound: OUTBOUND_ENABLED,
     })
   }
 
@@ -123,6 +139,14 @@ export default async function handler(req, res) {
   const isWrite = WRITES.some((w) => w.method === req.method && w.re.test(resource))
 
   if (!isRead && !isWrite) {
+    // Name the one case an operator can fix, rather than a flat refusal they
+    // have to go and read the source to understand.
+    if (resource === 'outbound' && !OUTBOUND_ENABLED) {
+      return json(res, 403, {
+        error:
+          'Reaching out is disabled on this deployment. Set ACCESS_CODE and ALLOW_OUTBOUND=true to enable it.',
+      })
+    }
     return json(res, 403, { error: 'That operation is not available on this deployment.' })
   }
 
