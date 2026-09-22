@@ -167,18 +167,52 @@ export const clockOf = (iso) =>
 
 // ── loaders ──────────────────────────────────────────────────────────────
 
+const mapAgent = (a) => ({
+  id: a.id,
+  name: a.name || 'Untitled agent',
+  model: `v${a.active_version ?? 1} · ${a.node_count ?? 0} nodes`,
+  status: statusLabel(a.status),
+  channels: (a.channels ?? []).map(channelLabel),
+  description: a.description?.trim() || 'No description set for this agent.',
+  conversations: null, // not returned by list_agents; joined from conversations
+  resolution: null,
+  updatedAt: a.updated_at,
+})
+
 export async function getAgents() {
+  return rows(await rest('agents')).map(mapAgent)
+}
+
+/**
+ * Agents with the channels they can actually be reached on.
+ *
+ * The list endpoint reports `channels: ["web"]` for every agent, so it can't
+ * be used to decide what an agent handles. The truth is in the graph: a
+ * trigger node's `config.channel` names the channel that starts a
+ * conversation, and an agent without one for a channel cannot be reached on it.
+ *
+ * That costs one detail request per agent, which is why this is separate from
+ * getAgents() — only the callers that need it pay for it.
+ */
+export async function getAgentsWithChannels() {
   const list = rows(await rest('agents'))
-  return list.map((a) => ({
-    id: a.id,
-    name: a.name || 'Untitled agent',
-    model: `v${a.active_version ?? 1} · ${a.node_count ?? 0} nodes`,
-    status: statusLabel(a.status),
-    channels: (a.channels ?? []).map(channelLabel),
-    description: a.description?.trim() || 'No description set for this agent.',
-    conversations: null, // not returned by list_agents; joined from conversations
-    resolution: null,
-    updatedAt: a.updated_at,
+  const graphs = await Promise.all(
+    list.map((a) =>
+      rest(`agents/${a.id}`)
+        .then((r) => r?.data ?? r)
+        .catch(() => null),
+    ),
+  )
+
+  return list.map((a, i) => ({
+    ...mapAgent(a),
+    channels: [
+      ...new Set(
+        (graphs[i]?.nodes ?? [])
+          .filter((n) => n.type === 'trigger' && n.config?.channel)
+          .map((n) => channelLabel(n.config.channel)),
+      ),
+    ],
   }))
 }
 

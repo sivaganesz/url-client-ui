@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { useResource } from '../lib/useResource'
+import { getAgentsWithChannels } from '../lib/api'
 import Modal from './ui/Modal'
 import Button from './ui/Button'
 import { FormField, controlClass } from './ui/Field'
@@ -35,20 +37,25 @@ const CONTACT = {
  * starting a conversation, so Start is wired to `onStart` and left to the
  * caller.
  */
-export default function NewConversationDialog({ open, onClose, agents = [], onStart }) {
+export default function NewConversationDialog({ open, onClose, onStart }) {
   const [channel, setChannel] = useState(CHANNELS[0])
   const [agentId, setAgentId] = useState('')
   const [contact, setContact] = useState('')
   const [opening, setOpening] = useState('')
 
-  // Only a published agent can take a conversation, and only on a channel it
-  // actually handles.
+  // Loaded here rather than by the page: it costs a request per agent, and
+  // nothing needs it until this dialog is on screen.
+  const { data: agents, status } = useResource(getAgentsWithChannels, [], [])
+  const loading = status === 'loading'
+
+  // Only a published agent can take a conversation, and only on a channel its
+  // graph has a trigger for.
   const eligible = useMemo(
     () => agents.filter((a) => a.status === 'Active' && a.channels.includes(channel.id)),
     [agents, channel],
   )
 
-  const none = eligible.length === 0
+  const none = !loading && eligible.length === 0
   const field = CONTACT[channel.contact]
   const ready = !none && Boolean(agentId) && contact.trim() !== ''
 
@@ -121,11 +128,13 @@ export default function NewConversationDialog({ open, onClose, agents = [], onSt
             <select
               id={id}
               value={agentId}
-              disabled={none}
+              disabled={none || loading}
               onChange={(e) => setAgentId(e.target.value)}
               className={cn(controlClass, 'h-10')}
             >
-              {none ? (
+              {loading ? (
+                <option value="">Loading agents…</option>
+              ) : none ? (
                 <option value="">No published workflow handles this channel</option>
               ) : (
                 <>

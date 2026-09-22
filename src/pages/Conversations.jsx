@@ -30,7 +30,7 @@ import {
 } from '../components/icons'
 import { cn } from '../lib/cn'
 import { useResource } from '../lib/useResource'
-import { callInfoOf, duration, getAgents, getConversations, getCustomer, getMessages, timeAgo } from '../lib/api'
+import { callInfoOf, duration, getConversations, getCustomer, getMessages, timeAgo } from '../lib/api'
 import {
   conversations as sampleConversations,
   customerByConversation,
@@ -81,10 +81,6 @@ export default function Conversations() {
 
   const list = useResource(getConversations, sampleConversations, [])
   const conversations = list.data
-
-  // Only needed by the new-conversation dialog, to offer the agents that
-  // actually handle the chosen channel.
-  const agentList = useResource(getAgents, [], [])
 
   const channels = useMemo(() => {
     const extra = [...new Set(conversations.map((c) => c.channel).filter(Boolean))].filter(
@@ -383,12 +379,16 @@ export default function Conversations() {
         )}
       </section>
 
-      <NewConversationDialog
-        open={starting}
-        agents={agentList.data}
-        onClose={() => setStarting(false)}
-        onStart={() => setStarting(false)}
-      />
+      {/* Mounted only while open: it reads every agent's graph to work out
+          which channels each can be reached on, and that shouldn't cost
+          anything on a page load where nobody opens it. */}
+      {starting && (
+        <NewConversationDialog
+          open
+          onClose={() => setStarting(false)}
+          onStart={() => setStarting(false)}
+        />
+      )}
     </div>
   )
 }
