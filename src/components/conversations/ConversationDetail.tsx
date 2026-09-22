@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react'
-import { Link } from 'react-router-dom'
 import Avatar from '../ui/Avatar'
 import Badge, { StatusBadge } from '../ui/Badge'
 import Spinner from '../ui/Spinner'
@@ -11,17 +10,16 @@ import { IconChat, IconChevronLeft, IconPhone, IconX, channelIcon } from '../ico
 import { cn } from '../../lib/cn'
 import { EMPTY_REACH } from '../../lib/shapes'
 import { useResource } from '../../lib/useResource'
-import { callInfoOf, getAgentReach, getMessages, startOutbound } from '../../lib/api'
-import type { CallTarget, Conversation, SendResult } from '../../lib/types'
+import { callInfoOf, getAgentReach, getMessages } from '../../lib/api'
+import { useCall } from '../../lib/operator'
+import type { Conversation, SendResult } from '../../lib/types'
 
 export default function ConversationDetail({
   conversation,
   onBack,
-  onCalling,
 }: {
   conversation: Conversation
   onBack?: () => void
-  onCalling: (call: CallTarget) => void
 }) {
   const [tab, setTab] = useState('overview')
 
@@ -39,42 +37,39 @@ export default function ConversationDetail({
   )
   const reach = useResource(loadReach, EMPTY_REACH, [conversation.agentId])
 
+  const operator = useCall()
+
   const [confirmCall, setConfirmCall] = useState(false)
   const [calling, setCalling] = useState(false)
   const [callResult, setCallResult] = useState<SendResult | null>(null)
 
+  /**
+   * What stops this call being placed.
+   *
+   * The agent's phone trigger is deliberately NOT one of them any more. This
+   * used to ask the workspace whether the conversation's agent could take
+   * calls, because the agent was the one dialling. The operator places the
+   * call through the site now, so the agent's triggers have no say in it —
+   * checking them would disable the button for a call that would work.
+   */
   const cannotCall = !conversation.phone
     ? 'No phone number on this conversation'
-    : !conversation.agentId
-      ? 'This conversation has no agent'
-      : reach.status === 'loading'
-        ? 'Checking whether this agent takes calls…'
-        : !reach.data.channels.includes('Phone')
-          ? `${conversation.agent ?? 'This agent'} has no phone trigger`
-          : null
+    : !operator.ready
+      ? operator.reason
+      : operator.call
+        ? 'You are already on a call'
+        : null
 
   async function placeCall() {
     setConfirmCall(false)
-    setCalling(true)
     setCallResult(null)
-    // `cannotCall` already gates the button on both of these; repeating
-    // them here is what lets the call below read as one that cannot be made
-    // without an agent and a number.
-    if (!conversation.agentId || !conversation.phone) return
+    if (!conversation.phone) return
+    setCalling(true)
     try {
-      const r = await startOutbound({
-        agentId: conversation.agentId,
-        channel: 'phone',
-        to: conversation.phone.replace(/[^\d+]/g, ''),
-        customerId: conversation.customerId || undefined,
-      })
-      // A call opens its own conversation — it is a session, not this thread.
-      setCallResult({ ok: true, id: r.conversationId, status: r.status })
-      onCalling({
-        name: conversation.title,
-        phone: conversation.phone,
-        conversationId: r.conversationId,
-      })
+      // The panel the shell renders takes over from here; dial() throws only
+      // when the call never connected.
+      await operator.dial({ name: conversation.title, phone: conversation.phone })
+      setCallResult({ ok: true })
     } catch (err) {
       setCallResult({ ok: false, text: (err as Error).message })
     } finally {
@@ -128,7 +123,7 @@ export default function ConversationDetail({
             <button
               type="button"
               disabled={Boolean(cannotCall) || calling}
-              title={cannotCall ?? `${conversation.agent} will phone ${conversation.phone}`}
+              title={cannotCall ?? `Call ${conversation.phone} yourself`}
               onClick={() => setConfirmCall(true)}
               className={cn(
                 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11.5px] font-medium transition-colors',
@@ -169,18 +164,9 @@ export default function ConversationDetail({
           >
             <IconPhone size={14} className={cn('mt-0.5 shrink-0', callResult.ok ? 'text-ok' : 'text-danger')} />
             <p className="min-w-0 flex-1 leading-relaxed text-ink-2">
-              {callResult.ok ? (
-                <>
-                  Calling {conversation.phone} — the call has its own conversation.{' '}
-                  {callResult.id && (
-                    <Link to={`/conversations/${callResult.id}`} className="font-medium text-brand hover:underline">
-                      Open it
-                    </Link>
-                  )}
-                </>
-              ) : (
-                callResult.text
-              )}
+              {callResult.ok
+                ? `Connected to ${conversation.phone}. The call has its own conversation — it is a session with its own recording, not part of this thread.`
+                : callResult.text}
             </p>
             <button
               type="button"
@@ -205,7 +191,7 @@ export default function ConversationDetail({
       <ConfirmDialog
         open={confirmCall}
         title="Place this call?"
-        body={`${conversation.agent} will phone ${conversation.phone} now. The call opens its own conversation — a call is a session with its own recording, not a continuation of this thread.`}
+        body={`You will call ${conversation.phone} yourself. Your microphone goes live when they pick up. The call opens its own conversation — a session with its own recording, not a continuation of this thread.`}
         confirmLabel="Call now"
         onConfirm={placeCall}
         onCancel={() => setConfirmCall(false)}

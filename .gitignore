@@ -18,3 +18,8 @@ wireframe.html
 # Playwright
 test-results/
 playwright-report/
+
+# Reference clone of the sibling operator app, dropped in for comparison.
+# It carries its own .git, so committing it would leave a submodule pointer
+# nobody else can resolve.
+perfox-contact-center/

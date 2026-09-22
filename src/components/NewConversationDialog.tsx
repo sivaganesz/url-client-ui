@@ -7,6 +7,7 @@ import Spinner from './ui/Spinner'
 import { FormField, controlClass } from './ui/Field'
 import { IconAlert, IconChat, IconChevronRight, IconMail, IconPhone, IconPlay, IconSms } from './icons'
 import { cn } from '../lib/cn'
+import { useCall } from '../lib/operator'
 import type { StartedConversation } from '../lib/types'
 import type { IconProps } from './icons'
 
@@ -45,8 +46,15 @@ const CONTACT: Record<string, { label: string; type: string; placeholder: string
  * once a channel, a published agent with a trigger for it, and a destination
  * are all present.
  *
- * Three outcomes, and the third is the one worth care: the request can fail;
- * it can succeed and deliver; or it can succeed with `send_authorized: false`,
+ * Phone is the exception and works differently from the rest. On a phone call
+ * YOU are the one talking — the operator connector opens the line in this
+ * browser — so there is no agent to choose and no opening message to send. The
+ * text channels still hand the conversation to an agent, which is what the
+ * agent picker below is for.
+ *
+ * Three outcomes for the text channels, and the third is the one worth care:
+ * the request can fail; it can succeed and deliver; or it can succeed with
+ * `send_authorized: false`,
  * meaning the conversation opened and the agent ran but has no Sender action,
  * so nothing went out. That last one is a half-built agent rather than a
  * failed request, and navigating away silently would bury it.
@@ -67,6 +75,10 @@ export default function NewConversationDialog({
   const [contact, setContact] = useState('')
   const [opening, setOpening] = useState('')
 
+  const operator = useCall()
+  /** A phone call is placed by the operator, not handed to an agent. */
+  const isCall = channel.id === 'Phone'
+
   const [sending, setSending] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   /** Held back on `send_authorized: false` so the dialog can say so. */
@@ -84,16 +96,25 @@ export default function NewConversationDialog({
     [agents, channel],
   )
 
-  const none = !loading && eligible.length === 0
+  // Only the text channels need a published agent; a call needs the connector.
+  const none = !isCall && !loading && eligible.length === 0
   const field = CONTACT[channel.contact]!
-  const ready = !none && Boolean(agentId) && contact.trim() !== ''
+  const ready = isCall
+    ? operator.ready && !operator.call && contact.trim() !== ''
+    : !none && Boolean(agentId) && contact.trim() !== ''
 
   // A call delivers over the voice stream, so it needs no sender action. On the
   // text channels, a trigger without one starts a conversation that can never
   // reply — worth saying before the send, not only after.
   const picked = eligible.find((a) => a.id === agentId)
-  const willNotSend =
-    Boolean(picked) && channel.id !== 'Phone' && !picked?.senders?.includes(channel.id)
+  const willNotSend = Boolean(picked) && !isCall && !picked?.senders?.includes(channel.id)
+
+  /** Why a call cannot be placed, or null. Only consulted on the Phone tab. */
+  const cannotCall = !operator.ready
+    ? operator.reason
+    : operator.call
+      ? 'You are already on a call'
+      : null
 
   const pickChannel = (next: (typeof CHANNELS)[number]) => {
     setChannel(next)
@@ -106,6 +127,15 @@ export default function NewConversationDialog({
     setFailure(null)
     try {
       const to = contact.trim()
+
+      // A call is placed from here, not handed over. The shell's panel takes
+      // it from the moment it connects, so the dialog just closes.
+      if (isCall) {
+        await operator.dial({ name: to, phone: to })
+        onClose?.()
+        return
+      }
+
       const r = {
         ...(await startOutbound({
           agentId,
@@ -155,7 +185,9 @@ export default function NewConversationDialog({
               variant="primary"
               size="md"
               disabled={!ready || sending}
-              title={none ? 'No published agent handles this channel' : undefined}
+              title={
+                isCall ? (cannotCall ?? undefined) : none ? 'No published agent handles this channel' : undefined
+              }
               onClick={submit}
             >
               {sending ? (
@@ -233,6 +265,16 @@ export default function NewConversationDialog({
           )}
         </FormField>
 
+        {isCall ? (
+          <div className="rounded-card border border-line bg-sunken px-3.5 py-3 text-[11.5px] leading-relaxed text-ink-2">
+            <p className="font-semibold text-ink">You place this call yourself</p>
+            <p className="mt-0.5">
+              Your microphone goes live when they pick up. There is no agent to choose — the call
+              opens its own conversation, with its own recording.
+              {cannotCall && <span className="mt-1 block font-medium text-warn">{cannotCall}</span>}
+            </p>
+          </div>
+        ) : (
         <FormField
           label="Agent"
           hint={
@@ -269,6 +311,7 @@ export default function NewConversationDialog({
             </select>
           )}
         </FormField>
+        )}
 
         <FormField label={field.label}>
           {(id) => (
@@ -283,18 +326,21 @@ export default function NewConversationDialog({
           )}
         </FormField>
 
-        <FormField label="Opening message (optional)">
-          {(id) => (
-            <textarea
-              id={id}
-              rows={3}
-              value={opening}
-              placeholder="Leave empty to use the workflow’s persona greeting."
-              onChange={(e) => setOpening(e.target.value)}
-              className={cn(controlClass, 'resize-none py-2.5 leading-relaxed')}
-            />
-          )}
-        </FormField>
+        {/* Nothing to pre-send on a call — you say it yourself. */}
+        {!isCall && (
+          <FormField label="Opening message (optional)">
+            {(id) => (
+              <textarea
+                id={id}
+                rows={3}
+                value={opening}
+                placeholder="Leave empty to use the workflow’s persona greeting."
+                onChange={(e) => setOpening(e.target.value)}
+                className={cn(controlClass, 'resize-none py-2.5 leading-relaxed')}
+              />
+            )}
+          </FormField>
+        )}
       </div>
     </Modal>
   )

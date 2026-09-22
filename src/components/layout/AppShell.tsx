@@ -5,7 +5,8 @@ import CallScreen from '../CallScreen'
 import ErrorBoundary from '../ErrorBoundary'
 import { PageSkeleton } from '../ui/States'
 import { cn } from '../../lib/cn'
-import type { CallTarget, DataSource } from '../../lib/types'
+import { OperatorGate } from '../../lib/operator'
+import type { DataSource } from '../../lib/types'
 
 /**
  * Fixed sidebar from `lg` up; a dismissible drawer below it. The main column
@@ -13,9 +14,6 @@ import type { CallTarget, DataSource } from '../../lib/types'
  */
 export default function AppShell({ source }: { source: DataSource }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
-  // The live call lives here rather than on a page, so it survives navigating
-  // away from wherever it was placed.
-  const [call, setCall] = useState<CallTarget | null>(null)
   const location = useLocation()
 
   // Close the drawer on navigation and on Escape.
@@ -28,47 +26,45 @@ export default function AppShell({ source }: { source: DataSource }) {
   }, [drawerOpen])
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-canvas">
-      <div className="hidden lg:flex">
-        <Sidebar source={source} />
-      </div>
-
-      {drawerOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <button
-            type="button"
-            aria-label="Close navigation"
-            onClick={() => setDrawerOpen(false)}
-            className="absolute inset-0 bg-ink/30"
-          />
-          <div className="absolute inset-y-0 left-0 shadow-raised">
-            <Sidebar source={source} onNavigate={() => setDrawerOpen(false)} />
-          </div>
+    /* Above the outlet, so a call survives navigating away from the page that
+       placed it — the audio session is mounted here, not by a page. */
+    <OperatorGate>
+      <div className="flex h-dvh overflow-hidden bg-canvas">
+        <div className="hidden lg:flex">
+          <Sidebar source={source} />
         </div>
-      )}
 
-      {/* Page-level, inside the shell: a page that throws leaves the sidebar
-          and navigation working, so you can move on instead of reloading.
-          Keyed by path so navigating away clears a caught error. */}
-      <main className="flex min-w-0 flex-1 flex-col">
-        <ErrorBoundary resetKey={location.pathname}>
-          {/* Routes are code-split, so the first visit to one waits on its
-              chunk. Inside the boundary: a chunk that fails to load is a
-              render error, and should be caught like any other. */}
-          <Suspense fallback={<PageSkeleton />}>
-            <Outlet
-              context={{
-                openDrawer: () => setDrawerOpen(true),
-                startCall: setCall,
-                endCall: () => setCall(null),
-              }}
+        {drawerOpen && (
+          <div className="fixed inset-0 z-40 lg:hidden">
+            <button
+              type="button"
+              aria-label="Close navigation"
+              onClick={() => setDrawerOpen(false)}
+              className="absolute inset-0 bg-ink/30"
             />
-          </Suspense>
-        </ErrorBoundary>
-      </main>
+            <div className="absolute inset-y-0 left-0 shadow-raised">
+              <Sidebar source={source} onNavigate={() => setDrawerOpen(false)} />
+            </div>
+          </div>
+        )}
 
-      <CallScreen call={call} onEnd={() => setCall(null)} />
-    </div>
+        {/* Page-level, inside the shell: a page that throws leaves the sidebar
+            and navigation working, so you can move on instead of reloading.
+            Keyed by path so navigating away clears a caught error. */}
+        <main className="flex min-w-0 flex-1 flex-col">
+          <ErrorBoundary resetKey={location.pathname}>
+            {/* Routes are code-split, so the first visit to one waits on its
+                chunk. Inside the boundary: a chunk that fails to load is a
+                render error, and should be caught like any other. */}
+            <Suspense fallback={<PageSkeleton />}>
+              <Outlet context={{ openDrawer: () => setDrawerOpen(true) }} />
+            </Suspense>
+          </ErrorBoundary>
+        </main>
+
+        <CallScreen />
+      </div>
+    </OperatorGate>
   )
 }
 

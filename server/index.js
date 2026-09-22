@@ -10,6 +10,7 @@
  * Run: node server/index.js   (or `npm run proxy`)
  */
 import { createServer } from 'node:http'
+import { createHmac } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -36,6 +37,38 @@ const MCP_URL = process.env.PERFOX_MCP_URL ?? 'https://siva-workspace-api.perfox
 const PORT = Number(process.env.PROXY_PORT ?? 8787)
 
 /**
+ * The operator connector — a different credential from the workspace key.
+ *
+ * A workspace key does not authorise the operator surface and the site secret
+ * does not authorise the REST API; the two are unrelated and both can be set.
+ *
+ * OPERATOR_SITE_SECRET is the trust anchor. It signs an operator's identity so
+ * the platform will open a voice session for them, which is exactly why it
+ * cannot go in the browser bundle: anyone holding it could sign in as any
+ * operator. It stays in this process and is never returned.
+ */
+const OPERATOR = {
+  apiHost: (process.env.OPERATOR_API_HOST ?? '').replace(/\/+$/, ''),
+  siteId: process.env.OPERATOR_SITE_ID ?? '',
+  workflowId: process.env.OPERATOR_WORKFLOW_ID ?? '',
+  secret: process.env.OPERATOR_SITE_SECRET ?? '',
+  externalId: process.env.OPERATOR_EXTERNAL_ID ?? 'op_console',
+  name: process.env.OPERATOR_NAME ?? 'Console Operator',
+}
+
+/**
+ * user_hash = HMAC_SHA256(site_secret, "<siteId>.<externalId>")
+ *
+ * The externalId is taken from env, never from the request. This console has
+ * no login, so it signs one fixed identity — meaning every browser that opens
+ * it is the same operator, and two tabs will contend over presence. That is
+ * acceptable for a single-seat console and is the first thing to change if
+ * this ever gets real users: derive the id from their session instead.
+ */
+const signOperator = (externalId) =>
+  createHmac('sha256', OPERATOR.secret).update(`${OPERATOR.siteId}.${externalId}`).digest('hex')
+
+/**
  * The workspace name, read from the API base rather than hardcoded.
  *
  * It used to be a literal 'siva-workspace', so pointing .env at a different
@@ -47,10 +80,14 @@ const PORT = Number(process.env.PROXY_PORT ?? 8787)
 const WORKSPACE =
   /^https?:\/\/([a-z0-9-]+?)(?:-api)?\./i.exec(API_BASE)?.[1] ?? null
 
-/** Strip the key from anything we are about to log or return. */
+/** Strip both secrets from anything we are about to log or return. */
 function redact(text) {
-  if (!KEY) return String(text)
-  return String(text).replaceAll(KEY, 'sk_***redacted***')
+  let out = String(text)
+  if (KEY) out = out.replaceAll(KEY, 'sk_***redacted***')
+  // The site secret should never reach a response, but an upstream error that
+  // echoed a request back would carry it. Cheaper to redact than to be sure.
+  if (OPERATOR.secret) out = out.replaceAll(OPERATOR.secret, 'sa_secret_***redacted***')
+  return out
 }
 
 function send(res, status, body) {
@@ -130,6 +167,37 @@ const server = createServer(async (req, res) => {
       })
     }
 
+    // ── operator connector config ────────────────────────────
+    // Public site config plus a signed identity. Deliberately never the
+    // secret: a settings form that posts one from the browser hands it to
+    // anyone with devtools. Placed above the PERFOX_API_KEY gate because the
+    // two credentials are independent — calling can work without the REST key.
+    if (path === '/api/operator/config') {
+      // 200 with configured:false, not a 503. "Not configured" is a true
+      // answer to "what is the config?", and a non-2xx would have the browser
+      // log an error on every page load of a console that simply has no
+      // operator credentials. The integration guide's sample returns 503; this
+      // deviates on purpose. A real failure still surfaces as one.
+      if (!OPERATOR.apiHost || !OPERATOR.siteId || !OPERATOR.secret) {
+        return send(res, 200, {
+          configured: false,
+          reason:
+            'Operator calling is not configured. Set OPERATOR_API_HOST, OPERATOR_SITE_ID and OPERATOR_SITE_SECRET in .env.',
+        })
+      }
+      return send(res, 200, {
+        configured: true,
+        apiHost: OPERATOR.apiHost,
+        siteId: OPERATOR.siteId,
+        workflowId: OPERATOR.workflowId || null,
+        operator: {
+          externalId: OPERATOR.externalId,
+          name: OPERATOR.name,
+          userHash: signOperator(OPERATOR.externalId),
+        },
+      })
+    }
+
     if (!KEY) {
       return send(res, 503, {
         error: 'PERFOX_API_KEY is not set. Copy .env.example to .env and add the key.',
@@ -196,5 +264,8 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`[proxy] listening on http://localhost:${PORT}`)
   console.log(`[proxy] workspace ${WORKSPACE} · key ${KEY ? 'configured' : 'MISSING'}`)
-  console.log(`[proxy] GET /api/health   GET /api/discover   POST /api/mcp/call   /api/perfox/*`)
+  console.log(`[proxy] operator ${OPERATOR.siteId ? 'configured' : 'not configured'}`)
+  console.log(
+    `[proxy] GET /api/health   GET /api/discover   GET /api/operator/config   POST /api/mcp/call   /api/perfox/*`,
+  )
 })

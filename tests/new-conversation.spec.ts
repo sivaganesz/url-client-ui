@@ -55,7 +55,10 @@ test('each channel either offers an agent or explains that none handles it', asy
   const dialog = page.getByRole('dialog')
   const select = dialog.locator('select')
 
-  for (const channel of ['SMS', 'WhatsApp', 'Email', 'Phone call']) {
+  // Phone is not in this list: a call is placed by the operator through the
+  // site, so there is no agent to choose and no picker to check. Its own
+  // gating is covered in operator.spec.ts.
+  for (const channel of ['SMS', 'WhatsApp', 'Email']) {
     await dialog.getByRole('button', { name: channel, exact: true }).click()
 
     // The agent list is fetched per channel; assert once it has settled,

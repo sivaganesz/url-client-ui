@@ -22,6 +22,7 @@ The outbound paths are covered up to the confirmation step and stop there:
 | Call button | presence, gating, explanation | never clicked |
 | New conversation | dialog contract, agent gating, Send disabled | never submitted |
 | Agent activate/deactivate | confirm opens and names the agent | always cancelled |
+| Operator calling | the config contract, that the secret stays server-side, the button gating | never dialled |
 
 If you add a test that would send, it needs an explicit decision about which
 number or address it reaches — not a default.
@@ -55,6 +56,7 @@ the test reads it from the API in the same run rather than hardcoding it, and
 | `agents.spec.ts` | paging, the view toggle, the stat tiles counting the whole list rather than the page, and the destructive-action confirm |
 | `analytics.spec.ts` | the over-time chart across all three intervals, credits, the log's filters and CSV export, and the page's behaviour with the API down |
 | `responsive.spec.ts` | phone layout: no horizontal overflow, the drawer, and the single-column conversation view. Runs under the `mobile` project only |
+| `operator.spec.ts` | operator calling: the signing endpoint never leaks the secret, the Call button explains itself when the connector is unavailable, and the phone tab drops the agent picker |
 
 ## The console watch
 

@@ -298,22 +298,16 @@ export interface DataSource {
   label: string
 }
 
-/** Who a live call is with. Placed by a page, rendered by the shell. */
-export interface CallTarget {
-  name: string
-  phone?: string | null
-  conversationId?: string | null
-}
-
 /**
  * Passed down the router outlet. Pages read it with
  * `useOutletContext<ShellContext>()` — react-router cannot infer it, so the
  * annotation is what keeps these honest.
+ *
+ * Calling is not here: it moved to `useCall()` in lib/operator, because the
+ * audio session is the shell's, not a value a page hands upward.
  */
 export interface ShellContext {
   openDrawer: () => void
-  startCall: (call: CallTarget) => void
-  endCall: () => void
 }
 
 /* ── the conversation log ────────────────────────────────── */

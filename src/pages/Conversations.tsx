@@ -37,7 +37,7 @@ import type { ShellContext, StartedConversation } from '../lib/types'
 const PAGE = 50
 
 export default function Conversations() {
-  const { openDrawer, startCall } = useOutletContext<ShellContext>()
+  const { openDrawer } = useOutletContext<ShellContext>()
   const { id } = useParams()
   const navigate = useNavigate()
 
@@ -396,7 +396,6 @@ export default function Conversations() {
             key={selected.id}
             conversation={selected}
             onBack={() => navigate('/conversations')}
-            onCalling={startCall}
           />
         )}
       </section>
@@ -408,12 +407,12 @@ export default function Conversations() {
         <NewConversationDialog
           open
           onClose={() => setStarting(false)}
-          onStarted={({ conversationId, channel: ch, to, agentName }: StartedConversation) => {
+          onStarted={({ conversationId }: StartedConversation) => {
             setStarting(false)
             // The thread is new, so the rail has to refetch before it can
-            // highlight where we just landed.
+            // highlight where we just landed. A call never arrives here — the
+            // dialog closes itself and the shell's panel takes over.
             list.reload()
-            if (ch === 'phone') startCall({ name: agentName ?? to, phone: to, conversationId })
             if (conversationId) navigate(`/conversations/${conversationId}`)
           }}
         />

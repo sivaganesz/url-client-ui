@@ -17,7 +17,14 @@
  *   PERFOX_API_BASE  optional — defaults to the siva-workspace base
  *   ACCESS_CODE      strongly recommended — requires a code on every request
  *   ALLOW_OUTBOUND   set to "true" (with ACCESS_CODE) to permit outbound calls
+ *
+ *   OPERATOR_API_HOST      the tenant API host for operator calling
+ *   OPERATOR_SITE_ID       an operator-enabled site key
+ *   OPERATOR_SITE_SECRET   required — server-side only, signs operator identity
+ *   OPERATOR_WORKFLOW_ID   optional — omit to use the tenant default agent
  */
+import { createHmac } from 'node:crypto'
+
 const KEY = process.env.PERFOX_API_KEY ?? ''
 // Trailing slashes trimmed: a base ending in "/" builds ".../api/v1//agents",
 // and this API answers an unknown path with 401, not 404 — so a stray slash
@@ -41,6 +48,31 @@ const ACCESS_CODE = process.env.ACCESS_CODE ?? ''
  *   ALLOW_OUTBOUND=true            permits POST /outbound
  */
 const OUTBOUND_ENABLED = process.env.ALLOW_OUTBOUND === 'true' && ACCESS_CODE.length > 0
+
+/**
+ * Operator calling — a separate credential from the workspace key.
+ *
+ * The site secret signs an operator's identity so the platform will open a
+ * voice session for them. Anyone holding it could sign in as any operator, so
+ * it stays server-side and is never part of a response.
+ *
+ * Note this surface is NOT gated by ALLOW_OUTBOUND. That flag guards agent
+ * outbound, where the workspace pays for an AI to phone someone unattended.
+ * Operator calling is a person clicking dial with their own microphone open;
+ * it is gated by ACCESS_CODE like everything else, and by whether the site
+ * secret is configured at all.
+ */
+const OPERATOR = {
+  apiHost: (process.env.OPERATOR_API_HOST ?? '').replace(/\/+$/, ''),
+  siteId: process.env.OPERATOR_SITE_ID ?? '',
+  workflowId: process.env.OPERATOR_WORKFLOW_ID ?? '',
+  secret: process.env.OPERATOR_SITE_SECRET ?? '',
+  externalId: process.env.OPERATOR_EXTERNAL_ID ?? 'op_console',
+  name: process.env.OPERATOR_NAME ?? 'Console Operator',
+}
+
+const signOperator = (externalId) =>
+  createHmac('sha256', OPERATOR.secret).update(`${OPERATOR.siteId}.${externalId}`).digest('hex')
 
 
 async function readJson(req) {
@@ -87,7 +119,12 @@ const WRITES = [
 ]
 
 /** Never echo the key back, even if upstream includes it in an error. */
-const redact = (text) => (KEY ? String(text).replaceAll(KEY, 'sk_***') : String(text))
+const redact = (text) => {
+  let out = String(text)
+  if (KEY) out = out.replaceAll(KEY, 'sk_***')
+  if (OPERATOR.secret) out = out.replaceAll(OPERATOR.secret, 'sa_secret_***')
+  return out
+}
 
 function json(res, status, body) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
@@ -105,6 +142,7 @@ export default async function handler(req, res) {
       keyConfigured: KEY.length > 0,
       gated: ACCESS_CODE.length > 0,
       outbound: OUTBOUND_ENABLED,
+      operator: Boolean(OPERATOR.siteId && OPERATOR.secret),
     })
   }
 
@@ -115,6 +153,31 @@ export default async function handler(req, res) {
     if ((Array.isArray(code) ? code[0] : code) !== ACCESS_CODE) {
       return json(res, 401, { error: 'This deployment is private. An access code is required.' })
     }
+  }
+
+  // ── operator connector config ────────────────────────────
+  // Behind the access-code gate above, and deliberately never the secret.
+  // Separate from the PERFOX_API_KEY check below: the two credentials are
+  // independent, so calling can work on a deployment with no REST key.
+  if (path === '/api/operator/config') {
+    // 200 with configured:false — see the note in server/index.js.
+    if (!OPERATOR.apiHost || !OPERATOR.siteId || !OPERATOR.secret) {
+      return json(res, 200, {
+        configured: false,
+        reason: 'Operator calling is not configured on this deployment.',
+      })
+    }
+    return json(res, 200, {
+      configured: true,
+      apiHost: OPERATOR.apiHost,
+      siteId: OPERATOR.siteId,
+      workflowId: OPERATOR.workflowId || null,
+      operator: {
+        externalId: OPERATOR.externalId,
+        name: OPERATOR.name,
+        userHash: signOperator(OPERATOR.externalId),
+      },
+    })
   }
 
   // The WhatsApp relay that used to live here is gone: the composer sends
