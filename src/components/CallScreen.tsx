@@ -24,9 +24,15 @@ export default function CallScreen() {
   if (!call) return null
 
   const live = call.status === 'live'
+  // Status goes live before the audio room connects, so the controls wait for
+  // the audio rather than the status — otherwise the panel reports a mute
+  // state it does not yet know.
+  const ready = live && call.audioReady
   const state = call.onHold
     ? 'On hold'
-    : { dialing: 'Calling…', ringing: 'Ringing…', live: 'In call', ended: 'Ended' }[call.status]
+    : live && !ready
+      ? 'Connecting audio…'
+      : { dialing: 'Calling…', ringing: 'Ringing…', live: 'In call', ended: 'Ended' }[call.status]
 
   return (
     <div
@@ -69,7 +75,7 @@ export default function CallScreen() {
             aria-hidden="true"
             className={cn(
               'h-1.5 w-1.5 rounded-full',
-              call.onHold ? 'bg-warn' : live ? 'animate-pulse bg-ok' : 'animate-pulse bg-warn',
+              call.onHold ? 'bg-warn' : ready ? 'animate-pulse bg-ok' : 'animate-pulse bg-warn',
             )}
           />
           {state}
@@ -86,14 +92,14 @@ export default function CallScreen() {
           icon={IconMicOff}
           label={call.muted ? 'Unmute' : 'Mute'}
           active={call.muted}
-          disabled={!live}
+          disabled={!ready}
           onClick={() => mute(!call.muted)}
         />
         <CallButton
           icon={call.onHold ? IconPlay : IconPause}
           label={call.onHold ? 'Resume' : 'Hold'}
           active={call.onHold}
-          disabled={!live}
+          disabled={!ready}
           onClick={() => hold(!call.onHold)}
         />
         <CallButton icon={IconPhoneDown} label="End" tone="danger" onClick={() => void end()} />

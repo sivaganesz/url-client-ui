@@ -33,6 +33,42 @@ import type { OperatorConfig } from '@perfox/operator-react'
 
 export type CallStatus = 'dialing' | 'ringing' | 'live' | 'ended'
 
+/**
+ * The SDK's errors, said in English.
+ *
+ * It reports them as terse machine strings — `call no_answer`, `dial: 403`,
+ * `session: ...` — and they go straight onto the screen of whoever just tried
+ * to phone a customer. "call no_answer" is not a sentence.
+ *
+ * Anything unrecognised is passed through rather than replaced with something
+ * vague: a message nobody has seen before is more useful raw than smoothed
+ * into "an error occurred".
+ */
+function humanise(raw: string | null): string | null {
+  if (!raw) return null
+
+  // `call <status>` — the platform's own verdict on why the call ended.
+  const ended = /^call (.+)$/.exec(raw)
+  if (ended) {
+    const known: Record<string, string> = {
+      no_answer: 'No answer.',
+      busy: 'The line was busy.',
+      failed: 'The call could not be connected.',
+      cancelled: 'The call was cancelled.',
+      rejected: 'The call was declined.',
+    }
+    return known[ended[1] as string] ?? `The call ended: ${ended[1]?.replace(/_/g, ' ')}.`
+  }
+
+  if (/^dial: no answer$/i.test(raw)) return 'No answer.'
+  if (/^dial: /.test(raw)) return `The call could not be placed (${raw.slice(6)}).`
+  if (/^session: /.test(raw)) return `Connected, but the session could not start (${raw.slice(9)}).`
+  if (/^voice: /.test(raw)) return `The audio could not be opened (${raw.slice(7)}).`
+  if (/^answer: /.test(raw)) return `The call could not be picked up (${raw.slice(8)}).`
+
+  return raw
+}
+
 export interface ActiveCall {
   /** Who we are talking to. The SDK does not track this — we carry it from the click. */
   name: string
@@ -41,6 +77,8 @@ export interface ActiveCall {
   status: CallStatus
   onHold: boolean
   muted: boolean
+  /** The audio room has connected. Until then `muted` means nothing yet. */
+  audioReady: boolean
 }
 
 export interface CallApi {
@@ -83,13 +121,6 @@ export function useCall(): CallApi {
   return useContext(CallContext) ?? NOT_MOUNTED
 }
 
-/**
- * Fetches the signed config, then mounts the SDK under it.
- *
- * Children render either way. `OperatorProvider` cannot mount before the
- * config arrives, and a gate that rendered nothing until then would blank the
- * whole app on a slow or missing connector.
- */
 /** How long to wait for the config before calling the connector unreachable. */
 const CONFIG_TIMEOUT_MS = 8000
 
@@ -111,6 +142,13 @@ function usable(body: unknown): body is OperatorConfig {
   )
 }
 
+/**
+ * Fetches the signed config, then mounts the SDK under it.
+ *
+ * Children render either way. `OperatorProvider` cannot mount before the
+ * config arrives, and a gate that rendered nothing until then would blank the
+ * whole app on a slow or missing connector.
+ */
 export function OperatorGate({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<OperatorConfig | null>(null)
   const [reason, setReason] = useState<string>('Connecting to the operator service…')
@@ -187,9 +225,33 @@ function CallBridge({ children }: { children: ReactNode }) {
    */
   const [dismissed, setDismissed] = useState<string | null>(null)
 
+  /**
+   * Whether the audio room has actually connected.
+   *
+   * The SDK sets status 'live' in `beginSession`, which runs *before*
+   * `joinVoice` finishes — and `micEnabled` starts false and only flips true
+   * when the room connects. So for a second or two at pickup the panel would
+   * say the operator is muted when they are not, at the one moment that
+   * matters most.
+   *
+   * `micEnabled` alone cannot tell "not connected yet" from "deliberately
+   * muted", so this latches on the first time it goes true and resets per
+   * call.
+   */
+  const [audioReady, setAudioReady] = useState(false)
+
   useEffect(() => {
     if (active?.status === 'ended') setParty(null)
   }, [active?.status])
+
+  useEffect(() => {
+    if (op.micEnabled) setAudioReady(true)
+  }, [op.micEnabled])
+
+  // A new call starts with its audio unconnected again.
+  useEffect(() => {
+    setAudioReady(false)
+  }, [active?.conversationId])
 
   const dial = useCallback(
     async ({ name, phone }: { name?: string | null; phone?: string | null }) => {
@@ -222,7 +284,7 @@ function CallBridge({ children }: { children: ReactNode }) {
         !s.activeCall || s.activeCall.status === 'ended' || (s.error && s.error !== dismissed)
       if (failed) {
         setParty(null)
-        throw new Error(s.error ?? 'The call could not be connected.')
+        throw new Error(humanise(s.error) ?? 'The call could not be connected.')
       }
     },
     [dialOut, session, dismissed],
@@ -245,6 +307,9 @@ function CallBridge({ children }: { children: ReactNode }) {
           status: (active?.status as CallStatus) ?? 'dialing',
           onHold: Boolean(active?.onHold),
           muted: !op.micEnabled,
+          // Held counts as connected: hold deliberately drops the mic, and the
+          // controls must stay usable so the call can be resumed.
+          audioReady: audioReady || Boolean(active?.onHold),
         }
       : null
 
@@ -255,7 +320,7 @@ function CallBridge({ children }: { children: ReactNode }) {
       call,
       dialing,
       // A live call is proof the last error is history.
-      error: active?.status === 'live' || op.error === dismissed ? null : op.error,
+      error: active?.status === 'live' || op.error === dismissed ? null : humanise(op.error),
       dial,
       end,
       hold: (on: boolean) => void hold(on),
