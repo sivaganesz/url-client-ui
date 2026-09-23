@@ -1,4 +1,4 @@
-import { expect, test } from './helpers'
+import { allowConsoleErrors, expect, test } from './helpers'
 
 /**
  * The admin surface.
@@ -136,4 +136,30 @@ test('an admin session is not a console session', async ({ page, context }) => {
 
   await page.goto('/conversations')
   await expect(page).toHaveURL(/\/login/)
+})
+
+test('an admin can reach the password form, and it checks the old one', async ({ page }) => {
+  /**
+   * The mirror of the customer's, and stops in the same place: the suite signs
+   * in with the seed's password every run, so a test that really changed it
+   * would pass once and then lock the suite out of the admin surface.
+   */
+  allowConsoleErrors(page, /401/, /Failed to load resource/)
+  await signIn(page)
+
+  await page.getByRole('button', { name: 'Change password' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+
+  await dialog.getByLabel('Current password').fill('not-the-admin-password')
+  await dialog.getByLabel('New password', { exact: true }).fill('a-long-enough-new-password')
+  await dialog.getByLabel('New password again').fill('a-long-enough-new-password')
+  await dialog.getByRole('button', { name: 'Change password' }).click()
+
+  await expect(dialog.getByRole('alert')).toContainText(/current password is not right/i)
+
+  // And the session it was tried from is still good — a failed change must not
+  // sign anybody out.
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByRole('heading', { name: 'Customers' })).toBeVisible()
 })

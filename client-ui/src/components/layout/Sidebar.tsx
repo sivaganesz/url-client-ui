@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { cn } from '../../lib/cn'
 import {
@@ -10,6 +11,7 @@ import {
 } from '../icons'
 import { useSession } from '../../lib/session'
 import Avatar from '../ui/Avatar'
+import ChangePasswordDialog from '../ChangePasswordDialog'
 
 const SECTIONS = [
   {
@@ -42,6 +44,7 @@ export default function Sidebar({
   onNavigate?: () => void
 }) {
   const { user, workspace, signOut } = useSession()
+  const [changing, setChanging] = useState(false)
 
   return (
     <nav
@@ -117,14 +120,29 @@ export default function Sidebar({
               {user.email}
             </span>
           </span>
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="shrink-0 rounded-md px-1.5 py-1 text-[10.5px] font-medium text-ink-3 hover:bg-surface hover:text-ink"
-          >
-            Sign out
-          </button>
+          {/* Stacked, because the account block is already narrow and two
+              words side by side truncate the email they sit beside. */}
+          <span className="flex shrink-0 flex-col items-end">
+            <button
+              type="button"
+              onClick={() => setChanging(true)}
+              className="rounded-md px-1.5 py-0.5 text-[10.5px] font-medium text-ink-3 hover:bg-surface hover:text-ink"
+            >
+              Change password
+            </button>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="rounded-md px-1.5 py-0.5 text-[10.5px] font-medium text-ink-3 hover:bg-surface hover:text-ink"
+            >
+              Sign out
+            </button>
+          </span>
         </div>
+      )}
+
+      {changing && (
+        <ChangePasswordDialog endpoint="/api/auth/password" onClose={() => setChanging(false)} />
       )}
     </nav>
   )

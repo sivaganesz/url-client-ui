@@ -1,4 +1,4 @@
-import { ROUTES, expect, expectNotBlank, test, visit } from './helpers'
+import { ROUTES, allowConsoleErrors, expect, expectNotBlank, test, visit } from './helpers'
 
 /**
  * Every route renders, with its heading, and logs nothing.
@@ -103,4 +103,48 @@ test('navigating between pages leaves no page blank', async ({ page }) => {
     await expect(page.locator('h1')).toHaveText(route.heading)
     await expectNotBlank(page)
   }
+})
+
+/**
+ * Changing your own password.
+ *
+ * `POST /auth/password` existed from the start and nothing called it, so the
+ * only way to change a password was for someone with database access to do it.
+ * These stop short of actually changing it: the suite signs in with the seed's
+ * password on every run, and a test that changed it would pass once.
+ */
+test('a customer can reach the password form, and it checks the old one', async ({ page }) => {
+  // The wrong current password below is answered with a 401, on purpose.
+  allowConsoleErrors(page, /401/, /Failed to load resource/)
+  await visit(page, '/')
+  await page.getByRole('button', { name: 'Change password' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+
+  const submit = dialog.getByRole('button', { name: 'Change password' })
+  await expect(submit).toBeDisabled()
+
+  // Too short, and the form says so rather than letting the server say it.
+  await dialog.getByLabel('Current password').fill('whatever-it-is')
+  await dialog.getByLabel('New password', { exact: true }).fill('short')
+  await expect(dialog.getByText(/at least 12 characters/i)).toBeVisible()
+  await expect(submit).toBeDisabled()
+
+  // Long enough, but the two boxes disagree.
+  await dialog.getByLabel('New password', { exact: true }).fill('a-long-enough-new-password')
+  await dialog.getByLabel('New password again').fill('a-long-enough-new-passwore')
+  await expect(dialog.getByText(/do not match/i)).toBeVisible()
+  await expect(submit).toBeDisabled()
+
+  /**
+   * Matching now, so this one is really sent — with a current password that is
+   * wrong, which is the assertion. Nothing changes, and the seed's password
+   * still works on the next run.
+   */
+  await dialog.getByLabel('New password again').fill('a-long-enough-new-password')
+  await expect(submit).toBeEnabled()
+  await submit.click()
+
+  await expect(dialog.getByRole('alert')).toContainText(/current password is not right/i)
 })

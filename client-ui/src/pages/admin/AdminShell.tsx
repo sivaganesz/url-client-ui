@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Avatar from '../../components/ui/Avatar'
+import ChangePasswordDialog from '../../components/ChangePasswordDialog'
 import ErrorBoundary from '../../components/ErrorBoundary'
 import { IconChat } from '../../components/icons'
 import { useAdmin } from '../../lib/admin'
@@ -14,6 +16,7 @@ import { useAdmin } from '../../lib/admin'
  */
 export default function AdminShell() {
   const { admin, signOut } = useAdmin()
+  const [changing, setChanging] = useState(false)
 
   return (
     <div className="flex min-h-dvh flex-col bg-canvas">
@@ -34,6 +37,13 @@ export default function AdminShell() {
           )}
           <button
             type="button"
+            onClick={() => setChanging(true)}
+            className="rounded-md px-2 py-1 text-[11.5px] font-medium text-white/70 hover:bg-white/10 hover:text-white"
+          >
+            Change password
+          </button>
+          <button
+            type="button"
             onClick={() => void signOut()}
             className="rounded-md px-2 py-1 text-[11.5px] font-medium text-white/70 hover:bg-white/10 hover:text-white"
           >
@@ -49,6 +59,10 @@ export default function AdminShell() {
           <Outlet />
         </ErrorBoundary>
       </main>
+
+      {changing && (
+        <ChangePasswordDialog endpoint="/api/admin/password" onClose={() => setChanging(false)} />
+      )}
     </div>
   )
 }
