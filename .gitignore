@@ -23,3 +23,6 @@ playwright-report/
 # It carries its own .git, so committing it would leave a submodule pointer
 # nobody else can resolve.
 perfox-contact-center/
+
+# Playwright signed-in state
+tests/.auth/

@@ -6,13 +6,12 @@ import ErrorBoundary from '../ErrorBoundary'
 import { PageSkeleton } from '../ui/States'
 import { cn } from '../../lib/cn'
 import { OperatorGate } from '../../lib/operator'
-import type { DataSource } from '../../lib/types'
 
 /**
  * Fixed sidebar from `lg` up; a dismissible drawer below it. The main column
  * owns its own scrolling so page headers can stay put.
  */
-export default function AppShell({ source }: { source: DataSource }) {
+export default function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const location = useLocation()
 
@@ -31,7 +30,7 @@ export default function AppShell({ source }: { source: DataSource }) {
     <OperatorGate>
       <div className="flex h-dvh overflow-hidden bg-canvas">
         <div className="hidden lg:flex">
-          <Sidebar source={source} />
+          <Sidebar />
         </div>
 
         {drawerOpen && (
@@ -43,7 +42,7 @@ export default function AppShell({ source }: { source: DataSource }) {
               className="absolute inset-0 bg-ink/30"
             />
             <div className="absolute inset-y-0 left-0 shadow-raised">
-              <Sidebar source={source} onNavigate={() => setDrawerOpen(false)} />
+              <Sidebar onNavigate={() => setDrawerOpen(false)} />
             </div>
           </div>
         )}

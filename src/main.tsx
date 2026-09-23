@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import ErrorBoundary from './components/ErrorBoundary'
+import { SessionProvider } from './lib/session'
 import './index.css'
 
 // The element is in index.html; a missing root is a broken build, not a
@@ -17,7 +18,10 @@ createRoot(document.getElementById('root')!).render(
       note="Something failed before the page could load. Reloading usually clears it."
     >
       <BrowserRouter>
-        <App />
+        {/* Inside the router, because signing out navigates. */}
+        <SessionProvider>
+          <App />
+        </SessionProvider>
       </BrowserRouter>
     </ErrorBoundary>
   </StrictMode>,

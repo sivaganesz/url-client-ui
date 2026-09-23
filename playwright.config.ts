@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { STORAGE_STATE } from './tests/paths'
 
 /**
  * Regression suite for the console.
@@ -38,25 +39,44 @@ export default defineConfig({
   },
 
   projects: [
+    // Signs in once and saves the cookie; the others reuse it. argon2 is
+    // deliberately slow to verify, so doing this per test would dominate the
+    // run.
+    { name: 'setup', testMatch: /auth\.setup\.ts/ },
     {
       name: 'desktop',
-      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
-      testIgnore: /responsive\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 900 },
+        storageState: STORAGE_STATE,
+      },
+      dependencies: ['setup'],
+      testIgnore: /responsive\.spec\.ts|auth\.setup\.ts/,
     },
-    { name: 'mobile', use: { ...devices['Pixel 7'] }, testMatch: /responsive\.spec\.ts/ },
+    {
+      name: 'mobile',
+      use: { ...devices['Pixel 7'], storageState: STORAGE_STATE },
+      dependencies: ['setup'],
+      testMatch: /responsive\.spec\.ts/,
+    },
   ],
 
   /**
    * Both servers, started by the suite.
    *
-   * The proxy holds the API key; Vite forwards /api to it. Starting them here
-   * means `npm test` works from a clean checkout rather than silently testing
-   * whatever happened to be running on those ports.
+   * The backend holds each workspace's API key; Vite forwards /api to it.
+   * Starting them here means `npm test` works from a clean checkout rather
+   * than silently testing whatever happened to be running on those ports.
+   *
+   * The backend needs a database and a seeded account — see ../backend.
    */
   webServer: [
     {
-      command: 'node server/index.js',
-      url: 'http://localhost:8787/api/health',
+      // The backend holds the workspace credentials and serves /api. It is a
+      // sibling project now, not part of this one.
+      command: 'npm start',
+      cwd: '../backend',
+      url: 'http://localhost:4400/api/health',
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
       stdout: 'ignore',

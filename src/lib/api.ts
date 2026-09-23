@@ -1,8 +1,10 @@
 /**
  * Siva Workspace data access — REST.
  *
- * Everything goes through the same-origin proxy (server/index.js), which adds
- * the Authorization header, so the Perfox key never enters the browser bundle.
+ * Everything goes through the same-origin backend (../backend), which resolves
+ * the signed-in user's workspace and adds its Authorization header — so the
+ * Perfox key never enters the browser bundle, and two users signed in at once
+ * reach two different workspaces through these same URLs.
  *
  * REST, not MCP: MCP is a tool-calling protocol for LLM agents. A web frontend
  * belongs on plain HTTP resources. `/conversations/{id}/events` returns exactly

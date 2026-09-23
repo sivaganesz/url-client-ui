@@ -20,18 +20,79 @@ test.describe('every page loads', () => {
   }
 })
 
-test('the sidebar names the connected workspace, not a hardcoded one', async ({ page }) => {
+test('the sidebar names the signed-in user’s own workspace', async ({ page }) => {
   await visit(page, '/')
 
-  const health = await page.request.get('/api/health')
-  const { workspace, keyConfigured } = await health.json()
+  const me = await page.request.get('/api/auth/me')
+  const { user, workspace } = await me.json()
 
-  expect(keyConfigured, 'PERFOX_API_KEY is not set — copy .env.example to .env').toBe(true)
-  expect(workspace, 'the proxy did not derive a workspace from PERFOX_API_BASE').toBeTruthy()
+  expect(user, 'the saved session is not signed in — check tests/auth.setup.ts').toBeTruthy()
+  expect(workspace?.name, 'the account has no workspace').toBeTruthy()
+  expect(workspace.configured, 'the workspace has no Perfox credentials — run seed:dev').toBe(true)
 
-  // This is the regression: the name was hardcoded, so the console kept
-  // announcing the old workspace after .env was pointed somewhere new.
-  await expect(page.getByRole('navigation', { name: 'Main' })).toContainText(workspace)
+  /**
+   * Two regressions in one assertion. The name used to be hardcoded, so the
+   * console kept announcing the old workspace after .env moved; and it now
+   * comes from the session rather than from any environment, so two users
+   * signed in from different machines each see their own.
+   */
+  const nav = page.getByRole('navigation', { name: 'Main' })
+  await expect(nav).toContainText(workspace.name)
+  await expect(nav).toContainText(user.email)
+})
+
+test('no credential ever reaches the browser', async ({ page }) => {
+  await visit(page, '/')
+
+  /**
+   * The whole reason the backend exists. A workspace key in a login response
+   * would be readable in devtools by anyone who could sign in, would outlive
+   * their session, and would let them bypass every permission added later.
+   */
+  const exposed = await page.evaluate(() => ({
+    page: document.documentElement.innerHTML,
+    local: JSON.stringify(localStorage),
+    session: JSON.stringify(sessionStorage),
+    cookie: document.cookie,
+  }))
+
+  for (const [where, hay] of Object.entries(exposed)) {
+    expect(hay, `a Perfox key is readable in ${where}`).not.toMatch(/sk_[a-zA-Z0-9]{30,}/)
+    expect(hay, `an operator secret is readable in ${where}`).not.toMatch(/sa_secret_live_/)
+  }
+
+  // httpOnly, so script cannot read it even to steal it.
+  expect(exposed.cookie, 'the session cookie is readable by JavaScript').not.toContain('ufsid')
+})
+
+/**
+ * Signing out on its own session, not the shared one.
+ *
+ * Logging out deletes the session row, and every other test is replaying the
+ * same saved cookie — so doing this with the shared state would sign the whole
+ * suite out mid-run and fail whatever happened to come next.
+ */
+test.describe('sign out', () => {
+  test.use({ storageState: { cookies: [], origins: [] } })
+
+  test('closes the door behind it', async ({ page, context }) => {
+    await page.goto('/login')
+    await page.getByLabel('Email').fill(process.env.TEST_EMAIL ?? 'siva@example.com')
+    await page.getByLabel('Password').fill(process.env.TEST_PASSWORD ?? 'correct-horse-battery')
+    await page.getByRole('button', { name: /^Sign in$/ }).click()
+    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
+
+    await page.getByRole('button', { name: /Sign out/ }).click()
+    await expect(page).toHaveURL(/\/login/)
+
+    // Not just the redirect — the session has to be gone server-side too, or a
+    // client-side guard is the only thing between a stale tab and the data.
+    const me = await context.request.get('/api/auth/me')
+    expect((await me.json()).user).toBeNull()
+
+    const agents = await context.request.get('/api/perfox/agents')
+    expect(agents.status(), 'the API still answered after sign-out').toBe(401)
+  })
 })
 
 test('navigating between pages leaves no page blank', async ({ page }) => {

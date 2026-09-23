@@ -291,13 +291,6 @@ export interface OutboundRequest {
 
 /* ── the shell ───────────────────────────────────────────── */
 
-/** What the /api/health probe says about the proxy behind this console. */
-export interface DataSource {
-  live: boolean
-  workspace: string | null
-  label: string
-}
-
 /**
  * Passed down the router outlet. Pages read it with
  * `useOutletContext<ShellContext>()` — react-router cannot infer it, so the

@@ -2,9 +2,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// The Perfox key must never reach the browser bundle, so the app always calls
-// same-origin `/api/*` and the dev server forwards those calls to the proxy in
-// server/. `npm run dev` therefore needs `node server/index.js` running too.
+// The app and the API are ONE ORIGIN, which is what lets the session cookie
+// stay SameSite=Lax and the browser block CSRF for us. In development Vite
+// serves the app and forwards /api to the backend; in production the backend
+// serves the built app itself. Either way the browser sees a single origin.
+//
+// `npm run dev` therefore needs the backend running too — see ../backend.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
@@ -14,8 +17,10 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8787',
-        changeOrigin: true,
+        target: 'http://localhost:4400',
+        // Left false so the Host header reaches the backend unchanged, which
+        // is what `trust proxy` and the cookie domain expect in production.
+        changeOrigin: false,
       },
     },
   },

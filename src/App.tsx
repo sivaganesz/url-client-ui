@@ -1,7 +1,10 @@
 import { lazy } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
-import { useDataSource } from './lib/useDataSource'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import { PageSkeleton } from './components/ui/States'
+import { useSession } from './lib/session'
 
 /**
  * One chunk per route.
@@ -12,8 +15,12 @@ import { useDataSource } from './lib/useDataSource'
  * wide margin. Six routes is the right granularity — splitting finer would
  * trade a smaller first load for a request per component.
  *
- * The Suspense boundary that covers these lives in AppShell, around the same
- * Outlet that renders them.
+ * Login and Register are NOT split. They are the first thing most visits
+ * render, so a separate chunk for them would add a round trip to the one page
+ * that has to be quick.
+ *
+ * The Suspense boundary that covers the lazy pages lives in AppShell, around
+ * the same Outlet that renders them.
  */
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Analytics = lazy(() => import('./pages/Analytics'))
@@ -22,13 +29,33 @@ const CallLogs = lazy(() => import('./pages/CallLogs'))
 const Agents = lazy(() => import('./pages/Agents'))
 const PhoneNumbers = lazy(() => import('./pages/PhoneNumbers'))
 
-export default function App() {
-  // Reports whether pages are reading the live workspace or nothing at all.
-  const source = useDataSource()
+/**
+ * Nothing behind this renders for a signed-out visitor.
+ *
+ * It is a convenience, not the security boundary — every `/api/*` route checks
+ * the session itself, so a bypassed guard would show empty pages rather than
+ * anyone else's data. Guards that are the only check are how data leaks.
+ */
+function RequireSession() {
+  const { status } = useSession()
+  const location = useLocation()
 
+  if (status === 'loading') return <PageSkeleton />
+  if (status === 'signed-out') {
+    // Carry where they were headed, so signing in resumes it rather than
+    // dropping them on the dashboard.
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
+  }
+  return <AppShell />
+}
+
+export default function App() {
   return (
     <Routes>
-      <Route element={<AppShell source={source} />}>
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+
+      <Route element={<RequireSession />}>
         <Route index element={<Dashboard />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="conversations" element={<Conversations />} />

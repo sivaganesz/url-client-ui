@@ -8,8 +8,6 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "proxy": "node server/index.js",
-    "discover": "node server/discover.js",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "playwright test",
     "test:headed": "playwright test --headed",
