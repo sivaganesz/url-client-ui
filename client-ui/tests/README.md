@@ -7,9 +7,30 @@ npm run test:ui       # Playwright's UI mode, for writing and debugging
 npx playwright test tests/conversations.spec.ts   # one file
 ```
 
-The suite starts its own proxy and Vite server, so it runs from a clean
-checkout. It needs a working `.env` — copy `.env.example` and add
-`PERFOX_API_KEY`. Without one, `smoke.spec.ts` fails first and says so.
+The suite starts the backend and Vite itself, so it runs from a clean checkout.
+What it needs first is a database with accounts in it:
+
+```bash
+cd ../backend
+docker compose up -d      # Postgres on :5433
+npm run migrate
+npm run seed:dev          # the accounts these tests sign in as
+```
+
+`seed:dev` creates `siva@example.com` and `admin@example.com`, which is what
+`auth.setup.ts` and `admin.spec.ts` default to; `TEST_EMAIL`, `TEST_PASSWORD`,
+`TEST_ADMIN_EMAIL` and `TEST_ADMIN_PASSWORD` override both the seed and the
+tests, so they stay in step.
+
+Credentials for the workspace come from the environment
+(`PERFOX_API_BASE`, `PERFOX_API_KEY`), from `SEED_ENV_FILE`, or from an old
+`client-ui/.env` if one is still lying around. Without them the seed still
+makes the accounts and says the workspace is unconfigured: sign-in, the admin
+pages and `responsive.spec.ts` pass, and the specs that read live data fail
+saying the workspace has no credentials.
+
+If the suite fails at `auth.setup.ts`, that seed has not been run against this
+database.
 
 ## Nothing here sends
 

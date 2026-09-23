@@ -4,49 +4,88 @@ import { one, pool, query } from './index.ts'
 import { hashPassword } from '../auth/password.ts'
 
 /**
- * Development only: builds a workspace from the credentials the console
- * already had in its own .env.
+ * Development only: the accounts the browser suite signs in as, and a
+ * workspace for them to look at.
  *
- * This exists so the new backend proxies to exactly the same workspace the old
- * one did, which makes "does this still work?" a like-for-like comparison
- * rather than a new variable. It also creates the admin the browser suite
- * signs in as, so a fresh checkout can run the tests.
+ *   npm run seed:dev
  *
- *   node --experimental-strip-types src/db/seed-dev.ts
+ * It used to insist on `../client-ui/.env`, the file the console kept its key
+ * in before there was a database — so it worked on the one machine that had
+ * been through the old setup and nowhere else. A fresh checkout could not run
+ * the browser tests at all, which made "the tests pass" a claim only one
+ * person could check.
+ *
+ * Credentials are now taken from the first of these that has them:
+ *
+ *   1. the environment — PERFOX_API_BASE, PERFOX_API_KEY, OPERATOR_*
+ *   2. the file named by SEED_ENV_FILE
+ *   3. ../client-ui/.env, if it happens to still be there
+ *
+ * With none of them it still creates the accounts and says the workspace is
+ * unconfigured, because sign-in, the admin pages and the responsive suite do
+ * not need a Perfox key — only the pages that read live data do, and those
+ * report "not configured" rather than failing strangely.
+ *
+ * The account names match what the tests default to, so seeding and running
+ * them line up without a second set of variables to keep in step.
  */
-const EMAIL = 'siva@example.com'
-const PASSWORD = 'correct-horse-battery'
-const ADMIN_EMAIL = 'admin@example.com'
-const ADMIN_PASSWORD = 'admin-correct-horse'
+const EMAIL = process.env.TEST_EMAIL ?? 'siva@example.com'
+const PASSWORD = process.env.TEST_PASSWORD ?? 'correct-horse-battery'
+const ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL ?? 'admin@example.com'
+const ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD ?? 'admin-correct-horse'
 
-function readEnv(path: string): Record<string, string> {
-  const out: Record<string, string> = {}
+const KEYS = [
+  'PERFOX_API_BASE',
+  'PERFOX_API_KEY',
+  'OPERATOR_API_HOST',
+  'OPERATOR_SITE_ID',
+  'OPERATOR_SITE_SECRET',
+  'OPERATOR_WORKFLOW_ID',
+] as const
+
+type Credentials = Partial<Record<(typeof KEYS)[number], string>>
+
+function readEnvFile(path: string): Credentials {
+  const out: Credentials = {}
   for (const line of readFileSync(path, 'utf8').split('\n')) {
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith('#')) continue
     const eq = trimmed.indexOf('=')
     if (eq < 1) continue
-    out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim()
+    const key = trimmed.slice(0, eq).trim() as (typeof KEYS)[number]
+    if (KEYS.includes(key)) out[key] = trimmed.slice(eq + 1).trim()
   }
   return out
 }
 
-try {
-  const source = process.env.SEED_ENV_FILE ?? '../client-ui/.env'
-  if (!existsSync(source)) {
-    throw new Error(
-      `no credentials to seed from — ${source} does not exist.\n\n` +
-        "  This script carries the console's old .env into the database, so it\n" +
-        '  only works on a machine that had the pre-database setup. On a fresh\n' +
-        '  checkout use `npm run seed`, which prompts for the credentials, or\n' +
-        '  point SEED_ENV_FILE at a file holding PERFOX_API_BASE and\n' +
-        '  PERFOX_API_KEY.',
-    )
+/** The first source that carries a key, and where it came from. */
+function credentials(): { values: Credentials; source: string } {
+  const fromEnv: Credentials = {}
+  for (const key of KEYS) if (process.env[key]) fromEnv[key] = process.env[key]
+  if (fromEnv.PERFOX_API_KEY) return { values: fromEnv, source: 'the environment' }
+
+  const named = process.env.SEED_ENV_FILE
+  if (named) {
+    if (!existsSync(named)) throw new Error(`SEED_ENV_FILE points at ${named}, which does not exist.`)
+    return { values: readEnvFile(named), source: named }
   }
-  const env = readEnv(source)
+
+  const legacy = '../client-ui/.env'
+  if (existsSync(legacy)) return { values: readEnvFile(legacy), source: legacy }
+
+  return { values: {}, source: '' }
+}
+
+try {
+  const { values: env, source } = credentials()
   const trim = (v: string | undefined) => v?.replace(/\/+$/, '') || null
 
-  const existing = await one<{ id: string }>('SELECT id FROM users WHERE lower(email) = $1', [EMAIL])
+  console.log(source ? `  credentials from ${source}` : '  no credentials found')
+
+  const existing = await one<{ id: string }>('SELECT id FROM users WHERE lower(email) = $1', [
+    EMAIL.toLowerCase(),
+  ])
+
   if (existing) {
     console.log(`  ${EMAIL} already exists — nothing to do.`)
   } else {
@@ -79,7 +118,7 @@ try {
   // The browser suite signs in as this admin (tests/admin.spec.ts). Created
   // here rather than by hand, so a fresh checkout can run the tests.
   const admin = await one<{ id: string }>('SELECT id FROM admins WHERE lower(email) = $1', [
-    ADMIN_EMAIL,
+    ADMIN_EMAIL.toLowerCase(),
   ])
   if (admin) {
     console.log(`  admin ${ADMIN_EMAIL} already exists`)
@@ -94,6 +133,15 @@ try {
 
   console.log(`  REST configured     : ${Boolean(env.PERFOX_API_KEY)}`)
   console.log(`  operator configured : ${Boolean(env.OPERATOR_SITE_SECRET)}`)
+
+  if (!env.PERFOX_API_KEY) {
+    console.log(
+      '\n  No Perfox key, so the pages that read live data will say they are not\n' +
+        '  configured. Sign-in, the admin pages and the responsive suite work as\n' +
+        '  they are. To add one, set PERFOX_API_BASE and PERFOX_API_KEY and run\n' +
+        '  this again, or paste them into the workspace from the admin pages.',
+    )
+  }
 } catch (err) {
   console.error(`  failed: ${(err as Error).message}`)
   process.exitCode = 1

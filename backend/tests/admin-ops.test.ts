@@ -272,6 +272,35 @@ describe('sign-in attempts are capped', () => {
     assert.equal((await c.post('/api/admin/login', ADMIN)).status, 200)
   })
 
+  test('an attempt cut off mid-guess counts like any other', async () => {
+    /**
+     * The counter used to run on `finish`, which fires only for a response
+     * written out in full. Hanging up the moment the guess was in flight meant
+     * the password was still checked and the attempt still cost nothing — an
+     * unlimited supply of free guesses, from a limiter that looked right.
+     */
+    const base = await start()
+    for (let i = 0; i < 12; i++) {
+      const cut = new AbortController()
+      const attempt = fetch(`${base}/api/admin/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: ADMIN.email, password: 'wrong' }),
+        signal: cut.signal,
+      }).catch(() => null)
+
+      // Long enough for the body to be read and argon2 to start, nowhere near
+      // long enough for it to answer.
+      await new Promise((ready) => setTimeout(ready, 15))
+      cut.abort()
+      await attempt
+    }
+
+    // Locked, though not one of those responses was ever collected.
+    const res = await new Client().post('/api/admin/login', ADMIN)
+    assert.equal(res.status, 429, 'aborted guesses were free')
+  })
+
   test('the customer login is capped too', async () => {
     await makeWorkspace({ name: 'W', email: 'w@t.test' })
     const c = new Client()

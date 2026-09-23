@@ -20,6 +20,8 @@ forwards `/api/*` to it, so the browser sees **one origin**.
 ```bash
 # first, in ../backend — see its README
 #   docker compose up -d ; npm run migrate ; npm run seed:admin
+# or, for the accounts the test suite signs in as:
+#   docker compose up -d ; npm run migrate ; npm run seed:dev
 
 npm install
 npm run dev              # http://localhost:5180
@@ -46,7 +48,8 @@ npm run build            # runs tsc first, then bundles into dist/
 
 `npm run build` fails on a type error rather than shipping. `npm test` starts
 the backend and Vite itself, so it works from a clean checkout — but it needs a
-database and a seeded account, and it drives the live Perfox API.
+database with `npm run seed:dev` applied, and it drives the live Perfox API.
+See [tests/README.md](tests/README.md) for what runs without a Perfox key.
 
 `npm run discover`, in the backend, prints a workspace's MCP tools and their
 signatures. Useful when checking whether a resource exists before writing

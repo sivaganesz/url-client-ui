@@ -40,6 +40,14 @@ only account that cannot be made through the app, because something has to
 exist before anything else can be created; it prompts, or runs unattended if
 `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set.
 
+To run the browser suite instead, `npm run seed:dev` makes both accounts it
+signs in as — a customer and an admin — in one step. Workspace credentials come
+from `PERFOX_API_BASE` and `PERFOX_API_KEY` in the environment, from the file
+named by `SEED_ENV_FILE`, or from an old `../client-ui/.env` if one is still
+there. Without any of them it still creates the accounts and says the workspace
+is unconfigured, which is enough for everything except the pages that read live
+data.
+
 Generate the encryption key with:
 
 ```bash

@@ -81,16 +81,37 @@ export function limitLogins(req: Request, res: Response, next: NextFunction): vo
     return
   }
 
-  res.on('finish', () => {
+  /**
+   * `close`, not `finish`.
+   *
+   * `finish` fires only when a response is written out in full, so an attacker
+   * who cut the connection the moment their guess was in flight was never
+   * counted — the password was still checked, and the attempt cost them
+   * nothing. `close` fires either way.
+   *
+   * Which means the outcome can now be unknown: the handler may not have
+   * reached its verdict before the socket went. An attempt that did not finish
+   * counts as a failure, since the alternative is a free guess, and only a
+   * response that completed and said so clears the address.
+   */
+  res.on('close', () => {
     const failed = res.locals.loginFailed === true
+    const signedIn = res.writableEnded && !failed && res.statusCode < 400
+
     for (const key of keys) {
       const b = bucketFor(key, Date.now())
-      if (!failed) {
-        // A success clears the address, so two typos then the right password
-        // does not leave someone locked out of their own account.
+
+      if (signedIn) {
+        // Clears the address, so two typos then the right password does not
+        // leave someone locked out of their own account.
         if (key.startsWith('email:')) buckets.delete(key)
         continue
       }
+
+      // A rejected request that never reached the password — no email, no
+      // body — is not a guess and is not counted as one.
+      if (!failed && res.writableEnded) continue
+
       b.failures += 1
       if (b.failures >= MAX_FAILURES) b.until = Date.now() + LOCKOUT_MS
     }
