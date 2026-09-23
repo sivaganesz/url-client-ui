@@ -135,8 +135,10 @@ export default function DataTable<T>({
         </table>
       </div>
 
+      {/* The footer grows rather than clipping: a pager that wraps onto two
+          lines on a phone would have its second line cut off by a fixed 48px. */}
       {footer && (
-        <div className="flex h-12 shrink-0 items-center justify-between border-t border-line bg-sunken px-4 text-[11.5px] text-ink-3">
+        <div className="flex min-h-12 shrink-0 items-center justify-between border-t border-line bg-sunken px-3 py-2 text-[11.5px] text-ink-3 sm:px-4">
           {footer}
         </div>
       )}

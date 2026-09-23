@@ -1,5 +1,5 @@
-import { useId } from 'react'
 import Dropdown, { MenuItem } from './Dropdown'
+import { DateInput } from './Field'
 import { IconCalendar, IconCheck, IconChevronDown } from '../icons'
 import { cn } from '../../lib/cn'
 
@@ -52,8 +52,6 @@ export default function DateFilter({
   onChange?: (range: { from: string; to: string }) => void
   className?: string
 }) {
-  const fromId = useId()
-  const toId = useId()
   const ranges = presets()
 
   const named = ranges.find((p) => p.from === from && p.to === to)
@@ -66,8 +64,6 @@ export default function DateFilter({
         : `Until ${short(to)}`
 
   const active = Boolean(from || to)
-  const field =
-    'h-8 w-full rounded-lg border border-line-strong bg-surface px-2 text-[11.5px] text-ink transition-colors hover:border-ink-4 focus:border-brand focus:outline-none'
 
   return (
     <Dropdown
@@ -123,29 +119,27 @@ export default function DateFilter({
               Custom range
             </span>
             <div className="flex items-center gap-2">
-              <label htmlFor={fromId} className="w-8 shrink-0 text-[11px] text-ink-3">
+              <span aria-hidden="true" className="w-8 shrink-0 text-[11px] text-ink-3">
                 From
-              </label>
-              <input
-                id={fromId}
-                type="date"
+              </span>
+              <DateInput
+                label="From date"
                 value={from}
                 max={to || undefined}
-                onChange={(e) => onChange?.({ from: e.target.value, to })}
-                className={field}
+                onChange={(value) => onChange?.({ from: value, to })}
+                className="flex-1"
               />
             </div>
             <div className="flex items-center gap-2">
-              <label htmlFor={toId} className="w-8 shrink-0 text-[11px] text-ink-3">
+              <span aria-hidden="true" className="w-8 shrink-0 text-[11px] text-ink-3">
                 To
-              </label>
-              <input
-                id={toId}
-                type="date"
+              </span>
+              <DateInput
+                label="To date"
                 value={to}
                 min={from || undefined}
-                onChange={(e) => onChange?.({ from, to: e.target.value })}
-                className={field}
+                onChange={(value) => onChange?.({ from, to: value })}
+                className="flex-1"
               />
             </div>
           </div>

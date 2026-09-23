@@ -47,7 +47,51 @@ export default function LineChart({
   const hoverDatum = hover === null ? undefined : data[hover]
 
   const ticks = [lo, lo + span / 2, hi]
-  const labelStep = Math.max(1, Math.ceil(data.length / maxLabels))
+
+  /**
+   * How many x labels the plot can actually hold, not a fixed twelve.
+   *
+   * "21 Sept" is about 44px at this size, so twelve of them need 550px. On a
+   * 360px phone the plot is barely 300px wide and the dates ran into each
+   * other — the axis read "17 Ju23 Ju29 Jul4 Aug". Fitting the count to the
+   * width thins them out on a phone and leaves the desktop axis as it was.
+   */
+  const fits = Math.max(2, Math.floor(plotW / 72))
+  const labelStep = Math.max(1, Math.ceil(data.length / Math.min(maxLabels, fits)))
+
+  /**
+   * The x labels that actually fit, chosen by where they land rather than by
+   * a count.
+   *
+   * Every nth label is only a candidate here. "17 Jul" and "23 Sept" are not
+   * the same width, and the last point is always offered whatever the step
+   * works out to, so an evenly spaced count still produced collisions — on a
+   * 360px phone the axis read "17 Ju23 Ju29 Jul4 Aug", and even the desktop
+   * had two dates touching. Each candidate is kept only if it clears the last
+   * one it was placed beside.
+   *
+   * Widths are estimated from the text rather than measured: measuring means
+   * rendering first, and an axis that reflows after paint is worse than one
+   * that is occasionally a few pixels conservative.
+   */
+  const estimate = (text: string) => text.length * 5.6 + 6
+  const xLabels: { key: number; x: number; anchor: 'start' | 'middle' | 'end'; text: string }[] = []
+  let placedTo = -Infinity
+
+  data.forEach((d, i) => {
+    if (i % labelStep !== 0 && i !== data.length - 1) return
+
+    const x = px(i)
+    const w = estimate(d.label)
+    // Centred on its point, except at the ends: the last point sits 12px from
+    // the edge, so half of "23 Sept" fell outside the svg and was cut in two.
+    const anchor = x - w / 2 < 0 ? 'start' : x + w / 2 > width ? 'end' : 'middle'
+    const left = anchor === 'start' ? x : anchor === 'end' ? x - w : x - w / 2
+
+    if (left < placedTo + 8) return
+    placedTo = left + w
+    xLabels.push({ key: i, x, anchor, text: d.label })
+  })
 
   function onMove(e: React.MouseEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -87,16 +131,18 @@ export default function LineChart({
           <path d={area} fill={SERIES_SOFT} />
           <path d={line} fill="none" stroke={SERIES} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 
-          {/* Two months of daily points would overlap into mush, so label
-              every nth — plus the last one, when it isn't about to collide
-              with the label before it. */}
-          {data.map((d, i) =>
-            i % labelStep === 0 || (i === data.length - 1 && i % labelStep > labelStep / 2) ? (
-              <text key={i} x={px(i)} y={height - 8} textAnchor="middle" fontSize="10.5" fill={AXIS_TEXT}>
-                {d.label}
-              </text>
-            ) : null,
-          )}
+          {xLabels.map((l) => (
+            <text
+              key={l.key}
+              x={l.x}
+              y={height - 8}
+              textAnchor={l.anchor}
+              fontSize="10.5"
+              fill={AXIS_TEXT}
+            >
+              {l.text}
+            </text>
+          ))}
 
           {hover !== null && (
             <g pointerEvents="none">

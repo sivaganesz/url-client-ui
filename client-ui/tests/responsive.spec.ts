@@ -24,6 +24,108 @@ test('no page scrolls sideways on a phone', async ({ page }) => {
   }
 })
 
+test('nothing on Analytics sticks out of what holds it', async ({ page }) => {
+  /**
+   * Narrower than the Pixel this project runs at, because the bugs this
+   * catches appeared on real phones and not in a 412px emulation: the pager's
+   * range and buttons ran off the card, and the chart's two date inputs were
+   * squeezed until "to" sat on top of the first one.
+   *
+   * The sideways-scroll test above misses all of it. A card with its own
+   * rounded corners clips what overflows, so the document never grows — the
+   * layout is broken without the page ever being wider than the screen.
+   */
+  for (const width of [320, 360, 390]) {
+    await page.setViewportSize({ width, height: 800 })
+    await visit(page, '/analytics')
+    await expect(page.locator('table tbody tr').first()).toBeVisible()
+
+    const spills = await page.evaluate(() => {
+      const out: string[] = []
+      for (const el of Array.from(document.querySelectorAll('main *')) as HTMLElement[]) {
+        const box = el.getBoundingClientRect()
+        if (box.width === 0 || box.height === 0) continue
+
+        const parent = el.parentElement
+        if (!parent) continue
+        // A parent that scrolls is entitled to hold something wider than
+        // itself — the case table does exactly that, on purpose.
+        if (getComputedStyle(parent).overflowX !== 'visible') continue
+
+        const within = parent.getBoundingClientRect()
+        if (box.right > within.right + 1) {
+          out.push(`${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 24)}"`)
+        }
+      }
+      return [...new Set(out)]
+    })
+
+    expect(spills, `at ${width}px`).toEqual([])
+  }
+})
+
+test('the chart thins its axis rather than stacking the dates', async ({ page }) => {
+  /**
+   * Twelve labels was a fixed count, and twelve dates need about 550px. On a
+   * phone the axis read "17 Ju23 Ju29 Jul4 Aug" — every label drawn, none of
+   * them legible.
+   */
+  await visit(page, '/analytics')
+  const chart = page.locator('svg[role="img"]').first()
+  await expect(chart).toBeVisible()
+
+  for (const width of [320, 360, 390, 412]) {
+    await page.setViewportSize({ width, height: 800 })
+
+    /**
+     * Polled, because the chart measures itself through a ResizeObserver: read
+     * it the instant the viewport changes and you are still looking at the
+     * labels chosen for the width before.
+     */
+    await expect
+      .poll(async () =>
+        chart.evaluate((svg) => {
+          const frame = svg.getBoundingClientRect()
+          const boxes = (Array.from(svg.querySelectorAll('text')) as SVGTextElement[])
+            .filter((t) => /[A-Za-z]/.test(t.textContent ?? ''))
+            .map((t) => t.getBoundingClientRect())
+            .sort((a, b) => a.x - b.x)
+
+          if (boxes.length < 2) return 'drew no dates'
+          for (let i = 1; i < boxes.length; i++) {
+            if (boxes[i]!.left - boxes[i - 1]!.right <= 0) return 'dates touching'
+          }
+          // Cut in half by the edge of the plot is its own unreadable.
+          const out = boxes.some((b) => b.left < frame.left - 1 || b.right > frame.right + 1)
+          return out ? 'a date off the edge of the plot' : 'ok'
+        }),
+      )
+      .toBe('ok')
+  }
+})
+
+test('an empty date field still shows its format once tapped', async ({ page }) => {
+  /**
+   * Focusing a date input on a phone opens a calendar dialog and the field
+   * itself draws nothing at all. A desktop does the opposite — focus puts you
+   * in its "dd-mm-yyyy" segments, which have to be visible to type into — so
+   * handing the field over on focus, as the desktop needs, left the phone
+   * blank the moment it was tapped.
+   */
+  await visit(page, '/analytics')
+  const field = page.locator('input[type="date"]').first()
+  await expect(field).toBeVisible()
+  const hint = field.locator('xpath=following-sibling::span[1]')
+
+  await expect(hint).toHaveText('DD/MM/YYYY')
+  await field.focus()
+  await expect(hint).toBeVisible()
+
+  // And it gets out of the way as soon as there is a real date to show.
+  await field.fill('2026-09-01')
+  await expect(hint).toBeHidden()
+})
+
 test('a menu opened near the edge stays on the screen', async ({ page }) => {
   /**
    * A dropdown hangs from its own button, and on a phone most buttons sit too
