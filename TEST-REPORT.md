@@ -254,17 +254,30 @@ Two artefacts that are not defects:
 
 ## 6. API / integration issues
 
-| # | Issue | Impact |
+**Items 1–4 are waiting on a platform release**, not open problems with no
+answer. The APIs behind them are in development and not yet in production; the
+client will say when they land, and the console work to adopt each one is
+small because the gaps are already mapped.
+
+| # | Waiting on the API | Impact until then |
 |---|-------|--------|
 | 1 | `/conversations` caps at **200 records** and accepts no paging parameters — no `limit`, `offset`, `page` or cursor | 94 of 294 conversations are unreachable. Also caps the Dashboard and Analytics channel splits. Confirmed on both REST and MCP, so it is server-side |
 | 2 | No phone-number resource | Phone Numbers page cannot be completed |
 | 3 | No conversation scoring / ticket resource | Analytics Conversation Log remains mock |
-| 4 | `/calls` reports `direction: unknown` on every record | Direction column omitted rather than shown blank |
-| 5 | `/agents` reports `channels: ["web"]` for **every** agent, whatever its triggers | The console cannot use it. To know what an agent can be reached on it fetches that agent's full graph — **one request per agent**. Opening the New conversation dialog on an 11-agent workspace costs 12 requests; on a 50-agent workspace it would cost 51 |
-| 6 | The API **rate-limits** (HTTP 429) and the console has no backoff | Surfaced while building the regression suite: a full run trips it, because of the N+1 above. A client browsing quickly could hit it too, and today it renders as a generic load failure rather than "too fast, retrying" |
-| 7 | The operator SDK polls `POST /operator/answer` once a second while a call rings, and **every poll 404s** until the customer picks up | ~25 console errors per unanswered call. Normal SDK behaviour, not a defect, but console-error monitoring will be noisy during calls and should filter it |
+| 4 | `/agents` reports `channels: ["web"]` for **every** agent, whatever its triggers | The console cannot use it. To know what an agent can be reached on it fetches that agent's full graph — **one request per agent**. Opening the New conversation dialog on an 11-agent workspace costs 12 requests; on a 50-agent workspace it would cost 51 |
 
-**Two recommended API requests, in priority order:**
+### Platform behaviour that is not a defect
+
+Recorded so nobody designs around it or files it twice.
+
+| Behaviour | Why it is fine |
+|---|---|
+| `/calls` reports `direction: unknown` on every record | Direction is not recorded on the call today. The column is omitted rather than shown blank or guessed — **a wrong direction is worse than none**. Confirmed with the client as intended, not a gap to close |
+| `has_recording` turns false once a recording passes the workspace's retention window | It means "available now", not "was ever recorded". The player treats it that way |
+| The API **rate-limits** (HTTP 429) | Surfaced by the regression suite, driven by the N+1 above. It would go away with item 4. Worth a retry/backoff on our side regardless, but not a fault |
+| The operator SDK polls `POST /operator/answer` once a second while a call rings, and **every poll 404s** until pickup | ~25 console errors per unanswered call. Normal SDK behaviour — but console-error monitoring should filter it, or every call looks like an incident |
+
+**Two requests worth making of the platform team, in priority order:**
 
 1. Give `/conversations` the same `limit` + `next_cursor` that `/calls` already has. The frontend already has the cursor-following helper and would need a one-word change.
 2. Make `/agents` report each agent's real trigger channels. That removes the N+1 outright and with it most of the 429 exposure.
@@ -360,6 +373,9 @@ strip with no content in it.
 | Production build | Clean, 0 errors |
 
 ### Status: **Ready for client handover**, subject to two items
+
+Both are environment, not code. They are held with the same platform release
+as §6 items 1–4.
 
 | # | Action | Owner | Effort |
 |---|--------|-------|--------|
@@ -476,7 +492,7 @@ other number was contacted.
 | 9 | Second dial while a call is up | ✅ Refused — "You are already on a call" |
 | 10 | Dial again after ending | ✅ Timer reset, no error carried over |
 | 11 | Dial from the New conversation dialog | ✅ No agent picker, and **no `POST /outbound` fired** |
-| 12 | Microphone blocked | ⚪ **Not established** — see §10.4 |
+| 12 | Microphone blocked | ✅ Tested by the client — see §10.4 |
 
 The console's own failure handling was tested separately, without dialling: a
 failing config endpoint, an unreachable one, a malformed response and one that
@@ -515,18 +531,17 @@ status check alone would leave the panel saying "Calling…" indefinitely. The
 console reads the error too. Confirmed on an unanswered call — the panel
 cleared at 36.7s.
 
-### 10.4 The one case not established
+### 10.4 The microphone case
 
-**A call answered while the microphone is blocked.** Dialling with the
-microphone denied does *not* fail early — the call is placed normally. If it
-were then answered, the SDK's documented worst case would apply: the dial
-resolves, no audio flows, and nothing says so. Establishing that needs an
-answered call with the microphone denied, which was left for the client to
-decide on rather than sprung on them.
+**A call answered while the microphone is blocked** — ✅ **tested by the client
+and closed.**
 
-Note also that the microphone needs a **secure context**. `localhost` is exempt,
-so development works over plain HTTP, but any other host — including a LAN IP —
-silently fails to get a microphone until it is served over HTTPS.
+Worth keeping the note that goes with it: dialling with the microphone denied
+does *not* fail early, the call is placed normally. And the microphone needs a
+**secure context**. `localhost` is exempt, so development works over plain
+HTTP, but any other host — including a LAN IP — silently fails to get a
+microphone until it is served over HTTPS. That matters for whatever URL the
+console is eventually served from.
 
 ### 10.5 What this needs to work in production
 
