@@ -8,25 +8,46 @@ import { IconChevronRight } from '../../components/icons'
  * exist once an Operator node has been added to a calling agent and pointed at
  * a website origin. An admin setting a customer up for the first time was
  * otherwise reading it off somebody else's screen.
+ *
+ * One emphasis per step: where to go. Bolding every noun in a four-line list
+ * emphasises nothing — the eye has no landmark left — so the names of the
+ * fields stay plain and only the thing to click stands out.
  */
 
-const PERFOX: string[] = [
-  'In Perfox, go to Developer → Create new key, and copy the API key it generates.',
-  'Open the MCP tab and copy the server URL.',
-  'Change the /mcp on the end to /api/v1 — that is the API base.',
+/** A thing to click or a tab to open: a proper noun on somebody else's screen. */
+const B = ({ children }: { children: React.ReactNode }) => (
+  <strong className="font-semibold text-ink">{children}</strong>
+)
+
+const PERFOX = [
+  <>
+    In Perfox, go to <B>Developer → Create new key</B> and copy the API key.
+  </>,
+  <>
+    Open the <B>MCP</B> tab and copy the server URL.
+  </>,
+  <>
+    Change the <B>/mcp</B> on the end to <B>/api/v1</B> — that is the API base.
+  </>,
 ]
 
-const OPERATOR: string[] = [
-  'Open the calling agent, and under Operation add an Operator node.',
-  'Open that node, go to its Operator app tab, and add the website origin.',
-  'Adding it gives you the Site ID, the API host and the Workflow ID.',
-  'Click Rotate key for the site secret.',
+const OPERATOR = [
+  <>
+    Open the calling agent, and under Operation add an <B>Operator</B> node.
+  </>,
+  <>
+    In its <B>Operator app</B> tab, add the website origin.
+  </>,
+  <>
+    That gives you the Site ID, the API host and the Workflow ID.
+  </>,
+  <>
+    Click <B>Rotate key</B> for the site secret.
+  </>,
 ]
 
 export function PerfoxHelp({ collapsible = false }: { collapsible?: boolean }) {
-  return (
-    <Help title="Where to find these" steps={PERFOX} collapsible={collapsible} />
-  )
+  return <Help title="Where to find these" steps={PERFOX} collapsible={collapsible} />
 }
 
 export function OperatorHelp({ collapsible = false }: { collapsible?: boolean }) {
@@ -47,16 +68,16 @@ function Help({
   collapsible,
 }: {
   title: string
-  steps: string[]
-  foot?: string
+  steps: React.ReactNode[]
+  foot?: React.ReactNode
   /** Folded away in a dialog, where the form is already the whole height. */
   collapsible: boolean
 }) {
   const body = (
     <>
       <ol className="flex list-decimal flex-col gap-1 pl-4">
-        {steps.map((step) => (
-          <li key={step} className="pl-0.5">
+        {steps.map((step, i) => (
+          <li key={i} className="pl-0.5">
             {step}
           </li>
         ))}
