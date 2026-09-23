@@ -76,6 +76,10 @@ export class Client {
     return this.request(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined })
   }
 
+  delete(path: string): Promise<Response> {
+    return this.request(path, { method: 'DELETE' })
+  }
+
   get(path: string): Promise<Response> {
     return this.request(path)
   }

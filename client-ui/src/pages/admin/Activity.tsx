@@ -17,6 +17,7 @@ const ACTIONS: Record<string, { label: string; tone: 'ok' | 'danger' | 'info' | 
   'customer.create': { label: 'Created customer', tone: 'ok' },
   'customer.update': { label: 'Changed connection', tone: 'info' },
   'customer.reveal': { label: 'Read a credential', tone: 'warn' },
+  'customer.delete': { label: 'Deleted customer', tone: 'danger' },
   'customer.suspend': { label: 'Suspended customer', tone: 'danger' },
   'customer.reinstate': { label: 'Reinstated customer', tone: 'ok' },
   'admin.create': { label: 'Added administrator', tone: 'ok' },

@@ -204,6 +204,15 @@ export const adminApi = {
       `/api/admin/customers/${workspaceId}/credentials`,
     ),
 
+  /**
+   * Removes the workspace, its users and their sessions.
+   *
+   * Nothing in Perfox is touched — the conversations belong to the workspace
+   * over there, and this console only held the key to reach them.
+   */
+  deleteCustomer: (workspaceId: string) =>
+    send<{ ok: true }>(`/api/admin/customers/${workspaceId}`, { method: 'DELETE' }),
+
   /** Asks the workspace whether its stored credentials actually work. */
   testConnection: (workspaceId: string) =>
     send<{ ok: boolean; reason: string }>(`/api/admin/customers/${workspaceId}/test`, {

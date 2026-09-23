@@ -643,3 +643,44 @@ adminRouter.get('/admin/customers/:workspaceId/credentials', requireAdmin, async
     operatorSiteSecret: decrypt(w.operator_site_secret_enc),
   })
 })
+
+/**
+ * Deleting a customer outright.
+ *
+ * Suspending is the reversible answer and stays the default in the UI; this is
+ * for a workspace created by mistake, or one whose relationship has ended and
+ * whose sign-ins should not exist.
+ *
+ * The workspace takes its users and their sessions with it, by the cascades on
+ * those tables — there is no state left behind that could sign in. Nothing in
+ * Perfox is touched: the conversations, agents and numbers belong to the
+ * workspace over there, and this console only ever held the key to reach them.
+ *
+ * The audit entry survives the row. `target_id` is plain text with no foreign
+ * key precisely so that "who deleted Northwind, and when?" outlives Northwind.
+ */
+adminRouter.delete('/admin/customers/:workspaceId', requireAdmin, async (req, res) => {
+  const w = await one<{ name: string }>('SELECT name FROM workspaces WHERE id = $1', [
+    req.params.workspaceId,
+  ])
+  if (!w) {
+    res.status(404).json({ error: 'No such customer.' })
+    return
+  }
+
+  const users = await one<{ count: string }>(
+    'SELECT count(*) AS count FROM users WHERE workspace_id = $1',
+    [req.params.workspaceId],
+  )
+
+  await query('DELETE FROM workspaces WHERE id = $1', [req.params.workspaceId])
+
+  await record(
+    req,
+    'customer.delete',
+    { type: 'customer', id: String(req.params.workspaceId), label: w.name },
+    { users: Number(users?.count ?? 0) },
+  )
+
+  res.json({ ok: true })
+})

@@ -628,3 +628,94 @@ describe('reading a stored credential back', () => {
     assert.equal((await customer.get(`/api/admin/customers/${id}/credentials`)).status, 401)
   })
 })
+
+describe('deleting a customer', () => {
+  beforeEach(async () => {
+    await truncate()
+    await query('TRUNCATE admins, admin_sessions, admin_events CASCADE')
+    await start()
+    await makeAdmin()
+  })
+
+  test('takes the workspace, its users and their sessions', async () => {
+    const admin = await signedInAdmin()
+    const created = await (
+      await admin.post('/api/admin/customers', {
+        workspaceName: 'Northwind',
+        name: 'Nora',
+        email: 'nora@northwind.test',
+        password: PASSWORD,
+        perfoxApiBase: 'http://127.0.0.1:1',
+        perfoxApiToken: 'k',
+      })
+    ).json()
+    const id = created.customer.workspaceId
+
+    // Signed in and working, so the deletion has something to take away.
+    const customer = new Client()
+    await customer.login('nora@northwind.test', PASSWORD)
+    assert.equal((await customer.get('/api/config')).status, 200)
+
+    assert.equal((await admin.delete(`/api/admin/customers/${id}`)).status, 200)
+
+    // The open tab stops working, and the sign-in cannot be used again.
+    assert.equal((await customer.get('/api/config')).status, 401, 'a session outlived its workspace')
+    assert.equal((await new Client().login('nora@northwind.test', PASSWORD)).status, 401)
+
+    // Nothing left behind: the cascades take the rows with the workspace.
+    const rows = await query('SELECT id FROM users WHERE email = $1', ['nora@northwind.test'])
+    assert.equal(rows.length, 0)
+    assert.equal((await (await admin.get('/api/admin/customers')).json()).customers.length, 0)
+  })
+
+  test('the record of it outlives the customer', async () => {
+    const admin = await signedInAdmin()
+    const created = await (
+      await admin.post('/api/admin/customers', {
+        workspaceName: 'Northwind',
+        name: 'Nora',
+        email: 'nora@northwind.test',
+        password: PASSWORD,
+      })
+    ).json()
+
+    await admin.delete(`/api/admin/customers/${created.customer.workspaceId}`)
+
+    /**
+     * `target_id` is plain text with no foreign key precisely so that "who
+     * deleted Northwind, and when?" outlives Northwind. A cascade here would
+     * erase the answer along with the question.
+     */
+    const [newest] = (await (await admin.get('/api/admin/events')).json()).events
+    assert.equal(newest.action, 'customer.delete')
+    assert.equal(newest.target_label, 'Northwind')
+    assert.equal(newest.admin_email, ADMIN.email)
+    assert.equal(newest.detail.users, 1)
+  })
+
+  test('refuses what it cannot find, and anyone who is not an admin', async () => {
+    const admin = await signedInAdmin()
+    const created = await (
+      await admin.post('/api/admin/customers', {
+        workspaceName: 'Northwind',
+        name: 'Nora',
+        email: 'nora@northwind.test',
+        password: PASSWORD,
+      })
+    ).json()
+    const id = created.customer.workspaceId
+
+    assert.equal(
+      (await admin.delete('/api/admin/customers/00000000-0000-0000-0000-000000000000')).status,
+      404,
+    )
+
+    const customer = new Client()
+    await customer.login('nora@northwind.test', PASSWORD)
+    assert.equal((await customer.delete(`/api/admin/customers/${id}`)).status, 401)
+    assert.equal((await new Client().delete(`/api/admin/customers/${id}`)).status, 401)
+
+    // And it is still there, which is the point of the two refusals above.
+    assert.equal((await (await admin.get('/api/admin/customers')).json()).customers.length, 1)
+  })
+})

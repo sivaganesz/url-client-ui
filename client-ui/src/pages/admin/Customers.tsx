@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Badge, { StatusBadge } from '../../components/ui/Badge'
 import Button from '../../components/ui/Button'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import DataTable, { type Column } from '../../components/ui/DataTable'
 import TablePager from '../../components/ui/TablePager'
 import Spinner from '../../components/ui/Spinner'
@@ -25,6 +26,7 @@ export default function Customers() {
   const { data: customers, status, error, reload } = useResource<CustomerRow[]>(load, [], [])
 
   const [editing, setEditing] = useState<CustomerRow | null>(null)
+  const [deleting, setDeleting] = useState<CustomerRow | null>(null)
   // Same sizes on all three admin lists, so the footer behaves identically
   // wherever an admin happens to be.
   const pager = usePagination(customers, { sizes: [25, 50, 100] })
@@ -61,6 +63,20 @@ export default function Customers() {
     setFailure(null)
     try {
       await adminApi.setStatus(row.workspace_id, next)
+      reload()
+    } catch (err) {
+      setFailure((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function remove(row: CustomerRow) {
+    setDeleting(null)
+    setBusy(`delete:${row.workspace_id}`)
+    setFailure(null)
+    try {
+      await adminApi.deleteCustomer(row.workspace_id)
       reload()
     } catch (err) {
       setFailure((err as Error).message)
@@ -139,10 +155,13 @@ export default function Customers() {
     {
       key: 'actions',
       header: 'Action',
-      width: 230,
+      width: 290,
       render: (r) => {
         const suspended = r.status === 'suspended'
-        const working = busy === `test:${r.workspace_id}` || busy === `status:${r.workspace_id}`
+        const working =
+          busy === `test:${r.workspace_id}` ||
+          busy === `status:${r.workspace_id}` ||
+          busy === `delete:${r.workspace_id}`
         return (
           <span className="flex flex-wrap items-center gap-1.5">
             <Button size="sm" disabled={working} onClick={() => void test(r)}>
@@ -160,6 +179,12 @@ export default function Customers() {
             >
               {busy === `status:${r.workspace_id}` ? <Spinner size={11} /> : null}
               {suspended ? 'Reinstate' : 'Suspend'}
+            </Button>
+            {/* Last, and never the default: suspending is the reversible answer
+                and this one is not. It asks before it acts. */}
+            <Button size="sm" variant="danger" disabled={working} onClick={() => setDeleting(r)}>
+              {busy === `delete:${r.workspace_id}` ? <Spinner size={11} /> : null}
+              Delete
             </Button>
           </span>
         )
@@ -223,6 +248,29 @@ export default function Customers() {
           }}
         />
       )}
+
+      {/* Names the workspace, says what goes with it, and says what does not:
+          the conversations live in Perfox and are not this console's to
+          remove. Suspending is offered as the reversible alternative, because
+          most of the time that is what was actually meant. */}
+      <ConfirmDialog
+        open={deleting !== null}
+        tone="danger"
+        confirmLabel="Delete customer"
+        title={`Delete ${deleting?.workspace_name ?? ''}?`}
+        body={
+          <>
+            The workspace, its sign-in{deleting?.email ? ` (${deleting.email})` : ''} and any live
+            sessions go. Nothing in Perfox is touched — the conversations, agents and numbers stay
+            where they are, and this console only held the key to reach them.
+            <br />
+            <br />
+            This cannot be undone. To stop access but keep the account, suspend it instead.
+          </>
+        }
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => void remove(deleting!)}
+      />
     </section>
   )
 }
