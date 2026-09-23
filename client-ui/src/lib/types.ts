@@ -335,21 +335,57 @@ export interface LogRow {
   ticketStatus: StatusLabel
 }
 
-/**
- * A connected phone number.
- *
- * No endpoint returns these yet — the loader rejects as unavailable and the
- * page says so. The shape is here so the page's columns are checked against
- * something rather than against `never`.
- */
-export interface PhoneNumber {
+/* ── connected numbers and addresses ─────────────────────── */
+
+/** One row of GET /credentials/{id}/resources. */
+export interface ApiResource {
+  identifier: string
+  label?: string
+  /** The purpose, not the technology: phone | sms | whatsapp | email. */
+  channel: string
+  capabilities?: string[]
+  provider?: string
+  status?: string
+  /**
+   * ABSENT when nothing claims the identifier — not null.
+   *
+   * A spare number with no agent on it is a normal state rather than missing
+   * data, which is why the field is simply not there. Read from the agents at
+   * request time, so rebinding a number in the builder shows here at once.
+   */
+  assigned_agent?: { id: string; name: string }
+  /** Added in the release that shipped this endpoint; older images omit it. */
+  credential_id?: string
+}
+
+export interface ApiCredential {
   id: string
-  number: string
+  name?: string
+  type?: string
+  status?: string
+  /** Field NAMES a credential carries. Never their values. */
+  config_fields?: string[]
+}
+
+/**
+ * A number or address the workspace can be reached on.
+ *
+ * One identifier appears once per channel — the same number is a separate row
+ * for voice and for WhatsApp, because they are bound to agents separately —
+ * so `identifier` is not a key. `rowId` is.
+ */
+export interface Connection {
+  rowId: string
+  identifier: string
   label: string
-  agent: string | null
-  direction: string
-  conversations: number | null
+  channel: ChannelLabel
+  capabilities: string[]
+  provider: string
   status: StatusLabel
+  /** null here where the API omitted the field: nothing is bound to it. */
+  agent: { id: string; name: string } | null
+  credentialId: string
+  credentialName: string
 }
 
 /** What a send or a call did, as the conversation surface reports it. */

@@ -110,11 +110,36 @@ agents; a web frontend belongs on plain HTTP resources. The mapping lives in
 | Outbound message | `POST /outbound` | **Live** — see below |
 | Operator calling | `@perfox/operator-react` | **Live** — a human on the line, see below |
 | Analytics → Conversation log | — | **Mock**, and badged as such in the UI |
-| Phone Number Connections | — | **No endpoint exists** |
+| Phone Number Connections | `/credentials`, `/credentials/{id}/resources` | **Live** — see below |
 
-`/analytics/summary`, `/calls` and `/recordings` went live in September 2026.
-Phone numbers is now the only resource with nothing behind it, and that page
-says so rather than showing an empty table.
+`/analytics/summary`, `/calls` and `/recordings` went live in September 2026,
+and connected numbers followed. **Every section now has a real source**, which
+is why there is no longer an "unavailable" state anywhere in the code — a
+fourth resource status that nothing could produce read as a case somebody had
+thought about, so it went with the last blocked page.
+
+### Connected numbers and addresses
+
+Two hops, because there is no single endpoint: `/credentials` to learn which
+credentials exist, then `/credentials/{id}/resources` for each. Four
+credentials means five requests. Credentials carrying no communication
+identifier — a spreadsheet, an OAuth token — answer with an empty list rather
+than an error, so they cost a request and contribute nothing.
+
+Three things about the response shape drive the page:
+
+- **`channel` is the purpose, not the technology.** The same number is a
+  separate row for `phone` and for `whatsapp`, because they are bound to
+  agents separately. So the identifier is not a key, and merging the rows would
+  hide that one is claimed and the other is not.
+- **`assigned_agent` is absent, not null,** when nothing claims an identifier.
+  A spare number is a normal state rather than missing data.
+- **The assignment is read from the agents at request time**, so a number
+  rebound in the builder is correct here immediately.
+
+This needs the `credentials:read` scope on the workspace key. A key minted with
+`settings:read` answers 403 on every resources call and the page comes back
+empty — worth recognising, because it looks like "nothing is connected".
 
 ### Two limits worth knowing before you debug something
 

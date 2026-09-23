@@ -7,104 +7,189 @@ import Badge, { StatusBadge } from '../components/ui/Badge'
 import DataBanner from '../components/ui/DataBanner'
 import { SearchInput, Select } from '../components/ui/Field'
 import { EmptyState } from '../components/ui/States'
-import { IconHash, IconSearch } from '../components/icons'
+import { IconHash, IconSearch, channelIcon, IconChat } from '../components/icons'
 import { num } from '../lib/format'
 import { ALL, options } from '../lib/collections'
 import { useResource } from '../lib/useResource'
-import { getPhoneNumbers, UNAVAILABLE } from '../lib/api'
-import type { PhoneNumber, ShellContext } from '../lib/types'
+import { getPhoneNumbers } from '../lib/api'
+import type { Connection, ShellContext } from '../lib/types'
 import type { Column } from '../components/ui/DataTable'
 
 /**
- * Connected numbers.
+ * Every number and address the workspace can be reached on.
  *
- * The workspace exposes no phone-number resource yet, so `getPhoneNumbers`
- * rejects and every figure here reads as unavailable. That is deliberate: this
- * page previously showed invented numbers, providers and connection counts as
- * though they were real, which is worse than showing nothing — a reader had no
- * way to tell the fiction from the facts.
+ * Not only phone numbers, despite the page's name: the same endpoint returns
+ * WhatsApp, SMS and email identifiers, and they belong together — they are the
+ * workspace's inbound surface, and an operator asking "what are we reachable
+ * on?" wants one answer, not four.
  *
- * The table and filters stay because they are the shape the endpoint will fill.
- * They are driven entirely by the response, so nothing is displayed until there
- * is something real to display.
+ * One number appears once per channel. +91… for voice and +91… for WhatsApp
+ * are separate rows because they are bound to agents separately, and showing
+ * them merged would hide that one is claimed and the other is not.
  */
 export default function PhoneNumbers() {
   const { openDrawer } = useOutletContext<ShellContext>()
-  const { data: numbers, status, error, reload } = useResource(getPhoneNumbers, [], [])
+  const { data: connections, status, error, reload } = useResource(getPhoneNumbers, [], [])
 
   const [query, setQuery] = useState('')
+  const [channel, setChannel] = useState(ALL)
   const [agent, setAgent] = useState(ALL)
-  const [state, setState] = useState(ALL)
 
   const loading = status === 'loading'
-  const unavailable = status === 'unavailable'
+
+  /** The agent's name, or the word for "nothing is bound to this". */
+  const agentName = (c: Connection) => c.agent?.name ?? 'Unassigned'
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return numbers.filter((n) => {
-      if (agent !== ALL && n.agent !== agent) return false
-      if (state !== ALL && n.status !== state) return false
+    return connections.filter((c) => {
+      if (channel !== ALL && c.channel !== channel) return false
+      if (agent !== ALL && agentName(c) !== agent) return false
       if (!q) return true
-      return `${n.number} ${n.label}`.toLowerCase().includes(q)
+      return `${c.identifier} ${c.label} ${c.credentialName}`.toLowerCase().includes(q)
     })
-  }, [numbers, query, agent, state])
+  }, [connections, query, channel, agent])
 
-  const live = numbers.filter((n) => n.status === 'Live').length
+  // Counted over every row, not the filtered view: a page is a window on the
+  // list, not the total.
+  const assigned = connections.filter((c) => c.agent).length
+  const spare = connections.length - assigned
+  const voice = connections.filter((c) => c.channel === 'Phone').length
 
-  const columns: Column<PhoneNumber>[] = [
-    { key: 'number', header: 'Number', width: 180, mono: true },
-    { key: 'label', header: 'Label', width: 200 },
+  const columns: Column<Connection>[] = [
+    {
+      key: 'identifier',
+      header: 'Number or address',
+      width: 200,
+      mono: true,
+      render: (c) => (
+        <span className="truncate" title={c.label}>
+          {c.identifier}
+        </span>
+      ),
+    },
+    {
+      key: 'channel',
+      header: 'Channel',
+      width: 120,
+      render: (c) => {
+        const Icon = channelIcon[c.channel] ?? IconChat
+        return (
+          <Badge tone="muted" size="sm">
+            <Icon size={10} />
+            {c.channel}
+          </Badge>
+        )
+      },
+    },
     {
       key: 'agent',
-      header: 'Linked agent',
-      width: 180,
-      render: (r) =>
-        r.agent ? <Badge tone="info">{r.agent}</Badge> : <Badge tone="muted">Not linked</Badge>,
+      header: 'Agent',
+      width: 190,
+      render: (c) =>
+        c.agent ? (
+          <Badge tone="info" size="sm">
+            {c.agent.name}
+          </Badge>
+        ) : (
+          // A spare number is a normal state, not a problem, so it is stated
+          // plainly rather than flagged.
+          <span className="text-[11.5px] text-ink-4">Unassigned</span>
+        ),
     },
-    { key: 'direction', header: 'Direction', width: 130, muted: true },
     {
-      key: 'conversations',
-      header: 'Conversations',
-      width: 140,
-      mono: true,
-      render: (r) => num(r.conversations),
+      key: 'credentialName',
+      header: 'Connection',
+      width: 150,
+      muted: true,
+      render: (c) => (
+        <span className="truncate" title={`${c.credentialName} · ${c.provider}`}>
+          {c.credentialName}
+        </span>
+      ),
     },
-    { key: 'status', header: 'Status', width: 120, render: (r) => <StatusBadge label={r.status} /> },
+    {
+      key: 'capabilities',
+      header: 'Capabilities',
+      width: 150,
+      render: (c) =>
+        c.capabilities.length ? (
+          <span className="flex flex-wrap gap-1">
+            {c.capabilities.map((cap) => (
+              <Badge key={cap} tone="muted" size="sm">
+                {cap}
+              </Badge>
+            ))}
+          </span>
+        ) : (
+          <span className="text-ink-4">—</span>
+        ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      width: 100,
+      render: (c) => <StatusBadge label={c.status} size="sm" />,
+    },
   ]
 
   return (
     <>
       <PageHeader
         title="Phone Number Connections"
-        subtitle={numbers.length ? `${live} live of ${numbers.length}` : undefined}
+        subtitle={
+          loading ? undefined : `${assigned} assigned · ${spare} spare`
+        }
         onOpenDrawer={openDrawer}
       />
 
       <PageBody className="flex flex-col gap-4">
-        <DataBanner status={status} error={error} onRetry={reload} note={UNAVAILABLE.phoneNumbers} />
+        <DataBanner status={status} error={error} onRetry={reload} />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatTile
-            label="Connected numbers"
-            value={unavailable ? '—' : num(numbers.length)}
-            foot={unavailable ? 'No endpoint for this yet' : `${live} live`}
+            label="Reachable on"
+            value={num(connections.length)}
+            foot={`${voice} for voice`}
             icon={IconHash}
+            loading={loading}
+          />
+          <StatTile
+            label="Assigned"
+            value={num(assigned)}
+            foot="bound to an agent"
+            loading={loading}
+          />
+          <StatTile
+            label="Spare"
+            value={num(spare)}
+            foot="nothing is listening"
             loading={loading}
           />
         </div>
 
         {/* Filters would only offer "All" against an empty list. */}
-        {numbers.length > 0 && (
+        {connections.length > 0 && (
           <div className="flex flex-wrap items-center gap-2.5">
             <SearchInput
-              label="Search phone numbers"
-              placeholder="Search number or label"
+              label="Search numbers and addresses"
+              placeholder="Search number, label or connection"
               value={query}
               onChange={setQuery}
               className="w-full sm:w-72"
             />
-            <Select label="Agent" value={agent} onChange={setAgent} options={options(numbers, 'agent')} />
-            <Select label="Status" value={state} onChange={setState} options={options(numbers, 'status')} />
+            <Select
+              label="Channel"
+              value={channel}
+              onChange={setChannel}
+              options={options(connections, 'channel')}
+            />
+            <Select
+              label="Agent"
+              value={agent}
+              onChange={setAgent}
+              options={[ALL, ...new Set(connections.map(agentName))]}
+            />
           </div>
         )}
 
@@ -112,28 +197,22 @@ export default function PhoneNumbers() {
           className="min-h-96 flex-1"
           columns={columns}
           rows={rows}
-          rowKey={(r) => r.number}
+          // The same number is a separate row per channel, so the identifier
+          // alone is not unique.
+          rowKey={(c) => c.rowId}
           loading={loading}
           // A failed request is not an empty list; the table says so itself
-          // rather than reading "no numbers connected".
+          // rather than reading "nothing connected".
           error={status === 'error' ? error : null}
           onRetry={reload}
           empty={
             <EmptyState
-              icon={unavailable ? IconHash : IconSearch}
-              title={
-                unavailable
-                  ? 'Phone numbers aren’t available yet'
-                  : numbers.length
-                    ? 'No numbers match'
-                    : 'No numbers connected'
-              }
+              icon={connections.length ? IconSearch : IconHash}
+              title={connections.length ? 'Nothing matches' : 'Nothing connected yet'}
               note={
-                unavailable
-                  ? 'The workspace has no phone-number resource, so there is nothing to show here yet. This page fills in as soon as the endpoint exists.'
-                  : numbers.length
-                    ? 'Try a different search term, or reset the dropdowns to All.'
-                    : 'Numbers appear here once they are connected to the workspace.'
+                connections.length
+                  ? 'Try a different search term, or reset the dropdowns to All.'
+                  : 'Numbers and addresses appear here once a credential carrying them is connected to the workspace.'
               }
             />
           }

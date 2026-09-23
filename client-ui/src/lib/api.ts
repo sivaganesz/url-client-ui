@@ -51,7 +51,9 @@ import type {
   SeriesPoint,
   StatusLabel,
   Summary,
-  PhoneNumber,
+  ApiCredential,
+  ApiResource,
+  Connection,
 } from './types'
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -82,16 +84,6 @@ export const channelLabel = (c?: string): ChannelLabel =>
   (c ? (CHANNEL_LABELS[c] ?? title(c)) : undefined) ?? 'Unknown'
 export const statusLabel = (s?: string): StatusLabel =>
   (s ? (STATUS_LABELS[s] ?? title(s)) : undefined) ?? 'Unknown'
-
-/** Resources this workspace has no endpoint for. Pages read this to explain themselves. */
-export const UNAVAILABLE = {
-  calls:
-    'This workspace has no call-log resource — no tool or REST route returns call records, so direction, numbers, duration, cost, recording and sentiment have nowhere to come from.',
-  phoneNumbers:
-    'This workspace has no phone-number resource — connected numbers aren’t exposed over MCP or REST.',
-  analytics:
-    'This workspace has no analytics resource — resolution rate and credit usage aren’t exposed. The figures below are derived from conversation records where that’s possible, and sampled where it isn’t.',
-}
 
 /**
  * Failures come back three ways: a string `error`, an object `error` carrying
@@ -318,16 +310,6 @@ export async function startOutbound({
     channel: r?.channel ?? channel,
     // Absent means authorized: only the text channels can withhold it.
     sendAuthorized: r?.send_authorized !== false,
-  }
-}
-
-export class UnavailableError extends Error {
-  /** Read by useResource to tell "no endpoint yet" from "the request failed". */
-  readonly notMapped = true
-
-  constructor(resource: keyof typeof UNAVAILABLE) {
-    super(UNAVAILABLE[resource] ?? `No live source for ${resource}.`)
-    this.name = 'UnavailableError'
   }
 }
 
@@ -875,5 +857,50 @@ export function spoken(seconds: number | null | undefined): string | null {
   if (m < 60) return rest ? `${m}m ${rest}s` : `${m}m`
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
-export const getPhoneNumbers = (): Promise<PhoneNumber[]> =>
-  Promise.reject(new UnavailableError('phoneNumbers'))
+/**
+ * Every number and address the workspace can be reached on.
+ *
+ * Two hops: the credential list, then each credential's resources. There is no
+ * single endpoint that returns them all, so this is 1 + N requests — four
+ * credentials means five. Credentials that carry no communication identifier
+ * (a spreadsheet, an OAuth token) answer with an empty list rather than an
+ * error, so they cost a request and contribute nothing.
+ *
+ * A credential that fails is skipped rather than failing the page: one broken
+ * integration should not hide the numbers that do work. `credentials:read` is
+ * the scope this needs — a key minted with `settings:read` gets 403 on every
+ * resources call and the page ends up empty, which is the failure worth
+ * recognising.
+ */
+export async function getPhoneNumbers(signal?: AbortSignal): Promise<Connection[]> {
+  const credentials = rows<ApiCredential>(await rest('credentials', undefined, signal))
+
+  const perCredential = await Promise.all(
+    credentials.map(async (c) => {
+      try {
+        const res = await rest(`credentials/${c.id}/resources`, undefined, signal)
+        return { credential: c, resources: rows<ApiResource>(res) }
+      } catch {
+        return { credential: c, resources: [] as ApiResource[] }
+      }
+    }),
+  )
+
+  return perCredential.flatMap(({ credential, resources }) =>
+    resources.map((r) => ({
+      // The same number appears once per channel, so the identifier alone is
+      // not unique and cannot be the key.
+      rowId: `${credential.id}:${r.channel}:${r.identifier}`,
+      identifier: r.identifier,
+      label: r.label ?? r.identifier,
+      channel: channelLabel(r.channel),
+      capabilities: r.capabilities ?? [],
+      provider: r.provider ?? credential.type ?? '',
+      status: statusLabel(r.status ?? 'active'),
+      // Absent means unassigned — a spare number, not missing data.
+      agent: r.assigned_agent ?? null,
+      credentialId: r.credential_id ?? credential.id,
+      credentialName: credential.name ?? credential.type ?? 'Credential',
+    })),
+  )
+}

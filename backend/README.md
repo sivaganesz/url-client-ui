@@ -151,6 +151,11 @@ moves to shared storage when the deployment does.
 | `GET /api/operator/config` | the signed operator identity — never the site secret |
 | `/api/perfox/*` | the proxy, allowlisted |
 
+`credentials` and `credentials/{id}/resources` are on that allowlist, which is
+worth justifying because the name sounds like the last thing a proxy should
+forward. It returns metadata only — id, name, type, status, and the *names* of
+the fields a credential has, never their values.
+
 Login deliberately returns **no** `base_url` and **no** `api_token`. The
 frontend does not need them and cannot be trusted with them.
 

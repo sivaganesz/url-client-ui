@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DependencyList } from 'react'
 
-/** A resource that could not be loaded because no endpoint exists for it yet. */
-export interface UnavailableLike extends Error {
-  notMapped?: boolean
-}
-
-export type ResourceStatus = 'loading' | 'ready' | 'error' | 'unavailable'
+export type ResourceStatus = 'loading' | 'ready' | 'error'
 
 export interface Resource<T> {
   data: T
@@ -30,9 +25,11 @@ const aborted = (err: unknown): boolean =>
  * `data` is typed as `T` rather than `T | undefined` precisely because of that
  * contract: there is always something to render, so no caller needs a guard.
  *
- * 'unavailable' is the separate case of a resource the workspace has no
- * endpoint for. That is not a failure to retry — it is a feature that does not
- * exist yet — so pages explain it rather than offering a Retry button.
+ * There used to be a fourth state, 'unavailable', for a resource the
+ * workspace had no endpoint for. Phone numbers was the last of those, and it
+ * has one now — so nothing can produce that state any more and it is gone. A
+ * state the code cannot reach is worse than no state: it reads as a case
+ * somebody has thought about.
  *
  * `load` is called with an AbortSignal. Loaders that pass it down stop their
  * request when the component unmounts or the deps change; ones that ignore it
@@ -65,13 +62,9 @@ export function useResource<T>(
       .then((data) => {
         if (!controller.signal.aborted) setState({ data, status: 'ready', error: null })
       })
-      .catch((error: UnavailableLike) => {
+      .catch((error: Error) => {
         if (controller.signal.aborted || aborted(error)) return
-        setState({
-          data: empty,
-          status: error?.notMapped ? 'unavailable' : 'error',
-          error,
-        })
+        setState({ data: empty, status: 'error', error })
       })
 
     return () => controller.abort()

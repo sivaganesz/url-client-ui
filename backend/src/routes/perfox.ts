@@ -35,6 +35,22 @@ const READS = [
   /^analytics\/summary$/,
   /^analytics\/conversations-over-time$/,
   /^billing\/credits$/,
+
+  /**
+   * Connected numbers and addresses, for the Phone Numbers page.
+   *
+   * `credentials` being on an allowlist is worth justifying, because the name
+   * sounds like the last thing a proxy should forward. It returns metadata
+   * only — id, name, type, status, and the *names* of the fields a credential
+   * has, never their values. No secret is reachable through it, and it is the
+   * only way to learn which credentials to ask for resources.
+   *
+   * `{id}/resources` needs the `credentials:read` scope on the workspace key.
+   * A key minted with `settings:read` answers 403 here, which is the scope
+   * change that went live with this endpoint.
+   */
+  /^credentials$/,
+  new RegExp(`^credentials/${ID}/resources$`),
 ]
 
 /** Anything that changes state is named explicitly, method included. */

@@ -32,6 +32,7 @@ describe('the proxy', () => {
         'analytics/summary',
         'analytics/conversations-over-time',
         'billing/credits',
+        'credentials',
       ]) {
         const res = await c.get(`/api/perfox/${path}`)
         assert.equal(res.status, 200, `${path} was refused`)
@@ -54,7 +55,9 @@ describe('the proxy', () => {
        * the app does — so the proxy is an allowlist, and these are real
        * Perfox resources it deliberately does not expose.
        */
-      for (const path of ['credentials', 'mcp-servers', 'knowledge-base', 'support/tickets']) {
+      // 'credentials' is deliberately NOT here any more — the Phone Numbers
+      // page needs it, and it returns field names, never field values.
+      for (const path of ['mcp-servers', 'knowledge-base', 'support/tickets']) {
         const res = await c.get(`/api/perfox/${path}`)
         assert.equal(res.status, 403, `${path} was allowed through`)
       }

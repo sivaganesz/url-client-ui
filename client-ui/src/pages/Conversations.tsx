@@ -233,7 +233,7 @@ export default function Conversations() {
           </Dropdown>
         </div>
 
-        {(list.status === 'error' || list.status === 'unavailable') && (
+        {list.status === 'error' && (
           <div className="border-b border-line p-3">
             <DataBanner
               status={list.status}
