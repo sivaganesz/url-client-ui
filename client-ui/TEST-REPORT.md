@@ -1,9 +1,9 @@
 # Client Console — Test Report & Page Completion Status
 
 **Branch:** `fs-ini` · **Tested:** 22–24 September 2026 · **Last updated:** 24 September 2026
-**Latest round:** the admin surface — who can get in, what they did, and closing the gaps left open at handover — §12.
+**Latest round:** the admin surface — a sidebar, paged lists, a three-step create, revealing a stored credential, deleting a customer, and closing the gaps left open at handover — §12.
 **Method:** Automated browser testing (Playwright + Chromium) against two live workspaces, plus the production build.
-**Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a committed regression suite of **139 tests: 71 in the browser** (§9, §12) and **68 on the backend** (§11, §12).
+**Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a committed regression suite of **150 tests: 76 in the browser** (§9, §12) and **74 on the backend** (§11, §12).
 
 > Outbound actions were restricted to the single authorised number **+916374160200**. No other number was contacted.
 
@@ -28,11 +28,11 @@ The second workspace exercised cases the first could not: an **empty** call log,
 | # | Page | Status | Working API calls | Notes |
 |---|------|--------|:---:|-------|
 | 1 | Dashboard | ✅ Complete | 4 | All figures live |
-| 2 | Analytics | 🟡 Partial | 6 | Conversation Log is mock data, awaiting API |
+| 2 | Analytics | ✅ Complete | 7 | Conversation Log runs on /cases — §12.5 |
 | 3 | Conversations | ✅ Complete | 7 + SDK | Text outbound, and operator calling (§10) |
 | 4 | Call Log Analytics | ✅ Complete | 2 | Recording playback working |
 | 5 | AI Agents | ✅ Complete | 3 | Includes activate/deactivate |
-| 6 | Phone Numbers | 🔴 Blocked | 0 | No API exists yet |
+| 6 | Phone Numbers | ✅ Complete | 2 | Plivo numbers, from credential resources — §12.5 |
 
 ---
 
@@ -53,9 +53,9 @@ The second workspace exercised cases the first could not: an **empty** call log,
 
 ---
 
-### 1.2 Analytics — 🟡 Partial
+### 1.2 Analytics — ✅ Complete
 
-**Working API calls: 6**
+**Working API calls: 7**
 
 | API | Method | Purpose |
 |-----|:---:|---------|
@@ -65,15 +65,13 @@ The second workspace exercised cases the first could not: an **empty** call log,
 | `/conversations` | GET | Feeds the channel breakdown |
 | `/customers` | GET | Joined to conversations |
 | `/agents` | GET | Joined to conversations |
+| `/cases` | GET | The conversation log — filtered, scored and paged by the workspace |
 
-**Gaps / pending:**
+**Gaps / pending:** none. The Conversation Log ran on invented rows, badged
+"Mock data", until `/cases` existed; it is real now — see §12.5.
 
-| Item | Detail |
-|------|--------|
-| 🔴 **Conversation Log is mock data** | Sentiment, QA score, follow-up flag, ticket status and the AI notes have **no API behind them**. The section is marked with a "Mock data" badge. Filters, date range, pagination and CSV/JSON export all work against the mock rows and will work unchanged once the API lands. |
-| ⚪ `View` button disabled | Correct behaviour — mock ids point at no real conversation. |
-
-**Issues:** None found. Interval switching (Day / Week / Month) and the date range both refetch correctly.
+**Issues:** None found. Interval switching (Day / Week / Month) and the date
+range both refetch correctly.
 
 ---
 
@@ -154,19 +152,24 @@ The second workspace exercised cases the first could not: an **empty** call log,
 
 ---
 
-### 1.6 Phone Numbers — 🔴 Blocked
+### 1.6 Phone Numbers — ✅ Complete
 
-**Working API calls: 0**
+**Working API calls: 2**
 
 | API | Method | Purpose |
 |-----|:---:|---------|
-| — | — | **No phone-number resource exists** on REST or MCP |
+| `/credentials` | GET | The workspace's connections, filtered to Plivo |
+| `/credentials/{id}/resources` | GET | The numbers on each, with their channels and assigned agent |
 
-**Status:** The page renders an honest "not available yet" state. The table, columns and filter shape are in place and will populate as soon as the endpoint exists.
+**Verified working:** the numbers a workspace is reachable on, one row per
+number and channel, with the agent each is assigned to. An unassigned number
+says so rather than looking broken, and the page survives the credentials
+endpoint failing.
 
-> This page previously displayed **eight fabricated phone numbers** with invented providers (Twilio, Exotel, Plivo) and connection counts, presented as real data. That has been removed.
+> This page previously displayed **eight fabricated phone numbers** with invented providers (Twilio, Exotel, Plivo) and connection counts, presented as real data. That was removed while the endpoint did not exist, and the page said so; it reads the real resource now.
 
-**Pending:** an endpoint returning connected numbers — number, label, linked agent, direction, conversation count, status.
+**Scope, at the client's direction:** Plivo only, and view-only — the create
+credential flow is deliberately not used here.
 
 ---
 
@@ -710,33 +713,49 @@ customer's:
 
 | Section | What it does |
 |---|---|
-| **Customers** | every workspace, its owner, whether it has a Perfox key and whether calling is configured; create, edit the connection, test it, suspend or reinstate |
+| **Customers** | every workspace, its owner, whether it has a Perfox key and whether calling is configured; create, edit the connection, test it, suspend, reinstate or delete |
 | **Administrators** | who else can sign in here, when they were added, when they last did, and whether they are active; add one, suspend one |
-| **Activity** | every action any admin took, newest first |
+| **Activity** | every action any admin took, newest first, paged on the server |
 
-Nothing here can read a credential back. No endpoint returns one, so no page
-can show one, and changing a key means typing it again.
+Navigation is a sidebar — fixed from `lg`, a drawer below it — and all three
+lists page the same way: 25 to start, a size to choose, the total and two
+buttons.
+
+One endpoint returns a credential, and it is written down. The list reports
+flags, creating a customer echoes nothing back, and the edit form loads its
+settings without the two secrets; `GET /admin/customers/:id/credentials` is the
+exception, called when the eye beside a masked field is pressed. Every call
+writes an audit row naming the admin and the customer, and the row records that
+a credential was read rather than which value it was. §12.3 has the reasoning.
 
 ### 12.2 What is tested
 
-**Browser (8 tests, `admin.spec.ts`)** — that a customer cannot create their
+**Browser (13 tests, `admin.spec.ts`)** — that a customer cannot create their
 own account and `/register` redirects; that the sign-in panel drops on a
-phone; that `/admin` demands an admin session; that an admin creates a
-customer who then signs in, that the key typed in is nowhere in the page
-afterwards, that the customer cannot reach the admin API, and that the
-creation is recorded in Activity by workspace name and by who did it; that an
-admin session is not a console session; that the password form rejects a wrong
-current password; and that the administrators page refuses to suspend you or
-the last active account.
+phone; that `/admin` demands an admin session; that an admin walks the three
+steps of the create form, that Next waits on the first, that Submit is only on
+the third, that going back keeps what was typed, that the customer then signs
+in, that the key typed in is nowhere in the page afterwards, that the customer
+cannot reach the admin API, and that the creation is recorded in Activity by
+workspace name and by who did it; that an admin session is not a console
+session; that the password form rejects a wrong current password; that the
+administrators page refuses to suspend you or the last active account; that
+all three lists page identically and a long one turns pages without going to
+the server; that the edit form fills itself in, masks both secrets, reveals
+one with a single request and hides it again without a second; and that a
+customer can be deleted after a confirmation that names it — created by the
+test itself, so the suite never removes a real one.
 
-**Backend (68 tests)** — the admin half covers: separate tables and separate
+**Backend (74 tests)** — the admin half covers: separate tables and separate
 cookie names; that a customer session reaches no admin route and an admin
 session reaches no workspace; that a suspension ends live sessions rather than
 only future sign-ins, and reaches a colleague in the same workspace; that
 sign-in attempts are capped per address and per IP, including attempts cut off
 mid-guess; that administrators can be listed and added but not locked out
-entirely; and that the audit trail records who did what without recording a
-single credential.
+entirely; that the settings come back without the two secrets and the reveal
+endpoint returns them and records the read; that deleting a customer takes its
+users and sessions with it while the audit row outlives them; and that the
+trail records who did what without recording a single credential.
 
 ### 12.3 What this round fixed
 
@@ -775,10 +794,17 @@ pass" a claim only one person could check.
 
 ### 12.4 Still open
 
-**CI** — the oldest item outstanding, and unchanged: 139 tests
-(71 browser, 68 backend) and nothing runs them but a person. The backend suite
+**CI** — the oldest item outstanding, and unchanged: 150 tests
+(76 browser, 74 backend) and nothing runs them but a person. The backend suite
 needs only Postgres and could run today; the browser suite needs a workspace
 key as a repository secret.
+
+**The workspace rate-limits a full run.** A browser pass is a few hundred reads
+in four minutes, which is a heavier burst than any person produces, and the
+tail of it comes back `rate_limited`. The console retries a throttled read
+twice before showing an error, and the suite retries a failed test once, so
+what is left is the suite outrunning the API rather than anything the code did.
+A test that fails on its own, or on both attempts, is a real failure.
 
 **Invitations and magic links** — deferred deliberately. Until they exist,
 `ALLOW_REGISTRATION` stays `false` and accounts are made by an admin.
@@ -786,3 +812,48 @@ key as a repository secret.
 **Admin sessions are not listable or revocable** by their owner, the way a
 customer's eventually should be. The rows are there, with user agent and IP;
 nothing reads them.
+
+### 12.5 What shipped after the gap-closing round
+
+The admin surface and the console both moved on from §12.3. In order of how
+much of the product they touch:
+
+**The Conversation Log runs on `/cases`.** It was invented rows behind a "Mock
+data" badge because nothing scored a conversation. It is server-filtered and
+server-paged now, so the total is the total of what matched rather than of
+what was fetched, and the two ways an agent can be missing are told apart — no
+`workflow_id` means nothing matched the inbound, while a `workflow_id` with a
+null name means an agent handled it and was deleted since. Reporting both as
+"unassigned" would have said nobody took a conversation that somebody did.
+
+**Phone Numbers reads real numbers**, from `/credentials` and each
+credential's resources. Plivo only, view-only, at the client's direction.
+
+**Exports are one exporter, three formats.** The log offered JSON and a
+flattened CSV; the conversation page offered JSON, TXT and MD in a shape of
+its own. Both go through `src/lib/export.ts` now. What the API will not say is
+left out rather than guessed: a `status_change` event comes back with no data
+payload under any `include` mode, so the file names the event and does not
+invent "Status → ended (Workflow completed)".
+
+**Two bugs surfaced while checking those exports against the client's
+samples.** A `tool_call` is raised with `actor: 'ai'`, and the actor was tested
+before the event type — so it became an empty AI speech bubble and `tool_input`
+reached nothing. The arguments an agent called a tool with were not visible in
+the console at all. And the export menu's "still mounted" flag was only ever
+cleared, so StrictMode's second mount left it false and every export was
+silently skipped.
+
+**The console fits a phone.** Four things that only appeared on a real handset,
+none of which the "no page scrolls sideways" test could see, because each was
+absolutely positioned or clipped by a card: the pager ran off its card, the
+chart's two date inputs were squeezed until "to" sat on top of the first one,
+the x axis drew a fixed twelve labels whatever the width, and an empty date
+field showed nothing at all until tapped. The axis fix corrected the desktop
+too, where two dates had been touching.
+
+**The admin surface is a sidebar with three paged sections**, a three-step
+create form that ends on the sign-in to hand over, an edit form that loads what
+is stored and reveals a secret behind an eye, and Delete beside Suspend. §12.1
+and §12.2 describe them; the reasoning for showing a credential at all is in
+§12.1.

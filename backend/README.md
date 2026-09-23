@@ -78,11 +78,22 @@ The separation does work a guard would otherwise have to remember:
 - with one cookie name, signing into either surface would silently sign you out
   of the other in the same browser
 
-**Credentials are write-only.** No admin endpoint returns a key or a secret,
-not even to the admin who just typed it — the list carries flags. Changing a
-key means retyping it, and a blank field on the edit form means "leave it"
-rather than "clear it", since the form can never show what is already there.
-Clearing is explicit: send `null`.
+**A credential is returned by one endpoint, and it is written down.** Nothing
+else carries a key or a secret: the customers list reports flags, creating one
+echoes nothing back, and the edit form loads its settings without them.
+`GET /admin/customers/:id/credentials` is the exception — an admin who set a
+key up is the person who has to read it back when a customer asks what was
+configured. It is arranged so it cannot happen quietly:
+
+- its own request, made when the eye is pressed rather than when the form
+  loads, so a secret is in a response only because somebody asked
+- one workspace per call
+- every call writes an `admin_events` row naming the admin and the customer,
+  so "who read this key?" has an answer. The row says a credential was read,
+  never which value it was
+
+A blank secret field on the edit form still means "leave it" rather than
+"clear it"; clearing is explicit, with `null`.
 
 ## Two more decisions worth knowing
 
