@@ -476,3 +476,72 @@ describe('administrators', () => {
     )
   })
 })
+
+describe('the audit trail', () => {
+  beforeEach(async () => {
+    await truncate()
+    await query('TRUNCATE admins, admin_sessions, admin_events CASCADE')
+    await start()
+    await makeAdmin()
+  })
+
+  test('records who did what, and never a credential', async () => {
+    const admin = await signedInAdmin()
+
+    const created = await (
+      await admin.post('/api/admin/customers', {
+        workspaceName: 'Northwind',
+        name: 'Nora',
+        email: 'nora@northwind.test',
+        password: PASSWORD,
+        perfoxApiToken: 'sk_northwind_secret_key',
+      })
+    ).json()
+
+    await admin.patch(`/api/admin/customers/${created.customer.workspaceId}`, {
+      perfoxApiToken: 'sk_a_replacement_key',
+    })
+    await admin.post(`/api/admin/customers/${created.customer.workspaceId}/status`, {
+      status: 'suspended',
+    })
+
+    const body = await (await admin.get('/api/admin/events')).text()
+
+    // The whole point of the table: not one of these may be in it.
+    assert.doesNotMatch(body, /sk_northwind_secret_key/, 'the original key was recorded')
+    assert.doesNotMatch(body, /sk_a_replacement_key/, 'the replacement key was recorded')
+    assert.doesNotMatch(body, new RegExp(PASSWORD), 'the password was recorded')
+
+    const { events } = JSON.parse(body)
+    // Newest first.
+    assert.deepEqual(
+      events.map((e: { action: string }) => e.action),
+      ['customer.suspend', 'customer.update', 'customer.create'],
+    )
+
+    const [suspend, update, create] = events
+    assert.equal(suspend.admin_email, ADMIN.email)
+    assert.equal(suspend.target_label, 'Northwind')
+    assert.equal(create.target_type, 'customer')
+    // Which field moved, not what it moved to.
+    assert.deepEqual(update.detail.fields, ['perfox_api_token_enc'])
+  })
+
+  test('is readable by any admin, and cannot be reached without one', async () => {
+    const admin = await signedInAdmin()
+    await admin.post('/api/admin/admins', {
+      name: 'Second',
+      email: 'second@t.test',
+      password: PASSWORD,
+    })
+
+    // A record only one person can read is one they can quietly be wrong about.
+    const second = new Client()
+    await second.post('/api/admin/login', { email: 'second@t.test', password: PASSWORD })
+    const theirs = await second.get('/api/admin/events')
+    assert.equal(theirs.status, 200)
+    assert.equal((await theirs.json()).events[0].action, 'admin.create')
+
+    assert.equal((await new Client().get('/api/admin/events')).status, 401)
+  })
+})

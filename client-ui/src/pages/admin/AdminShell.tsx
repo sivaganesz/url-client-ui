@@ -33,6 +33,7 @@ export default function AdminShell() {
           {[
             { to: '/admin', label: 'Customers', end: true },
             { to: '/admin/admins', label: 'Administrators', end: false },
+            { to: '/admin/activity', label: 'Activity', end: false },
           ].map((item) => (
             <NavLink
               key={item.to}

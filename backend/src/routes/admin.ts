@@ -10,6 +10,7 @@ import {
   type AdminRow,
 } from '../auth/admin-session.ts'
 import { limitLogins } from '../auth/rate-limit.ts'
+import { record } from '../audit.ts'
 
 export const adminRouter: Router = Router()
 
@@ -185,6 +186,12 @@ adminRouter.post('/admin/customers', requireAdmin, async (req, res) => {
 
     await client.query('COMMIT')
 
+    await record(req, 'customer.create', {
+      type: 'customer',
+      id: ws.rows[0]!.id,
+      label: workspaceName,
+    }, { email, hasApiToken: Boolean(apiToken), hasOperator: Boolean(siteSecret) })
+
     // Deliberately echoes back no credential — not the key, not the secret,
     // not the password. The admin typed them; they do not need them read back.
     res.status(201).json({
@@ -241,6 +248,16 @@ adminRouter.post('/admin/customers/:workspaceId/status', requireAdmin, async (re
       [req.params.workspaceId],
     )
   }
+
+  const workspace = await one<{ name: string }>('SELECT name FROM workspaces WHERE id = $1', [
+    req.params.workspaceId,
+  ])
+  await record(req, status === 'suspended' ? 'customer.suspend' : 'customer.reinstate', {
+    type: 'customer',
+    id: String(req.params.workspaceId),
+    label: workspace?.name,
+  })
+
   res.json({ ok: true, status })
 })
 
@@ -293,6 +310,21 @@ adminRouter.patch('/admin/customers/:workspaceId', requireAdmin, async (req, res
     res.status(404).json({ error: 'No such workspace.' })
     return
   }
+
+  /**
+   * Which fields moved, never what they moved to. "The key was changed at
+   * 14:20 by ops@" is the question this answers; the key itself must not be in
+   * a table that exists to be read.
+   */
+  const workspace = await one<{ name: string }>('SELECT name FROM workspaces WHERE id = $1', [
+    req.params.workspaceId,
+  ])
+  await record(
+    req,
+    'customer.update',
+    { type: 'customer', id: String(req.params.workspaceId), label: workspace?.name },
+    { fields: sets.map((s) => s.split(' = ')[0]) },
+  )
 
   // Flags, as everywhere else on this surface. Nothing is read back.
   res.json({ ok: true })
@@ -446,6 +478,8 @@ adminRouter.post('/admin/admins', requireAdmin, async (req, res) => {
     'INSERT INTO admins (name, email, password_hash) VALUES ($1,$2,$3) RETURNING id',
     [name, email, await hashPassword(password)],
   )
+  await record(req, 'admin.create', { type: 'admin', id: rows[0]!.id, label: email })
+
   // No credential echoed back: whoever typed the password has it already.
   res.status(201).json({ admin: { id: rows[0]!.id, name, email } })
 })
@@ -495,4 +529,25 @@ adminRouter.post('/admin/admins/:adminId/status', requireAdmin, async (req, res)
     await query('DELETE FROM admin_sessions WHERE admin_id = $1', [req.params.adminId])
   }
   res.json({ ok: true, status })
+})
+
+/* ── what was done here ──────────────────────────────────── */
+
+/**
+ * The audit trail, newest first.
+ *
+ * Readable by any admin, deliberately: a record only one person can read is a
+ * record that person can quietly be wrong about. There is no endpoint to
+ * delete or amend one, for the same reason.
+ */
+adminRouter.get('/admin/events', requireAdmin, async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500)
+  const rows = await query(
+    `SELECT id, admin_email, action, target_type, target_id, target_label, detail, created_at
+       FROM admin_events
+      ORDER BY created_at DESC, id DESC
+      LIMIT $1`,
+    [limit],
+  )
+  res.json({ events: rows })
 })

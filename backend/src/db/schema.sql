@@ -129,3 +129,36 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 
 CREATE INDEX IF NOT EXISTS admin_sessions_admin_idx ON admin_sessions (admin_id);
 CREATE INDEX IF NOT EXISTS admin_sessions_expiry_idx ON admin_sessions (expires_at);
+
+-- What an admin did.
+--
+-- Everything on the admin surface creates or takes away somebody's access, or
+-- changes a credential that reaches a customer's data, and until this table
+-- existed none of it left a trace: "who suspended Northwind, and when?" had no
+-- answer, and neither did "was that key changed before or after they said it
+-- stopped working?".
+--
+-- The admin's email is copied in rather than only referenced. An account can be
+-- suspended and a row here has to stay readable regardless — an audit trail
+-- that starts saying "unknown" about its most interesting entries is not one.
+--
+-- Nothing secret is recorded. `detail` holds what changed, never what it
+-- changed to: "perfox_api_token" is the fact, and the token itself must not be
+-- in a table that exists to be read.
+CREATE TABLE IF NOT EXISTS admin_events (
+  id           BIGSERIAL PRIMARY KEY,
+  admin_id     UUID REFERENCES admins(id) ON DELETE SET NULL,
+  admin_email  TEXT NOT NULL,
+
+  action       TEXT NOT NULL,
+  target_type  TEXT,
+  target_id    TEXT,
+  -- The name at the time, so a renamed or removed workspace still reads.
+  target_label TEXT,
+
+  detail       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ip           TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS admin_events_recent_idx ON admin_events (created_at DESC);

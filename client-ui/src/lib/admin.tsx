@@ -111,6 +111,18 @@ export interface AdminRow {
   last_seen: string | null
 }
 
+/** One thing an admin did, as the audit trail records it. */
+export interface AdminEvent {
+  id: number
+  admin_email: string
+  action: string
+  target_type: string | null
+  target_id: string | null
+  target_label: string | null
+  detail: Record<string, unknown>
+  created_at: string
+}
+
 export interface NewCustomer {
   workspaceName: string
   name: string
@@ -177,6 +189,8 @@ export const adminApi = {
     }),
 
   admins: () => send<{ admins: AdminRow[] }>('/api/admin/admins'),
+
+  events: () => send<{ events: AdminEvent[] }>('/api/admin/events'),
 
   addAdmin: (body: { name: string; email: string; password: string }) =>
     send<{ admin: { id: string } }>('/api/admin/admins', {

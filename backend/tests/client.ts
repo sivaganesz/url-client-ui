@@ -72,6 +72,10 @@ export class Client {
     return this.request(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined })
   }
 
+  patch(path: string, body?: unknown): Promise<Response> {
+    return this.request(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined })
+  }
+
   get(path: string): Promise<Response> {
     return this.request(path)
   }

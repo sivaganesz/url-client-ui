@@ -121,6 +121,19 @@ test('an admin creates a customer, who can then sign in', async ({ page }) => {
   const asCustomer = await customerPage.request.get('/api/admin/customers')
   expect(asCustomer.status()).toBe(401)
   await customerContext.close()
+
+  /**
+   * And it was written down. Creating a customer hands somebody access to
+   * real conversations, and until the audit trail existed that left no trace
+   * at all — "who set this up, and when?" had no answer.
+   */
+  await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Activity' }).click()
+  const entry = page.locator('table tbody tr', { hasText: workspace })
+  await expect(entry).toContainText('Created customer')
+  await expect(entry).toContainText(ADMIN.email)
+
+  // Still nowhere, now that there is a second table it could have leaked into.
+  expect(await page.content()).not.toContain(FAKE_KEY)
 })
 
 test('an admin session is not a console session', async ({ page, context }) => {
