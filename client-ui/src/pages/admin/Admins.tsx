@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import Button from '../../components/ui/Button'
 import DataTable, { type Column } from '../../components/ui/DataTable'
+import TablePager from '../../components/ui/TablePager'
 import Modal from '../../components/ui/Modal'
 import Spinner from '../../components/ui/Spinner'
 import { StatusBadge } from '../../components/ui/Badge'
@@ -8,6 +9,7 @@ import { FormField, controlClass } from '../../components/ui/Field'
 import { EmptyState, ErrorState } from '../../components/ui/States'
 import { IconAgent, IconAlert } from '../../components/icons'
 import { cn } from '../../lib/cn'
+import { usePagination } from '../../lib/usePagination'
 import { useResource } from '../../lib/useResource'
 import { adminApi, useAdmin, type AdminRow } from '../../lib/admin'
 
@@ -31,6 +33,7 @@ export default function Admins() {
   const load = useCallback(async () => (await adminApi.admins()).admins, [])
   const { data: admins, status, error, reload } = useResource<AdminRow[]>(load, [], [])
 
+  const pager = usePagination(admins, { sizes: [25, 50, 100] })
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -136,7 +139,8 @@ export default function Admins() {
       ) : (
         <DataTable
           columns={columns}
-          rows={admins}
+          rows={pager.rows}
+          footer={<TablePager pager={pager} noun="administrators" loading={status === 'loading'} />}
           rowKey={(r) => r.id}
           empty={<EmptyState icon={IconAgent} title="No administrators" />}
         />

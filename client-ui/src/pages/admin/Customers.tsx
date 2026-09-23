@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom'
 import Badge, { StatusBadge } from '../../components/ui/Badge'
 import Button from '../../components/ui/Button'
 import DataTable, { type Column } from '../../components/ui/DataTable'
+import TablePager from '../../components/ui/TablePager'
 import Spinner from '../../components/ui/Spinner'
 import { EmptyState, ErrorState } from '../../components/ui/States'
 import { IconAgent, IconAlert, IconCheck } from '../../components/icons'
 import { cn } from '../../lib/cn'
+import { usePagination } from '../../lib/usePagination'
 import { useResource } from '../../lib/useResource'
 import { adminApi, type CustomerRow } from '../../lib/admin'
 import EditConnectionDialog from './EditConnectionDialog'
@@ -23,6 +25,9 @@ export default function Customers() {
   const { data: customers, status, error, reload } = useResource<CustomerRow[]>(load, [], [])
 
   const [editing, setEditing] = useState<CustomerRow | null>(null)
+  // Same sizes on all three admin lists, so the footer behaves identically
+  // wherever an admin happens to be.
+  const pager = usePagination(customers, { sizes: [25, 50, 100] })
   const [busy, setBusy] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   /** Per workspace, so the result sits next to the row it is about. */
@@ -195,7 +200,8 @@ export default function Customers() {
       ) : (
         <DataTable
           columns={columns}
-          rows={customers}
+          rows={pager.rows}
+          footer={<TablePager pager={pager} noun="customers" loading={status === 'loading'} />}
           rowKey={(r) => r.workspace_id}
           empty={
             <EmptyState

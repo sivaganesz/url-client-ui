@@ -228,7 +228,8 @@ test('the administrators page lists who can get in, and guards the last way in',
   await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Administrators' }).click()
 
   await expect(page.getByRole('heading', { name: 'Administrators' })).toBeVisible()
-  await expect(page.getByText(ADMIN.email)).toBeVisible()
+  // Scoped to the table: the sidebar names the signed-in admin as well.
+  await expect(page.locator('table').getByText(ADMIN.email)).toBeVisible()
 
   // Your own row cannot be suspended: locking yourself out of the only surface
   // that can unlock you needs a person with psql to undo.
@@ -248,4 +249,47 @@ test('the administrators page lists who can get in, and guards the last way in',
   await expect(dialog.getByRole('button', { name: 'Add administrator' })).toBeDisabled()
 
   await dialog.getByRole('button', { name: 'Cancel' }).click()
+})
+
+test('every admin list pages the same way', async ({ page }) => {
+  /**
+   * Customers, Administrators and Activity all grew past a screenful — the
+   * activity trail does so by design, since nothing deletes from it. One pager
+   * on all three: 25 to start, a size to choose, the total, and two buttons.
+   */
+  await signIn(page)
+
+  for (const link of [null, 'Administrators', 'Activity']) {
+    if (link) {
+      await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: link }).click()
+    }
+
+    const size = page.getByLabel('Rows per page')
+    const count = page.locator('span[aria-live]').first()
+    await expect(size).toBeVisible()
+    await expect(count).toContainText(/\d+–\d+ of \d+/)
+
+    // 25 to start with, and never more rows on screen than that.
+    await expect(size).toHaveValue('25')
+    expect(await page.locator('table tbody tr').count()).toBeLessThanOrEqual(25)
+
+    await expect(page.getByRole('button', { name: /Previous/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Next/ })).toBeVisible()
+  }
+})
+
+test('a long customer list turns pages without going to the server', async ({ page }) => {
+  await signIn(page)
+
+  const total = Number((await page.locator('span[aria-live]').first().innerText()).match(/of (\d+)/)?.[1] ?? 0)
+  test.skip(total <= 25, 'this database has one page of customers')
+
+  const next = page.getByRole('button', { name: /Next/ })
+  await next.click()
+  await expect(page.locator('span[aria-live]').first()).toContainText(`26–`)
+
+  // The size selector re-slices what is already loaded, and returns to the top.
+  await page.getByLabel('Rows per page').selectOption('50')
+  await expect(page.locator('span[aria-live]').first()).toContainText('1–')
+  expect(await page.locator('table tbody tr').count()).toBeLessThanOrEqual(50)
 })

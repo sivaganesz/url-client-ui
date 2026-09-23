@@ -1,8 +1,10 @@
 import { useCallback } from 'react'
 import DataTable, { type Column } from '../../components/ui/DataTable'
+import TablePager from '../../components/ui/TablePager'
 import Badge from '../../components/ui/Badge'
 import { EmptyState, ErrorState } from '../../components/ui/States'
 import { IconClock } from '../../components/icons'
+import { usePagination } from '../../lib/usePagination'
 import { useResource } from '../../lib/useResource'
 import { adminApi, type AdminEvent } from '../../lib/admin'
 
@@ -58,6 +60,7 @@ function detailOf(event: AdminEvent): string {
 export default function Activity() {
   const load = useCallback(async () => (await adminApi.events()).events, [])
   const { data: events, status, error, reload } = useResource<AdminEvent[]>(load, [], [])
+  const pager = usePagination(events, { sizes: [25, 50, 100] })
 
   const columns: Column<AdminEvent>[] = [
     {
@@ -121,7 +124,8 @@ export default function Activity() {
       ) : (
         <DataTable
           columns={columns}
-          rows={events}
+          rows={pager.rows}
+          footer={<TablePager pager={pager} noun="entries" loading={status === 'loading'} />}
           rowKey={(e) => e.id}
           empty={
             <EmptyState

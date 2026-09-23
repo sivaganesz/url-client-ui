@@ -109,31 +109,34 @@ export default function Sidebar({
 
       {/* A real account block now, unlike the "[Account name]" placeholder
           that used to sit here over a hardcoded workspace. */}
+      {/* The identity on its own row and the actions under it. Side by side,
+          two buttons and an email address share 200px and the address loses —
+          it read "siva@e…", which is no use for telling two accounts apart. */}
       {user && (
-        <div className="mx-2.5 mb-2 flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-muted-bg">
-          <Avatar name={user.name} size="sm" />
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-[12px] font-medium" title={user.name}>
-              {user.name}
-            </span>
-            <span className="truncate text-[10.5px] text-ink-3" title={user.email}>
-              {user.email}
+        <div className="mx-2.5 mb-2 flex flex-col gap-1.5 rounded-lg px-2 py-2">
+          <span className="flex items-center gap-2.5">
+            <Avatar name={user.name} size="sm" />
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-[12px] font-medium" title={user.name}>
+                {user.name}
+              </span>
+              <span className="truncate text-[10.5px] text-ink-3" title={user.email}>
+                {user.email}
+              </span>
             </span>
           </span>
-          {/* Stacked, because the account block is already narrow and two
-              words side by side truncate the email they sit beside. */}
-          <span className="flex shrink-0 flex-col items-end">
+          <span className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setChanging(true)}
-              className="rounded-md px-1.5 py-0.5 text-[10.5px] font-medium text-ink-3 hover:bg-surface hover:text-ink"
+              className="rounded-md px-1.5 py-1 text-[10.5px] font-medium text-ink-3 hover:bg-surface hover:text-ink"
             >
               Change password
             </button>
             <button
               type="button"
               onClick={() => void signOut()}
-              className="rounded-md px-1.5 py-0.5 text-[10.5px] font-medium text-ink-3 hover:bg-surface hover:text-ink"
+              className="ml-auto rounded-md px-1.5 py-1 text-[10.5px] font-medium text-ink-3 hover:bg-surface hover:text-ink"
             >
               Sign out
             </button>
