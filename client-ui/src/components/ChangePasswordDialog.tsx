@@ -15,8 +15,12 @@ const MIN_LENGTH = 12
  * `POST /auth/password` and `POST /admin/password` have existed since the
  * login work and took the same body, but nothing in the product called
  * either — so the only way anyone could change a password was for someone
- * with database access to do it for them. One dialog, pointed at whichever
- * endpoint belongs to whoever is signed in.
+ * with database access to do it for them.
+ *
+ * One dialog for both, taking the caller's own function rather than a URL:
+ * each surface already has a place where its calls live and where a server's
+ * wording is turned into an Error, and this should not be the one call that
+ * goes around it.
  *
  * Both endpoints end every other session and re-issue the current one, which
  * is the point of changing a password: a person who thinks theirs has been
@@ -25,11 +29,10 @@ const MIN_LENGTH = 12
  * unexplained and reassuring when it is not.
  */
 export default function ChangePasswordDialog({
-  endpoint,
+  submit: send,
   onClose,
 }: {
-  /** `/api/auth/password` for a customer, `/api/admin/password` for an admin. */
-  endpoint: string
+  submit: (currentPassword: string, newPassword: string) => Promise<void>
   onClose: () => void
 }) {
   const [current, setCurrent] = useState('')
@@ -48,15 +51,7 @@ export default function ChangePasswordDialog({
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ currentPassword: current, newPassword: next }),
-      })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null
-        throw new Error(body?.error ?? 'That did not work. Try again.')
-      }
+      await send(current, next)
       setDone(true)
     } catch (err) {
       setError((err as Error).message)

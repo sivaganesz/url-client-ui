@@ -29,6 +29,18 @@ CREATE TABLE IF NOT EXISTS workspaces (
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Suspending a customer, as opposed to suspending one person in it.
+--
+-- users.status stops one member signing in. This stops the account: every
+-- session in the workspace goes and none of them can be replaced. With one
+-- owner per workspace the two look identical today, which is exactly why the
+-- difference is worth making now — once a customer can invite a colleague, a
+-- suspension that only reached the owner would leave the account running.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE workspaces DROP CONSTRAINT IF EXISTS workspaces_status_check;
+ALTER TABLE workspaces ADD CONSTRAINT workspaces_status_check
+  CHECK (status IN ('active', 'suspended'));
+
 CREATE TABLE IF NOT EXISTS users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   -- Every user belongs to exactly one workspace, and deleting the workspace

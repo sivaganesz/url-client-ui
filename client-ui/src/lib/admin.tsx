@@ -165,8 +165,9 @@ export const adminApi = {
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
 
-  setStatus: (userId: string, status: 'active' | 'suspended') =>
-    send<{ ok: true }>(`/api/admin/customers/${userId}/status`, {
+  /** Suspends the customer — the workspace and everyone in it, not one user. */
+  setStatus: (workspaceId: string, status: 'active' | 'suspended') =>
+    send<{ ok: true }>(`/api/admin/customers/${workspaceId}/status`, {
       method: 'POST',
       body: JSON.stringify({ status }),
     }),

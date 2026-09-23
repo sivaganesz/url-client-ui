@@ -40,7 +40,15 @@ authRouter.post('/auth/login', limitLogins, async (req, res) => {
     return
   }
 
-  const user = await one<UserRow>('SELECT * FROM users WHERE lower(email) = $1', [email])
+  // The workspace's own status comes along, since a suspended customer must
+  // not be able to sign in again after their sessions were cut.
+  const user = await one<UserRow & { workspace_status: string }>(
+    `SELECT u.*, w.status AS workspace_status
+       FROM users u
+       JOIN workspaces w ON w.id = u.workspace_id
+      WHERE lower(u.email) = $1`,
+    [email],
+  )
 
   /**
    * One message and one shape for every failure.
@@ -57,7 +65,9 @@ authRouter.post('/auth/login', limitLogins, async (req, res) => {
   }
 
   const ok = await verifyPassword(user.password_hash, password)
-  if (!ok || user.status !== 'active') {
+  // A suspension reads as a wrong password on purpose: the same answer for
+  // every failure is what stops this page confirming which addresses exist.
+  if (!ok || user.status !== 'active' || user.workspace_status !== 'active') {
     res.locals.loginFailed = true
     res.status(401).json({ error: 'Those details did not match an account.' })
     return

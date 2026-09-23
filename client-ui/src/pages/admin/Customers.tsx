@@ -35,7 +35,9 @@ export default function Customers() {
    * customer complains.
    */
   async function test(row: CustomerRow) {
-    setBusy(row.workspace_id)
+    // Both actions key off the workspace now, so the busy marker says which
+    // one is running rather than spinning on every button in the row.
+    setBusy(`test:${row.workspace_id}`)
     setFailure(null)
     try {
       const result = await adminApi.testConnection(row.workspace_id)
@@ -48,11 +50,12 @@ export default function Customers() {
   }
 
   async function setStatus(row: CustomerRow, next: 'active' | 'suspended') {
-    if (!row.user_id) return
-    setBusy(row.user_id)
+    // Keyed by the workspace: suspending a customer has to reach everyone in
+    // it, not only whoever happens to be its owner.
+    setBusy(`status:${row.workspace_id}`)
     setFailure(null)
     try {
-      await adminApi.setStatus(row.user_id, next)
+      await adminApi.setStatus(row.workspace_id, next)
       reload()
     } catch (err) {
       setFailure((err as Error).message)
@@ -134,11 +137,11 @@ export default function Customers() {
       width: 230,
       render: (r) => {
         const suspended = r.status === 'suspended'
-        const working = busy === r.workspace_id || busy === r.user_id
+        const working = busy === `test:${r.workspace_id}` || busy === `status:${r.workspace_id}`
         return (
           <span className="flex flex-wrap items-center gap-1.5">
             <Button size="sm" disabled={working} onClick={() => void test(r)}>
-              {busy === r.workspace_id ? <Spinner size={11} /> : null}
+              {busy === `test:${r.workspace_id}` ? <Spinner size={11} /> : null}
               Test
             </Button>
             <Button size="sm" disabled={working} onClick={() => setEditing(r)}>
@@ -147,10 +150,10 @@ export default function Customers() {
             <Button
               size="sm"
               variant={suspended ? 'secondary' : 'danger'}
-              disabled={!r.user_id || working}
+              disabled={working}
               onClick={() => void setStatus(r, suspended ? 'active' : 'suspended')}
             >
-              {busy === r.user_id ? <Spinner size={11} /> : null}
+              {busy === `status:${r.workspace_id}` ? <Spinner size={11} /> : null}
               {suspended ? 'Reinstate' : 'Suspend'}
             </Button>
           </span>

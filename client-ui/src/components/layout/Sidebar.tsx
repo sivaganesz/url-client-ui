@@ -43,7 +43,7 @@ export default function Sidebar({
   /** Called after a link is followed, so the mobile drawer can close itself. */
   onNavigate?: () => void
 }) {
-  const { user, workspace, signOut } = useSession()
+  const { user, workspace, signOut, changePassword } = useSession()
   const [changing, setChanging] = useState(false)
 
   return (
@@ -142,7 +142,7 @@ export default function Sidebar({
       )}
 
       {changing && (
-        <ChangePasswordDialog endpoint="/api/auth/password" onClose={() => setChanging(false)} />
+        <ChangePasswordDialog submit={changePassword} onClose={() => setChanging(false)} />
       )}
     </nav>
   )

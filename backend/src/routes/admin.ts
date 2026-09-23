@@ -109,7 +109,8 @@ adminRouter.get('/admin/customers', requireAdmin, async (_req, res) => {
             NULL::text                        AS token_hint,
             (w.operator_site_secret_enc IS NOT NULL
              AND w.operator_site_id IS NOT NULL)      AS has_operator,
-            u.id AS user_id, u.name AS user_name, u.email, u.mobile, u.status,
+            u.id AS user_id, u.name AS user_name, u.email, u.mobile,
+            w.status,
             w.created_at
        FROM workspaces w
        LEFT JOIN users u ON u.workspace_id = w.id AND u.role = 'owner'
@@ -205,12 +206,19 @@ adminRouter.post('/admin/customers', requireAdmin, async (req, res) => {
 })
 
 /**
- * Suspending rather than deleting.
+ * Suspending a customer rather than deleting one.
  *
- * The workspace, its conversations and the audit trail all survive, and the
+ * The workspace, its conversations and the record of it all survive, and the
  * sessions go in the same move — which is the thing that actually ends access.
+ *
+ * On the workspace, not on the owner's user row. They amount to the same thing
+ * while each workspace has exactly one person in it, and stop amounting to the
+ * same thing the moment a customer can invite a colleague: suspending the
+ * owner would leave the account running under the colleague's login. The
+ * per-user column still exists, for suspending one member of a workspace that
+ * carries on.
  */
-adminRouter.post('/admin/customers/:userId/status', requireAdmin, async (req, res) => {
+adminRouter.post('/admin/customers/:workspaceId/status', requireAdmin, async (req, res) => {
   const status = text(req.body?.status)
   if (status !== 'active' && status !== 'suspended') {
     res.status(400).json({ error: "Status must be 'active' or 'suspended'." })
@@ -218,8 +226,8 @@ adminRouter.post('/admin/customers/:userId/status', requireAdmin, async (req, re
   }
 
   const rows = await query<{ id: string }>(
-    'UPDATE users SET status = $1, updated_at = now() WHERE id = $2 RETURNING id',
-    [status, req.params.userId],
+    'UPDATE workspaces SET status = $1, updated_at = now() WHERE id = $2 RETURNING id',
+    [status, req.params.workspaceId],
   )
   if (rows.length === 0) {
     res.status(404).json({ error: 'No such customer.' })
@@ -227,7 +235,11 @@ adminRouter.post('/admin/customers/:userId/status', requireAdmin, async (req, re
   }
 
   if (status === 'suspended') {
-    await query('DELETE FROM sessions WHERE user_id = $1', [req.params.userId])
+    // Everyone in it, not just the owner.
+    await query(
+      'DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE workspace_id = $1)',
+      [req.params.workspaceId],
+    )
   }
   res.json({ ok: true, status })
 })

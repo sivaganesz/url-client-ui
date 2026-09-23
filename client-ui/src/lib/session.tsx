@@ -36,6 +36,8 @@ export interface Session {
   user: SessionUser | null
   workspace: SessionWorkspace | null
   signIn: (email: string, password: string) => Promise<void>
+  /** Throws with the server's wording if the current password is wrong. */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   signOut: () => Promise<void>
   /** Re-reads /auth/me — after a workspace is configured, say. */
   refresh: () => Promise<void>
@@ -97,6 +99,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setStatus('signed-in')
   }, [])
 
+  /**
+   * Changing your own password. Every other session ends server-side and this
+   * one is re-issued, so nothing here has to re-authenticate afterwards.
+   */
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const res = await fetch('/api/auth/password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    })
+    if (!res.ok) throw new Error(await problem(res, 'Could not change the password.'))
+  }, [])
+
   const signOut = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
     setUser(null)
@@ -106,7 +121,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   return (
     <SessionContext.Provider
-      value={{ status, user, workspace, signIn, signOut, refresh: () => load() }}
+      value={{ status, user, workspace, signIn, signOut, changePassword, refresh: () => load() }}
     >
       {children}
     </SessionContext.Provider>

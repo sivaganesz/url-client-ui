@@ -290,7 +290,7 @@ describe('suspending a customer', () => {
     await customer.login('n@t.test', PASSWORD)
     assert.equal((await customer.get('/api/config')).status, 200)
 
-    await admin.post(`/api/admin/customers/${created.customer.userId}/status`, {
+    await admin.post(`/api/admin/customers/${created.customer.workspaceId}/status`, {
       status: 'suspended',
     })
 
@@ -310,11 +310,54 @@ describe('suspending a customer', () => {
       })
     ).json()
 
-    const id = created.customer.userId
+    const id = created.customer.workspaceId
     await admin.post(`/api/admin/customers/${id}/status`, { status: 'suspended' })
     await admin.post(`/api/admin/customers/${id}/status`, { status: 'active' })
 
     assert.equal((await new Client().login('n@t.test', PASSWORD)).status, 200)
+  })
+
+  test('reaches everyone in the workspace, not only its owner', async () => {
+    /**
+     * Suspension used to set `users.status` on the owner, which is the same
+     * thing only while a workspace holds one person. The moment a customer can
+     * invite a colleague, suspending the owner would leave the account running
+     * under the colleague's login — so it suspends the workspace, and this is
+     * the assertion that would notice it going back.
+     */
+    const admin = await signedInAdmin()
+    const created = await (
+      await admin.post('/api/admin/customers', {
+        workspaceName: 'W',
+        name: 'N',
+        email: 'owner@t.test',
+        password: PASSWORD,
+        perfoxApiBase: 'http://127.0.0.1:1',
+        perfoxApiToken: 'k',
+      })
+    ).json()
+
+    // A second person in the same workspace, the way an invite would leave one.
+    await query(
+      `INSERT INTO users (workspace_id, name, email, password_hash, role)
+       VALUES ($1, 'Colleague', 'colleague@t.test', $2, 'member')`,
+      [created.customer.workspaceId, await hashPassword(PASSWORD)],
+    )
+
+    const colleague = new Client()
+    await colleague.login('colleague@t.test', PASSWORD)
+    assert.equal((await colleague.get('/api/config')).status, 200)
+
+    await admin.post(`/api/admin/customers/${created.customer.workspaceId}/status`, {
+      status: 'suspended',
+    })
+
+    assert.equal(
+      (await colleague.get('/api/config')).status,
+      401,
+      'a colleague kept the suspended account running',
+    )
+    assert.equal((await new Client().login('colleague@t.test', PASSWORD)).status, 401)
   })
 
   test('refuses a status it does not recognise', async () => {
@@ -328,7 +371,7 @@ describe('suspending a customer', () => {
       })
     ).json()
 
-    const res = await admin.post(`/api/admin/customers/${created.customer.userId}/status`, {
+    const res = await admin.post(`/api/admin/customers/${created.customer.workspaceId}/status`, {
       status: 'deleted',
     })
     assert.equal(res.status, 400)

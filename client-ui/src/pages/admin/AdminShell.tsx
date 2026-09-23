@@ -4,7 +4,7 @@ import Avatar from '../../components/ui/Avatar'
 import ChangePasswordDialog from '../../components/ChangePasswordDialog'
 import ErrorBoundary from '../../components/ErrorBoundary'
 import { IconChat } from '../../components/icons'
-import { useAdmin } from '../../lib/admin'
+import { adminApi, useAdmin } from '../../lib/admin'
 
 /**
  * The admin surface.
@@ -61,7 +61,10 @@ export default function AdminShell() {
       </main>
 
       {changing && (
-        <ChangePasswordDialog endpoint="/api/admin/password" onClose={() => setChanging(false)} />
+        <ChangePasswordDialog
+          submit={async (current, next) => void (await adminApi.changePassword(current, next))}
+          onClose={() => setChanging(false)}
+        />
       )}
     </div>
   )

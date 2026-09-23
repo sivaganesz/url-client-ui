@@ -66,17 +66,26 @@ export async function destroySession(req: Request, res: Response): Promise<void>
   res.clearCookie(COOKIE, { path: '/' })
 }
 
-/** The signed-in user, or null. Expired and suspended both read as null. */
+/**
+ * The signed-in user, or null. Expired and suspended both read as null.
+ *
+ * Both suspensions are checked here rather than only at sign-in, which is what
+ * makes either of them take effect on the next request instead of whenever the
+ * cookie happens to expire. The workspace's is the one that suspends a
+ * customer; the user's stops one person in it.
+ */
 export async function currentUser(req: Request): Promise<UserRow | null> {
   const token = cookie(req, COOKIE)
   if (!token) return null
 
   const user = await one<UserRow>(
     `SELECT u.* FROM sessions s
-       JOIN users u ON u.id = s.user_id
+       JOIN users u      ON u.id = s.user_id
+       JOIN workspaces w ON w.id = u.workspace_id
       WHERE s.token_hash = $1
         AND s.expires_at > now()
-        AND u.status = 'active'`,
+        AND u.status = 'active'
+        AND w.status = 'active'`,
     [hashToken(token)],
   )
   return user
