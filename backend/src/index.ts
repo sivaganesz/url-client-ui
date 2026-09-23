@@ -108,9 +108,23 @@ const server = app.listen(PORT, () => {
   console.log(`[backend] serving the app: ${CLIENT_DIST ? 'yes' : 'no — API only'}`)
 })
 
-void sweepExpiredSessions().then((n) => n && console.log(`[backend] swept ${n} expired sessions`))
-const sweep = setInterval(() => void sweepExpiredSessions(), 24 * 60 * 60 * 1000)
-sweep.unref()
+/**
+ * Housekeeping, and never a reason to fall over.
+ *
+ * This ran unguarded and took the process down with it whenever the database
+ * was not up yet — which is exactly when a deploy restarts both at once, and
+ * left the server unable to boot at all rather than booting and reporting the
+ * database as down on /api/health.
+ */
+function sweep() {
+  sweepExpiredSessions()
+    .then((n) => n && console.log(`[backend] swept ${n} expired sessions`))
+    .catch((err: Error) => console.warn(`[backend] session sweep skipped: ${err.message}`))
+}
+
+sweep()
+const daily = setInterval(sweep, 24 * 60 * 60 * 1000)
+daily.unref()
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
