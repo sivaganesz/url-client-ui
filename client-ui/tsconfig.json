@@ -1,0 +1,30 @@
+{
+  // Everything under src/ is TypeScript. `allowJs` and `checkJs` are gone
+  // with the migration that needed them: a .js file added here now fails to
+  // resolve rather than slipping through unchecked.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+
+    // Strict from the start. Retrofitting strictness onto a typed codebase is
+    // harder than starting with it, and this one is small enough to absorb it.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+
+    // Vite compiles each file in isolation and never emits; tsc only checks.
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "useDefineForClassFields": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

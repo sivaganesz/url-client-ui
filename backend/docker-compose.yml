@@ -1,0 +1,22 @@
+# Postgres for local development. Production is a managed database; this is
+# just so `npm run dev` works from a clean checkout without installing one.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: urlfactory
+      POSTGRES_PASSWORD: urlfactory
+      POSTGRES_DB: urlfactory
+    ports:
+      - '5433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U urlfactory']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

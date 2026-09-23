@@ -1,0 +1,95 @@
+# Admin accounts and customer provisioning
+
+Working checklist. Ticked as each piece lands; this file is the record of what
+was decided and why, once it is done.
+
+## What is being built
+
+Customers cannot create their own accounts. One admin, seeded, creates them
+through a page in the app instead of through an interactive CLI prompt.
+
+```
+/login         customer sign-in   → the console
+/admin/login   admin sign-in      → customer management
+```
+
+## The decision that shapes everything else
+
+**Admins live in their own table, not as a role on `users`.**
+
+`users.workspace_id` is `NOT NULL` — every user belongs to a workspace. An
+admin belongs to none; they sit above them. That could be solved with a
+nullable column and a role check, but an admin can create workspaces and write
+raw Perfox API keys, which is a different privilege class rather than a
+different row in the same one.
+
+Separate tables make the dangerous directions structurally impossible instead
+of a check somebody has to remember:
+
+- an admin session cannot reach `/api/perfox/*` — there is no workspace to
+  resolve, so it fails by construction rather than by guard
+- a customer row cannot be escalated to admin by flipping a column
+- the columns that mean nothing for an admin (`workspace_id`, `mobile`,
+  `role`) simply are not there
+
+Separate cookie names for the same reason, and one practical one: with a single
+name, signing into one surface silently signs you out of the other in the same
+browser.
+
+**Credentials are write-only.** No admin endpoint ever returns a Perfox key or
+site secret — not even to the admin who typed it. The list shows a flag and a
+hint (`sk_…f457`). An endpoint that can read back every tenant's key is one bug
+away from being the worst in the system; changing a key means retyping it.
+
+## Checklist
+
+### Backend
+
+- [x] 1. Schema: `admins` and `admin_sessions`
+- [x] 2. Admin auth — `/api/admin/login`, `/logout`, `/me`, separate cookie
+- [x] 3. Customer management — list, create, suspend; credentials write-only
+- [x] 4. `npm run seed:admin` creates the one admin
+- [x] 5. Backend tests
+
+### Frontend
+
+- [x] 6. `/login` — split panel, branding left, form right
+- [x] 7. `/admin/login`
+- [x] 8. Admin shell: customers list + create
+- [x] 9. Remove the Register page and route
+
+### Verification
+
+- [x] 10. Browser tests updated
+- [x] 11. The existing customer flow is unaffected — 97 tests green (50 browser, 47 backend)
+
+## Closed afterwards
+
+Everything listed as out of scope above was done in a follow-up pass, along
+with three gaps the first pass left:
+
+| | |
+|---|---|
+| Editing a customer's connection | `PATCH`, plus an Edit button. A blank field means "leave it", since the form can never show an existing secret; clearing is explicit `null` |
+| Testing a connection | One authenticated GET against the stored credentials. Without it an admin types a key and finds out it was wrong when the customer complains. It reports whether the workspace answered, never the body |
+| Admin password change | Mirrors the customer's, and ends every other admin session |
+| Rate limiting on both logins | Ten failures in fifteen minutes, per address **and** per IP. In memory, so **ineffective with more than one instance** — it moves when the deployment does |
+| A fresh checkout could not run the browser tests | `admin.spec.ts` signed in as an account no seed created. `seed:dev` makes both now, and `seed:admin` runs unattended from `ADMIN_EMAIL`/`ADMIN_PASSWORD` |
+| `npm run seed` was misleading | It still created customers — the thing that moved into the UI. Removed, so there is one way to make a customer |
+| Docs said nothing about any of this | Both READMEs, the tests README and TEST-REPORT.md |
+
+One item listed as a gap turned out not to be: **a suspended admin does lose
+access immediately.** The session lookup checks `status = 'active'`, so the
+cookie stops working at once; only the row lingers until the daily sweep, which
+is tidiness rather than a hole.
+
+## Still deliberately out of scope
+
+| | |
+|---|---|
+| Invitations and magic links | Deferred earlier, still deferred |
+| Deleting a customer | Suspending keeps the audit trail and ends access in the same move. Deletion needs a decision about what happens to the workspace |
+
+More than one admin is allowed by the schema even though only one is seeded.
+It costs nothing now, and a single shared admin login is how credentials end up
+being passed around in chat later.

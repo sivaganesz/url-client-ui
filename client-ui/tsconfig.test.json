@@ -1,0 +1,12 @@
+{
+  // The regression suite, checked separately from the app.
+  //
+  // It is a separate config so that `types: ["node"]` stays out of the app's
+  // scope. App code runs in a browser and has no `process`, so letting it
+  // resolve would turn a real bug into a clean compile.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["tests", "playwright.config.ts"]
+}
