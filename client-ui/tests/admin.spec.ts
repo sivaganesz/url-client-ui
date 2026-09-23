@@ -68,18 +68,24 @@ test('an admin creates a customer, who can then sign in', async ({ page }) => {
   const workspace = `E2E Northwind ${stamp}`
   const FAKE_KEY = 'sk_not_a_real_key_only_for_this_test_000000'
 
-  // A page of its own, and all three groups on it — customer details, Perfox
-  // credentials, operator details — rather than a dialog that scrolls.
+  // Three steps on a page of its own, rather than a dialog that scrolls.
   await page.getByRole('link', { name: /Add customer/i }).click()
   await expect(page).toHaveURL(/\/admin\/customers\/new/)
-  await expect(page.getByRole('heading', { name: 'Customer details' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Perfox credentials' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Operator details' })).toBeVisible()
 
+  const next = page.getByRole('button', { name: /^Next$/ })
+
+  // Step one: the only one that has to be filled in, so Next waits for it.
+  await expect(page.getByRole('heading', { name: 'Customer details' })).toBeVisible()
+  await expect(next).toBeDisabled()
   await page.getByLabel('Workspace name').fill(workspace)
   await page.getByLabel('Contact name').fill('Nora')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password', { exact: true }).fill(password)
+  await expect(next).toBeEnabled()
+  await next.click()
+
+  // Step two.
+  await expect(page.getByRole('heading', { name: 'Perfox credentials' })).toBeVisible()
   await page.getByLabel('API base').fill('https://example-api.perfox.ai/api/v1')
   await page.getByLabel('API key').fill(FAKE_KEY)
 
@@ -87,8 +93,22 @@ test('an admin creates a customer, who can then sign in', async ({ page }) => {
   // real, and a browser offering to remember a customer's API key is worse.
   await expect(page.getByLabel('API key')).toHaveAttribute('type', 'password')
   await expect(page.getByLabel('API key')).toHaveAttribute('autocomplete', 'off')
+  await next.click()
 
-  await page.getByRole('button', { name: /Create customer/i }).click()
+  /**
+   * Step three, and the only one with Submit on it. The operator credentials
+   * are left blank on purpose: they often arrive later, and the flow has to
+   * carry on without them rather than block on something nobody has yet.
+   */
+  await expect(page.getByRole('heading', { name: 'Operator details' })).toBeVisible()
+  await expect(next).toHaveCount(0)
+
+  // Going back keeps what was typed — three steps, one form.
+  await page.getByRole('button', { name: 'Back' }).click()
+  await expect(page.getByLabel('API base')).toHaveValue('https://example-api.perfox.ai/api/v1')
+  await next.click()
+
+  await page.getByRole('button', { name: /^Submit$/ }).click()
 
   /**
    * The credentials stay on screen, once. This is the only moment the password

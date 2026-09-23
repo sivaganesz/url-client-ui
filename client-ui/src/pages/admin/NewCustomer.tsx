@@ -4,7 +4,7 @@ import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
 import Spinner from '../../components/ui/Spinner'
 import { FormField, controlClass } from '../../components/ui/Field'
-import { IconAlert, IconCheck, IconChevronLeft } from '../../components/icons'
+import { IconAlert, IconCheck, IconChevronLeft, IconChevronRight } from '../../components/icons'
 import { cn } from '../../lib/cn'
 import { adminApi, type NewCustomer as NewCustomerInput } from '../../lib/admin'
 
@@ -24,20 +24,33 @@ const EMPTY: NewCustomerInput = {
   operatorWorkflowId: '',
 }
 
+const STEPS = [
+  { title: 'Customer details', note: 'Who they are, and what they sign in with.' },
+  { title: 'Perfox credentials', note: 'What the console reads conversations, agents and calls through.' },
+  {
+    title: 'Operator details',
+    note: 'Only if this workspace places calls. A different credential from the API key — one does not authorise the other.',
+  },
+] as const
+
 /**
- * Adding a customer: everything in one pass, on a page of its own.
+ * Adding a customer, in three steps.
  *
- * It was a dialog, which meant three sections of a fifteen-field form inside a
- * box that scrolls independently of the page behind it — and the thing that
- * matters most, the sign-in to hand over, disappeared the moment it closed.
+ * It was a dialog: fifteen fields in three groups inside a box that scrolls
+ * independently of the page behind it, and the thing that mattered most — the
+ * sign-in to hand over — vanished the moment it closed.
  *
- * A page has room for the three groups to be read as groups, and for the
- * result to be a result: the email and password stay on screen, once, with
- * what to do with them said out loud. Nothing can show them again afterwards,
- * because no endpoint returns a password.
+ * Only the first step is required. The other two are credentials that often
+ * arrive later, so Next carries on through them empty and the account is
+ * created saying it is not connected, rather than blocking on something the
+ * admin has not been given yet.
+ *
+ * Nothing is submitted until the last step, and nothing is lost going
+ * backwards: the form is one object held across all three.
  */
 export default function NewCustomer() {
   const navigate = useNavigate()
+  const [step, setStep] = useState(0)
   const [f, setF] = useState<NewCustomerInput>(EMPTY)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -46,16 +59,25 @@ export default function NewCustomer() {
   )
 
   const tooShort = f.password !== '' && f.password.length < MIN_LENGTH
-  const ready =
+  /** Step one is the only one that has to be filled in. */
+  const detailsReady =
     f.workspaceName.trim() !== '' &&
     f.name.trim() !== '' &&
     f.email.trim() !== '' &&
-    f.password.length >= MIN_LENGTH &&
-    !busy
+    f.password.length >= MIN_LENGTH
+
+  const last = step === STEPS.length - 1
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!ready) return
+    // Enter on an earlier step moves on rather than creating the customer —
+    // submitting from step one would skip two steps the admin can still see.
+    if (!last) {
+      if (step > 0 || detailsReady) setStep((s) => s + 1)
+      return
+    }
+    if (busy) return
+
     setBusy(true)
     setError(null)
     try {
@@ -92,7 +114,9 @@ export default function NewCustomer() {
     </FormField>
   )
 
-  if (done) return <Created {...done} onAnother={() => setDone(null)} />
+  if (done) return <Created {...done} onAnother={() => { setDone(null); setF(EMPTY); setStep(0) }} />
+
+  const current = STEPS[step]!
 
   return (
     <form onSubmit={submit} className="mx-auto flex max-w-3xl flex-col gap-5">
@@ -105,12 +129,9 @@ export default function NewCustomer() {
           Customers
         </Link>
         <h1 className="mt-2 text-[17px] font-semibold tracking-tight">Add a customer</h1>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
-          Creates the workspace and the sign-in that reaches it. The connection details can be
-          filled in now or left until later — the account works without them and says it is not
-          connected.
-        </p>
       </div>
+
+      <Steps current={step} reached={detailsReady} onGo={setStep} />
 
       {error && (
         <div
@@ -122,94 +143,171 @@ export default function NewCustomer() {
         </div>
       )}
 
-      <Group
-        step={1}
-        title="Customer details"
-        note="Who they are, and what they sign in with."
-      >
-        {field('workspaceName', 'Workspace name', { placeholder: 'Northwind' })}
-        <div className="grid gap-4 sm:grid-cols-2">
-          {field('name', 'Contact name')}
-          {field('email', 'Email', { type: 'email', placeholder: 'name@northwind.com' })}
-          {field('mobile', 'Mobile (optional)', { type: 'tel', placeholder: '+91 9342022401' })}
-          {field('password', 'Password', {
-            secret: true,
-            hint: tooShort
-              ? `Use at least ${MIN_LENGTH} characters.`
-              : `At least ${MIN_LENGTH} characters. You hand it over yourself.`,
-          })}
+      <Card className="flex flex-col gap-4 p-5">
+        <div>
+          <h2 className="text-[13.5px] font-semibold text-ink">{current.title}</h2>
+          <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">{current.note}</p>
         </div>
-      </Group>
 
-      <Group
-        step={2}
-        title="Perfox credentials"
-        note="What the console reads conversations, agents and calls through."
-      >
-        {field('perfoxApiBase', 'API base', {
-          placeholder: 'https://acme-api.perfox.ai/api/v1',
-          hint: 'No trailing slash — it builds //agents, which answers 401 and reads like a bad key.',
-        })}
-        {field('perfoxApiToken', 'API key', { secret: true, placeholder: 'sk_…' })}
-      </Group>
+        {step === 0 && (
+          <>
+            {field('workspaceName', 'Workspace name', { placeholder: 'Northwind' })}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field('name', 'Contact name')}
+              {field('email', 'Email', { type: 'email', placeholder: 'name@northwind.com' })}
+              {field('mobile', 'Mobile (optional)', { type: 'tel', placeholder: '+91 9342022401' })}
+              {field('password', 'Password', {
+                secret: true,
+                hint: tooShort
+                  ? `Use at least ${MIN_LENGTH} characters.`
+                  : `At least ${MIN_LENGTH} characters. You hand it over yourself.`,
+              })}
+            </div>
+          </>
+        )}
 
-      <Group
-        step={3}
-        title="Operator details"
-        note="Only if this workspace places calls. A different credential from the API key — one does not authorise the other."
-      >
-        {field('operatorApiHost', 'Operator API host', { placeholder: 'https://acme-api.perfox.ai' })}
-        <div className="grid gap-4 sm:grid-cols-2">
-          {field('operatorSiteId', 'Site ID', { placeholder: 'sa_site_live_…' })}
-          {field('operatorSiteSecret', 'Site secret', {
-            secret: true,
-            placeholder: 'sa_secret_live_…',
-          })}
-        </div>
-        {field('operatorWorkflowId', 'Workflow ID (optional)')}
-      </Group>
+        {step === 1 && (
+          <>
+            {field('perfoxApiBase', 'API base', {
+              placeholder: 'https://acme-api.perfox.ai/api/v1',
+              hint: 'No trailing slash — it builds //agents, which answers 401 and reads like a bad key.',
+            })}
+            {field('perfoxApiToken', 'API key', { secret: true, placeholder: 'sk_…' })}
+            <Skippable>
+              Leave these blank if the key has not arrived yet. The account works, and says it is
+              not connected until one is added.
+            </Skippable>
+          </>
+        )}
 
-      <div className="flex items-center justify-end gap-2">
-        <Button variant="ghost" size="md" type="button" onClick={() => navigate('/admin')}>
-          Cancel
+        {step === 2 && (
+          <>
+            {field('operatorApiHost', 'Operator API host', {
+              placeholder: 'https://acme-api.perfox.ai',
+            })}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field('operatorSiteId', 'Site ID', { placeholder: 'sa_site_live_…' })}
+              {field('operatorSiteSecret', 'Site secret', {
+                secret: true,
+                placeholder: 'sa_secret_live_…',
+              })}
+            </div>
+            {field('operatorWorkflowId', 'Workflow ID (optional)')}
+            <Skippable>
+              Leave these blank if this workspace does not place calls. The Call button then says
+              so rather than failing when it is pressed.
+            </Skippable>
+          </>
+        )}
+      </Card>
+
+      <div className="flex items-center justify-between gap-2">
+        <Button
+          variant="ghost"
+          size="md"
+          type="button"
+          onClick={() => (step === 0 ? navigate('/admin') : setStep((s) => s - 1))}
+        >
+          {step === 0 ? 'Cancel' : 'Back'}
         </Button>
-        <Button variant="primary" size="md" type="submit" disabled={!ready}>
-          {busy ? <Spinner size={12} /> : null}
-          {busy ? 'Creating…' : 'Create customer'}
-        </Button>
+
+        {last ? (
+          <Button variant="primary" size="md" type="submit" disabled={!detailsReady || busy}>
+            {busy ? <Spinner size={12} /> : null}
+            {busy ? 'Creating…' : 'Submit'}
+          </Button>
+        ) : (
+          <Button
+            variant="primary"
+            size="md"
+            type="submit"
+            disabled={step === 0 && !detailsReady}
+          >
+            Next
+            <IconChevronRight size={13} />
+          </Button>
+        )}
       </div>
     </form>
   )
 }
 
-/** One numbered group of fields. The number is the reading order, not a wizard. */
-function Group({
-  step,
-  title,
-  note,
-  children,
+/**
+ * 1 → 2 → 3, and which one you are on.
+ *
+ * A completed step can be returned to by clicking it; one that has not been
+ * reached cannot be jumped to, because step one carries the only fields that
+ * are required and skipping it would present a Submit that refuses.
+ */
+function Steps({
+  current,
+  reached,
+  onGo,
 }: {
-  step: number
-  title: string
-  note: string
-  children: React.ReactNode
+  current: number
+  /** Whether step one is filled in, which is what unlocks the rest. */
+  reached: boolean
+  onGo: (step: number) => void
 }) {
   return (
-    <Card className="flex flex-col gap-4 p-5">
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden="true"
-          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[11px] font-semibold text-brand"
-        >
-          {step}
-        </span>
-        <div className="min-w-0">
-          <h2 className="text-[13.5px] font-semibold text-ink">{title}</h2>
-          <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">{note}</p>
-        </div>
-      </div>
+    <ol className="flex items-center gap-1.5">
+      {STEPS.map((s, i) => {
+        const state = i === current ? 'current' : i < current ? 'done' : 'todo'
+        const canGo = i < current || (reached && i > current)
+
+        return (
+          <li key={s.title} className="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              disabled={!canGo}
+              aria-current={state === 'current' ? 'step' : undefined}
+              onClick={() => canGo && onGo(i)}
+              className={cn(
+                'flex min-w-0 items-center gap-2 rounded-full border py-1 pr-3 pl-1 transition-colors',
+                state === 'current'
+                  ? 'border-brand-line bg-brand-soft'
+                  : 'border-transparent hover:bg-muted-bg',
+                !canGo && state !== 'current' && 'cursor-default hover:bg-transparent',
+              )}
+            >
+              <span
+                className={cn(
+                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                  state === 'done'
+                    ? 'bg-ok text-white'
+                    : state === 'current'
+                      ? 'bg-brand text-white'
+                      : 'bg-muted-bg text-ink-4',
+                )}
+              >
+                {state === 'done' ? <IconCheck size={12} /> : i + 1}
+              </span>
+              <span
+                className={cn(
+                  'truncate text-[12px]',
+                  state === 'current' ? 'font-semibold text-brand-dark' : 'text-ink-3',
+                )}
+              >
+                {s.title}
+              </span>
+            </button>
+
+            {i < STEPS.length - 1 && (
+              <IconChevronRight size={13} className="shrink-0 text-ink-4" aria-hidden="true" />
+            )}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+/** Says a step can be left empty, so nobody hunts for a value they lack. */
+function Skippable({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded-lg bg-sunken px-3 py-2.5 text-[11.5px] leading-relaxed text-ink-3">
       {children}
-    </Card>
+    </p>
   )
 }
 
