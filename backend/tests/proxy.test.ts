@@ -29,6 +29,7 @@ describe('the proxy', () => {
         'conversations',
         'customers',
         'calls',
+        'cases',
         'analytics/summary',
         'analytics/conversations-over-time',
         'billing/credits',

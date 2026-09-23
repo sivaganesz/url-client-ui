@@ -303,38 +303,6 @@ export interface ShellContext {
   openDrawer: () => void
 }
 
-/* ── the conversation log ────────────────────────────────── */
-
-/**
- * The log's rows have no endpoint behind them yet — the workspace scores no
- * conversation and raises no ticket. This is the shape a future loader has to
- * produce, written down here so the mock and the eventual mapper agree.
- */
-export type LogSentiment = 'Positive' | 'Negative' | 'Neutral'
-
-export interface LogScore {
-  sentiment: LogSentiment
-  solved: boolean
-  followUp: boolean
-  /** Out of ten. */
-  qaScore: number
-  note: string
-}
-
-export interface LogRow {
-  id: string
-  at: string
-  who: string
-  /** Who moved last. */
-  direction: 'customer' | 'agent' | 'system'
-  channel: ChannelLabel
-  triggeredBy: string
-  summary: string | null
-  /** null while scoring is pending. */
-  ai: LogScore | null
-  ticketStatus: StatusLabel
-}
-
 /* ── connected numbers and addresses ─────────────────────── */
 
 /** One row of GET /credentials/{id}/resources. */
@@ -407,4 +375,123 @@ export interface SendResult {
 export interface StartedConversation extends OutboundResult {
   to: string
   agentName?: string
+}
+
+/* ── cases: the conversation log ─────────────────────────── */
+
+/**
+ * One row of GET /cases.
+ *
+ * A case IS a conversation — `id` is the conversation id, so the transcript
+ * comes from /conversations/{id}/events without carrying a second identifier.
+ *
+ * The scored fields are ABSENT until the conversation has been judged, rather
+ * than present and null. A case that has not been scored is a normal state, so
+ * the UI says "not scored yet" instead of reading an absence as a zero.
+ */
+export interface ApiCase {
+  id: string
+  customer_id?: string
+  customer_name?: string
+  customer_email?: string
+  customer_phone?: string
+
+  /** The ticket lifecycle — NOT the AI's verdict. See `resolved`. */
+  status?: string
+  channel_started?: string
+  channels?: string[]
+
+  /**
+   * Empty string when no agent matched the inbound at all.
+   *
+   * Set, with `workflow_name: null`, when an agent did handle it and was
+   * deleted afterwards. The two are different facts and the UI keeps them
+   * apart — collapsing them reports "unassigned" for a case that was handled.
+   */
+  workflow_id?: string
+  workflow_name?: string | null
+
+  summary?: string
+  originator?: string
+  last_message?: string
+  message_count?: number
+
+  /** Absent until scored. */
+  sentiment_label?: string
+  resolved?: boolean
+  resolution_reason?: string
+  /** Present only when true. */
+  needs_followup?: boolean
+  qa_scores?: Record<string, number>
+
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ApiPagination {
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+/** How an agent came to be, or not be, on a case. */
+export type Attribution =
+  | { kind: 'agent'; name: string }
+  /** An agent handled it and was deleted afterwards. */
+  | { kind: 'deleted' }
+  /** Nothing matched the inbound. */
+  | { kind: 'none' }
+
+export interface Case {
+  id: string
+  customerId?: string
+  /** The best name available; falls back to the phone, email, or the ref. */
+  who: string
+  ref: string
+  email: string
+  phone: string
+
+  /** The ticket lifecycle. Separate from the verdict below. */
+  status: StatusLabel
+  channel: ChannelLabel
+  channels: ChannelLabel[]
+  originator: string
+
+  agent: Attribution
+  summary: string
+  lastMessage: string
+  messages: number
+
+  /** null until the conversation has been scored — not false. */
+  resolved: boolean | null
+  resolutionReason: string
+  sentiment: string | null
+  needsFollowUp: boolean
+  qa: Record<string, number> | null
+  /** The single headline figure, when the scores carry one. */
+  qaOverall: number | null
+
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface CaseFilters {
+  q?: string
+  status?: string
+  channel?: string
+  originator?: string
+  needs_followup?: string
+  created_after?: string
+  created_before?: string
+  sort_by?: string
+  sort_order?: string
+}
+
+export interface CasePage {
+  cases: Case[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }

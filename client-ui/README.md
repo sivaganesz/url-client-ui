@@ -109,7 +109,7 @@ agents; a web frontend belongs on plain HTTP resources. The mapping lives in
 | Credit balance | `/billing/credits` | **Live** |
 | Outbound message | `POST /outbound` | **Live** — see below |
 | Operator calling | `@perfox/operator-react` | **Live** — a human on the line, see below |
-| Analytics → Conversation log | — | **Mock**, and badged as such in the UI |
+| Analytics → Conversation log | `/cases` | **Live** — filtered and paged upstream, see below |
 | Phone Number Connections | `/credentials`, `/credentials/{id}/resources` | **Live** — see below |
 
 `/analytics/summary`, `/calls` and `/recordings` went live in September 2026,
@@ -117,6 +117,31 @@ and connected numbers followed. **Every section now has a real source**, which
 is why there is no longer an "unavailable" state anywhere in the code — a
 fourth resource status that nothing could produce read as a case somebody had
 thought about, so it went with the last blocked page.
+
+### The conversation log
+
+`/cases` filters and pages server-side, and the filters are applied **before**
+paging — so the total is the total of what matched, which is the only way the
+footer can honestly say "1–25 of 315". Filtering rows the browser already holds
+would report the size of the page instead.
+
+A case **is** a conversation: the row carries the conversation id, so the
+transcript is one hop away at `/conversations/{id}/events` with no second
+identifier to look up.
+
+Three things about the response shape drive the UI:
+
+- **Two kinds of status.** `status` is the ticket lifecycle (active / ended /
+  resolved / escalated / abandoned). The AI's verdict is the other fields —
+  `resolved`, `sentiment_label`, `qa_scores`, `needs_followup`. A conversation
+  can be **ended without being resolved**, so they are separate columns.
+- **Two ways an agent can be missing.** No `workflow_id` means nothing matched
+  the inbound; a `workflow_id` with `workflow_name: null` means an agent
+  handled it and was deleted afterwards. The page renders them differently,
+  because collapsing them reports a handled conversation as unassigned.
+- **The scored fields are absent until judged**, not present and null. So an
+  unscored case reads "Not scored yet" rather than as a blank verdict or, worse,
+  an unresolved one.
 
 ### Connected numbers and addresses
 

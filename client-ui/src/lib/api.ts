@@ -54,6 +54,12 @@ import type {
   ApiCredential,
   ApiResource,
   Connection,
+  ApiCase,
+  ApiPagination,
+  Attribution,
+  Case,
+  CaseFilters,
+  CasePage,
 } from './types'
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -918,4 +924,93 @@ export async function getPhoneNumbers(signal?: AbortSignal): Promise<Connection[
       credentialName: credential.name ?? credential.type ?? 'Credential',
     })),
   )
+}
+
+/**
+ * The conversation log.
+ *
+ * Filtered and paged by the workspace, not the browser. Every filter is
+ * applied before paging, so the total is the total of what matched rather than
+ * of what was fetched — which is the only way a table can honestly say
+ * "20 of 347". Filtering a page the browser already has would report the size
+ * of that page.
+ *
+ * A case IS a conversation: `id` is the conversation id, so the transcript is
+ * one hop away at /conversations/{id}/events with no second identifier.
+ */
+export async function getCases(
+  filters: CaseFilters = {},
+  page = 1,
+  pageSize = 25,
+  signal?: AbortSignal,
+): Promise<CasePage> {
+  const params: Record<string, string | number> = { page, page_size: pageSize }
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== '') params[k] = v
+  }
+
+  const body = await rest<{ data?: ApiCase[]; pagination?: ApiPagination }>(
+    'cases',
+    params,
+    signal,
+  )
+
+  return {
+    cases: (body?.data ?? []).map(toCase),
+    page: body?.pagination?.page ?? page,
+    pageSize: body?.pagination?.page_size ?? pageSize,
+    total: body?.pagination?.total ?? 0,
+    totalPages: body?.pagination?.total_pages ?? 0,
+  }
+}
+
+/**
+ * Two absences, kept apart.
+ *
+ * No workflow_id means nothing matched the inbound. A workflow_id with a null
+ * name means an agent handled it and was deleted since. Reporting both as
+ * "unassigned" would say nobody took a conversation that somebody did.
+ */
+function attributionOf(c: ApiCase): Attribution {
+  if (!c.workflow_id) return { kind: 'none' }
+  return c.workflow_name ? { kind: 'agent', name: c.workflow_name } : { kind: 'deleted' }
+}
+
+function toCase(c: ApiCase): Case {
+  const ref = c.id.slice(0, 8)
+  const qa = c.qa_scores && Object.keys(c.qa_scores).length ? c.qa_scores : null
+
+  return {
+    id: c.id,
+    customerId: c.customer_id,
+    // Anonymous conversations all read "Customer NNNN", so the contact detail
+    // is more use than the name when there is one.
+    who: c.customer_name || c.customer_phone || c.customer_email || `Case ${ref}`,
+    ref,
+    email: c.customer_email ?? '',
+    phone: c.customer_phone ?? '',
+
+    status: statusLabel(c.status),
+    channel: channelLabel(c.channel_started),
+    channels: (c.channels ?? []).map(channelLabel),
+    originator: c.originator ?? '',
+
+    agent: attributionOf(c),
+    summary: c.summary ?? '',
+    lastMessage: c.last_message ?? '',
+    messages: c.message_count ?? 0,
+
+    // null, not false: absent means not scored, and a case nobody has judged
+    // is not a case that was judged unresolved.
+    resolved: typeof c.resolved === 'boolean' ? c.resolved : null,
+    resolutionReason: c.resolution_reason ?? '',
+    sentiment: c.sentiment_label ?? null,
+    // Present only when true.
+    needsFollowUp: c.needs_followup === true,
+    qa,
+    qaOverall: typeof qa?.overall === 'number' ? qa.overall : null,
+
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+  }
 }

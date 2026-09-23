@@ -32,6 +32,10 @@ const READS = [
   /^customers$/,
   new RegExp(`^customers/${ID}$`),
   /^calls$/,
+  // The conversation log. Filters and paging are query parameters, which the
+  // allowlist does not inspect — it decides which resource may be reached, not
+  // how it is queried.
+  /^cases$/,
   /^analytics\/summary$/,
   /^analytics\/conversations-over-time$/,
   /^billing\/credits$/,

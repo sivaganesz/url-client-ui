@@ -23,45 +23,11 @@ test('the credit balance comes from the billing endpoint', async ({ page }) => {
 })
 
 /**
- * The conversation log runs on mock data — the workspace scores no
- * conversation and raises no ticket. The filtering, paging and export are
- * real, so they are what is tested.
+ * The conversation log moved to its own file when it stopped being mock data.
+ * It is a server-filtered, server-paged view of GET /cases now, and the
+ * assertions that matter are about that — see cases.spec.ts.
  */
-test.describe('the conversation log', () => {
-  test('channel filters toggle cleanly back to the baseline', async ({ page }) => {
-    const rows = page.locator('table tbody tr')
-    const baseline = await rows.count()
-    expect(baseline).toBeGreaterThan(0)
 
-    const web = page
-      .getByRole('group', { name: 'Filter by channel' })
-      .getByRole('button', { name: 'Web', exact: true })
-    await web.click()
-    await expect.poll(() => rows.count()).toBeLessThan(baseline)
-    await expect(web).toHaveAttribute('aria-pressed', 'true')
-
-    await web.click()
-    await expect.poll(() => rows.count()).toBe(baseline)
-    await expect(web).toHaveAttribute('aria-pressed', 'false')
-  })
-
-  test('a row exports as CSV', async ({ page }) => {
-    await page.getByRole('button', { name: 'Export' }).first().click()
-
-    // The menu uses menuitemradio, not menuitem — it is a single choice.
-    const csv = page.getByRole('menuitemradio', { name: 'CSV' })
-    await expect(csv).toBeVisible()
-
-    const download = page.waitForEvent('download')
-    await csv.click()
-    expect((await download).suggestedFilename()).toMatch(/\.csv$/)
-  })
-})
-
-/**
- * Cutting the API off is the point of this one, so the aborted requests it
- * causes are declared rather than silencing the watch.
- */
 test.describe('with the API cut off', () => {
   test('the page says so instead of inventing numbers', async ({ page }) => {
     allowConsoleErrors(page, /ERR_FAILED/, /Failed to load resource/)

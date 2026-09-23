@@ -20,7 +20,6 @@ import { credits, num, pct } from '../lib/format'
 import { useResource } from '../lib/useResource'
 import { getConversationsOverTime, getCredits, getSummary } from '../lib/api'
 import { EMPTY_CREDITS, EMPTY_SUMMARY } from '../lib/shapes'
-import { conversationLog } from '../data/conversationLog'
 import type { ShellContext } from '../lib/types'
 
 /** Bucket sizes the endpoint understands, in the casing the chips show. */
@@ -188,7 +187,7 @@ export default function Analytics() {
           </Card>
         </div>
 
-        <ConversationLog rows={conversationLog} />
+        <ConversationLog />
       </PageBody>
     </>
   )
