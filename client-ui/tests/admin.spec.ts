@@ -333,4 +333,77 @@ test('the edit form fills itself in, and the secrets stay behind an eye', async 
   await dialog.getByRole('button', { name: /Show API key/i }).click()
   await expect(key).toHaveAttribute('type', 'text')
   expect(reveals, 'a second look asked the server again').toBe(1)
+
+  /**
+   * Two tabs, one set of fields at a time. Stacked, this dialog was taller
+   * than the screen — and the workspace name stays above them both, since it
+   * belongs to neither half.
+   */
+  const perfox = dialog.getByRole('tab', { name: 'Perfox connection' })
+  const operator = dialog.getByRole('tab', { name: 'Operation details' })
+  await expect(perfox).toHaveAttribute('aria-selected', 'true')
+  await expect(operator).toHaveAttribute('aria-selected', 'false')
+  await expect(dialog.getByLabel('Site ID', { exact: true })).toHaveCount(0)
+
+  await operator.click()
+  await expect(operator).toHaveAttribute('aria-selected', 'true')
+  await expect(perfox).toHaveAttribute('aria-selected', 'false')
+  await expect(dialog.getByLabel('Site ID', { exact: true })).toBeVisible()
+  await expect(dialog.getByLabel('API base', { exact: true })).toHaveCount(0)
+  await expect(dialog.getByLabel('Workspace name')).toBeVisible()
+
+  /**
+   * The pair comes back in one call, so the second secret costs no second ask
+   * — and no second entry in the audit trail. Only when this workspace has an
+   * operator secret at all: the eye is not drawn over an empty field.
+   */
+  const siteEye = dialog.getByRole('button', { name: /Show site secret/i })
+  if (await siteEye.count()) {
+    await siteEye.click()
+    await expect(dialog.getByLabel('Site secret', { exact: true })).toHaveAttribute('type', 'text')
+    expect(reveals, 'the second secret asked the server again').toBe(1)
+  }
+})
+
+test('a customer can be deleted, and is asked about first', async ({ page }) => {
+  /**
+   * Creates its own customer to remove, so the suite never deletes a real one
+   * — and leaves nothing behind either, which the create test above cannot say
+   * for itself.
+   */
+  await signIn(page)
+
+  const stamp = Date.now()
+  const workspace = `E2E Doomed ${stamp}`
+  await page.getByRole('link', { name: /Add customer/i }).click()
+  await page.getByLabel('Workspace name').fill(workspace)
+  await page.getByLabel('Contact name').fill('Temp')
+  await page.getByLabel('Email').fill(`doomed-${stamp}@northwind.test`)
+  await page.getByLabel('Password', { exact: true }).fill('northwind-long-password')
+  await page.getByRole('button', { name: /^Next$/ }).click()
+  await page.getByRole('button', { name: /^Next$/ }).click()
+  await page.getByRole('button', { name: /^Submit$/ }).click()
+  await page.getByRole('link', { name: 'Back to customers' }).click()
+
+  const row = page.locator('table tbody tr', { hasText: workspace })
+  await expect(row).toBeVisible()
+
+  // Asked first, and cancelling really does nothing.
+  await row.getByRole('button', { name: 'Delete' }).click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText(workspace)
+  await expect(confirm).toContainText(/cannot be undone/i)
+  // Says what is not deleted, since that is the part people fear.
+  await expect(confirm).toContainText(/Nothing in Perfox is touched/i)
+  await confirm.getByRole('button', { name: 'Cancel' }).click()
+  await expect(row).toBeVisible()
+
+  await row.getByRole('button', { name: 'Delete' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete customer' }).click()
+  await expect(row).toHaveCount(0, { timeout: 20_000 })
+
+  // And the record of it outlives it.
+  await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Activity' }).click()
+  const entry = page.locator('table tbody tr', { hasText: workspace }).first()
+  await expect(entry).toContainText('Deleted customer')
 })

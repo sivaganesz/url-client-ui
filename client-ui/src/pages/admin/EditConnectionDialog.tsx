@@ -2,12 +2,23 @@ import { useCallback, useState } from 'react'
 import Modal from '../../components/ui/Modal'
 import Button from '../../components/ui/Button'
 import Spinner from '../../components/ui/Spinner'
-import { FormField, controlClass } from '../../components/ui/Field'
+import { FormField, Tabs, controlClass } from '../../components/ui/Field'
 import { IconAlert, IconEye, IconEyeOff } from '../../components/icons'
 import { cn } from '../../lib/cn'
 import { useResource } from '../../lib/useResource'
 import { adminApi, type CustomerDetail, type CustomerRow, type NewCustomer } from '../../lib/admin'
 import { OperatorHelp, PerfoxHelp } from './CredentialHelp'
+
+const TABS = [
+  { id: 'perfox', label: 'Perfox connection' },
+  { id: 'operator', label: 'Operation details' },
+] as const
+
+/** Both secrets, once fetched. One call returns the pair. */
+interface Revealed {
+  perfoxApiToken: string | null
+  operatorSiteSecret: string | null
+}
 
 /**
  * Changing an existing workspace's connection.
@@ -17,9 +28,16 @@ import { OperatorHelp, PerfoxHelp } from './CredentialHelp'
  * They are configuration, not credentials, and making an admin retype them to
  * change one of them was busywork that lost the others.
  *
- * The two secrets are different. They arrive masked, with an eye to reveal
- * them, and revealing one is its own request — see `adminApi.reveal`. Nothing
- * is decrypted until somebody asks, and every ask is in the audit trail.
+ * The workspace name stays at the top, since it belongs to neither half. The
+ * two sets of credentials are tabs rather than one column: they are alternative
+ * answers to "what am I here to change?", and stacking them made a dialog
+ * nobody could see the bottom of.
+ *
+ * The two secrets arrive masked, with an eye to reveal them. Revealing is its
+ * own request — see `adminApi.reveal` — so nothing is decrypted until somebody
+ * asks, and every ask is in the audit trail. The pair comes back together and
+ * is held here rather than in each field, so looking at both, or switching
+ * tabs and looking again, is one entry in that trail rather than four.
  */
 export default function EditConnectionDialog({
   editing,
@@ -38,7 +56,9 @@ export default function EditConnectionDialog({
     editing.workspace_id,
   ])
 
+  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('perfox')
   const [changes, setChanges] = useState<Partial<NewCustomer>>({})
+  const [revealed, setRevealed] = useState<Revealed | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -49,6 +69,11 @@ export default function EditConnectionDialog({
   const set = (key: keyof NewCustomer) => (value: string) =>
     setChanges((prev) => ({ ...prev, [key]: value }))
 
+  const reveal = useCallback(async () => {
+    if (revealed) return
+    setRevealed(await adminApi.reveal(editing.workspace_id))
+  }, [revealed, editing.workspace_id])
+
   const loading = status === 'loading'
   const ready = !loading && !busy && valueOf('workspaceName', saved?.workspaceName).trim() !== ''
 
@@ -57,9 +82,9 @@ export default function EditConnectionDialog({
     setBusy(true)
     setError(null)
     try {
-      // Only what was touched. The user's name, email and password are theirs
-      // to change, not an admin's to overwrite, and an untouched secret must
-      // not be resent as an empty string.
+      // Only what was touched, whichever tab it was on. The user's name, email
+      // and password are theirs to change, not an admin's to overwrite, and an
+      // untouched secret must not be resent as an empty string.
       await adminApi.updateCustomer(editing.workspace_id, changes)
       onSaved()
     } catch (err) {
@@ -122,44 +147,69 @@ export default function EditConnectionDialog({
           </div>
         )}
 
+        {/* Above the tabs, because it belongs to neither of them. */}
         {field('workspaceName', 'Workspace name', saved?.workspaceName, {
           placeholder: 'Northwind',
         })}
 
-        <Section title="Perfox connection" />
-        <PerfoxHelp collapsible />
-        {field('perfoxApiBase', 'API base', saved?.perfoxApiBase, {
-          placeholder: 'https://acme-api.perfox.ai/api/v1',
-          hint: 'No trailing slash — it builds //agents, which answers 401 and reads like a bad key.',
-        })}
-        <Secret
-          label="API key"
-          workspaceId={editing.workspace_id}
-          stored={saved?.hasApiToken ?? false}
-          placeholder="sk_…"
-          pick={(c) => c.perfoxApiToken}
-          value={changes.perfoxApiToken}
-          onChange={set('perfoxApiToken')}
+        <Tabs
+          tabs={TABS}
+          value={tab}
+          onChange={(id) => setTab(id as (typeof TABS)[number]['id'])}
+          className="border-b border-line"
         />
 
-        <Section title="Operator calling" note="Only if this workspace places calls." />
-        <OperatorHelp collapsible />
-        {field('operatorApiHost', 'Operator API host', saved?.operatorApiHost, {
-          placeholder: 'https://acme-api.perfox.ai',
-        })}
-        {field('operatorSiteId', 'Site ID', saved?.operatorSiteId, {
-          placeholder: 'sa_site_live_…',
-        })}
-        <Secret
-          label="Site secret"
-          workspaceId={editing.workspace_id}
-          stored={saved?.hasSiteSecret ?? false}
-          placeholder="sa_secret_live_…"
-          pick={(c) => c.operatorSiteSecret}
-          value={changes.operatorSiteSecret}
-          onChange={set('operatorSiteSecret')}
-        />
-        {field('operatorWorkflowId', 'Workflow ID (optional)', saved?.operatorWorkflowId)}
+        {/**
+         * One height for both tabs, and the taller one scrolls inside it.
+         *
+         * Operation details carries two more fields than Perfox connection, so
+         * switching tabs grew the dialog by 130px and moved the buttons out
+         * from under the pointer. A fixed panel keeps the box the size it was
+         * when it opened; `pr-1` leaves the focus ring somewhere to be drawn
+         * when a scrollbar appears beside it.
+         */}
+        <div className="h-60 overflow-y-auto pr-1">
+          <div className="flex flex-col gap-4">
+            {tab === 'perfox' ? (
+              <>
+                <PerfoxHelp collapsible />
+                {field('perfoxApiBase', 'API base', saved?.perfoxApiBase, {
+                  placeholder: 'https://acme-api.perfox.ai/api/v1',
+                  hint: 'No trailing slash — it builds //agents, which answers 401 and reads like a bad key.',
+                })}
+                <Secret
+                  label="API key"
+                  stored={saved?.hasApiToken ?? false}
+                  placeholder="sk_…"
+                  revealed={revealed?.perfoxApiToken ?? null}
+                  onReveal={reveal}
+                  value={changes.perfoxApiToken}
+                  onChange={set('perfoxApiToken')}
+                />
+              </>
+            ) : (
+              <>
+                <OperatorHelp collapsible />
+                {field('operatorApiHost', 'Operator API host', saved?.operatorApiHost, {
+                  placeholder: 'https://acme-api.perfox.ai',
+                })}
+                {field('operatorSiteId', 'Site ID', saved?.operatorSiteId, {
+                  placeholder: 'sa_site_live_…',
+                })}
+                <Secret
+                  label="Site secret"
+                  stored={saved?.hasSiteSecret ?? false}
+                  placeholder="sa_secret_live_…"
+                  revealed={revealed?.operatorSiteSecret ?? null}
+                  onReveal={reveal}
+                  value={changes.operatorSiteSecret}
+                  onChange={set('operatorSiteSecret')}
+                />
+                {field('operatorWorkflowId', 'Workflow ID (optional)', saved?.operatorWorkflowId)}
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </Modal>
   )
@@ -171,25 +221,25 @@ export default function EditConnectionDialog({
  * Masked until asked for, and asking fetches it — the value is not in the page
  * before that, so closing the dialog without pressing the eye means no
  * credential was ever sent to this browser. Pressing it again hides the value
- * without dropping it, so a second look costs nothing and leaves one entry in
- * the audit trail rather than two.
+ * without dropping it, so a second look costs nothing.
  *
  * Typing replaces it, which is the other half of the field's job.
  */
 function Secret({
   label,
-  workspaceId,
   stored,
-  pick,
+  revealed,
+  onReveal,
   value,
   onChange,
   placeholder,
 }: {
   label: string
-  workspaceId: string
   /** Whether there is one to reveal at all. */
   stored: boolean
-  pick: (credentials: { perfoxApiToken: string | null; operatorSiteSecret: string | null }) => string | null
+  /** The decrypted value, once the dialog has fetched it. */
+  revealed: string | null
+  onReveal: () => Promise<void>
   /** The edit, if the admin has typed one. */
   value: string | undefined
   onChange: (value: string) => void
@@ -197,7 +247,6 @@ function Secret({
   placeholder: string
 }) {
   const [shown, setShown] = useState(false)
-  const [revealed, setRevealed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
 
@@ -208,7 +257,7 @@ function Secret({
       setShown(false)
       return
     }
-    // Typed values are already on screen; there is nothing to fetch.
+    // Typed values are already on screen, and a fetched one is already held.
     if (typed || revealed !== null) {
       setShown(true)
       return
@@ -217,8 +266,7 @@ function Secret({
     setBusy(true)
     setFailed(null)
     try {
-      const credentials = await adminApi.reveal(workspaceId)
-      setRevealed(pick(credentials) ?? '')
+      await onReveal()
       setShown(true)
     } catch (err) {
       setFailed((err as Error).message)
@@ -234,7 +282,7 @@ function Secret({
   return (
     <FormField
       label={label}
-      hint={failed ?? (stored && !typed ? undefined : stored ? 'Saving replaces the stored one.' : undefined)}
+      hint={failed ?? (stored && typed ? 'Saving replaces the stored one.' : undefined)}
       hintTone={failed ? 'warn' : 'muted'}
     >
       {(id) => (
@@ -263,14 +311,5 @@ function Secret({
         </div>
       )}
     </FormField>
-  )
-}
-
-function Section({ title, note }: { title: string; note?: string }) {
-  return (
-    <div className="mt-1 border-t border-line pt-4">
-      <h3 className="text-[10.5px] font-semibold tracking-[0.07em] text-ink-3 uppercase">{title}</h3>
-      {note && <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">{note}</p>}
-    </div>
   )
 }
