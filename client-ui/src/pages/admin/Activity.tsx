@@ -1,10 +1,9 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import DataTable, { type Column } from '../../components/ui/DataTable'
 import TablePager from '../../components/ui/TablePager'
 import Badge from '../../components/ui/Badge'
 import { EmptyState, ErrorState } from '../../components/ui/States'
 import { IconClock } from '../../components/icons'
-import { usePagination } from '../../lib/usePagination'
 import { useResource } from '../../lib/useResource'
 import { adminApi, type AdminEvent } from '../../lib/admin'
 
@@ -60,9 +59,39 @@ function detailOf(event: AdminEvent): string {
  * which field was touched.
  */
 export default function Activity() {
-  const load = useCallback(async () => (await adminApi.events()).events, [])
-  const { data: events, status, error, reload } = useResource<AdminEvent[]>(load, [], [])
-  const pager = usePagination(events, { sizes: [25, 50, 100] })
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
+  const load = useCallback(() => adminApi.events(page, pageSize), [page, pageSize])
+  const { data, status, error, reload } = useResource(
+    load,
+    { events: [] as AdminEvent[], pagination: { page: 1, page_size: 25, total: 0, total_pages: 1 } },
+    [page, pageSize],
+  )
+
+  /**
+   * Paged by the server, unlike Customers and Administrators.
+   *
+   * Those are tens of rows and are fetched whole; this one only ever grows,
+   * since nothing deletes from it. The pager reads the page the server
+   * actually served, so the range describes the rows on screen rather than the
+   * page that was asked for a moment ago.
+   */
+  const pager = {
+    rows: data.events,
+    sizes: [25, 50, 100],
+    perPage: pageSize,
+    setPerPage: (n: number) => {
+      // Page 40 of 25s is not page 40 of 100s.
+      setPageSize(n)
+      setPage(1)
+    },
+    page: data.pagination.page,
+    pageCount: Math.max(1, data.pagination.total_pages),
+    from: (data.pagination.page - 1) * data.pagination.page_size,
+    total: data.pagination.total,
+    goto: setPage,
+  }
 
   const columns: Column<AdminEvent>[] = [
     {
@@ -116,7 +145,7 @@ export default function Activity() {
         <h1 className="text-[17px] font-semibold tracking-tight">Activity</h1>
         <p className="mt-1 text-[12.5px] text-ink-3">
           {status === 'ready'
-            ? `${events.length} ${events.length === 1 ? 'entry' : 'entries'}, newest first`
+            ? `${data.pagination.total} ${data.pagination.total === 1 ? 'entry' : 'entries'}, newest first`
             : 'Loading…'}
         </p>
       </div>

@@ -719,3 +719,53 @@ describe('deleting a customer', () => {
     assert.equal((await (await admin.get('/api/admin/customers')).json()).customers.length, 1)
   })
 })
+
+describe('the audit trail is paged by the server', () => {
+  beforeEach(async () => {
+    await truncate()
+    await query('TRUNCATE admins, admin_sessions, admin_events CASCADE')
+    await start()
+    await makeAdmin()
+  })
+
+  test('a page at a time, with the total of everything', async () => {
+    const admin = await signedInAdmin()
+
+    // Three customers is three entries, newest first.
+    for (const name of ['One', 'Two', 'Three']) {
+      await admin.post('/api/admin/customers', {
+        workspaceName: name,
+        name,
+        email: `${name.toLowerCase()}@t.test`,
+        password: PASSWORD,
+      })
+    }
+
+    const first = await (await admin.get('/api/admin/events?page=1&page_size=2')).json()
+    assert.equal(first.events.length, 2)
+    assert.equal(first.events[0].target_label, 'Three')
+    /**
+     * The total is of the table, not of the page. A client that had to infer
+     * it from a short last page could not say "1–2 of 3" until it reached the
+     * end, which is the whole reason this is counted rather than guessed.
+     */
+    assert.deepEqual(first.pagination, { page: 1, page_size: 2, total: 3, total_pages: 2 })
+
+    const second = await (await admin.get('/api/admin/events?page=2&page_size=2')).json()
+    assert.equal(second.events.length, 1)
+    assert.equal(second.events[0].target_label, 'One')
+    assert.equal(second.pagination.total, 3)
+
+    // Past the end is empty rather than an error: a stale page number after a
+    // filter change is a normal thing for a browser to ask.
+    const past = await (await admin.get('/api/admin/events?page=9&page_size=2')).json()
+    assert.equal(past.events.length, 0)
+    assert.equal(past.pagination.total, 3)
+  })
+
+  test('refuses to be asked for the whole table at once', async () => {
+    const admin = await signedInAdmin()
+    const huge = await (await admin.get('/api/admin/events?page=1&page_size=100000')).json()
+    assert.equal(huge.pagination.page_size, 200, 'the page size was not capped')
+  })
+})

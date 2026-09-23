@@ -541,15 +541,38 @@ adminRouter.post('/admin/admins/:adminId/status', requireAdmin, async (req, res)
  * delete or amend one, for the same reason.
  */
 adminRouter.get('/admin/events', requireAdmin, async (req, res) => {
-  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500)
+  /**
+   * Paged on the server, unlike the other two admin lists.
+   *
+   * Customers and administrators are tens of rows and are fetched whole. This
+   * one only ever grows — nothing deletes from it, by design — so a page of it
+   * is all anybody needs and the whole of it is not something to send. The
+   * total is counted rather than inferred, so the footer can say "1–25 of 4,182"
+   * truthfully on the first page.
+   */
+  const pageSize = Math.min(Math.max(Number(req.query.page_size) || 25, 1), 200)
+  const page = Math.max(Number(req.query.page) || 1, 1)
+
+  const counted = await one<{ count: string }>('SELECT count(*) AS count FROM admin_events')
+  const total = Number(counted?.count ?? 0)
+
   const rows = await query(
     `SELECT id, admin_email, action, target_type, target_id, target_label, detail, created_at
        FROM admin_events
       ORDER BY created_at DESC, id DESC
-      LIMIT $1`,
-    [limit],
+      LIMIT $1 OFFSET $2`,
+    [pageSize, (page - 1) * pageSize],
   )
-  res.json({ events: rows })
+
+  res.json({
+    events: rows,
+    pagination: {
+      page,
+      page_size: pageSize,
+      total,
+      total_pages: Math.max(1, Math.ceil(total / pageSize)),
+    },
+  })
 })
 
 /**

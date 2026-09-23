@@ -111,6 +111,14 @@ export interface AdminRow {
   last_seen: string | null
 }
 
+/** What a paged list answers with, alongside its rows. */
+export interface Pagination {
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
 /** One thing an admin did, as the audit trail records it. */
 export interface AdminEvent {
   id: number
@@ -227,7 +235,17 @@ export const adminApi = {
 
   admins: () => send<{ admins: AdminRow[] }>('/api/admin/admins'),
 
-  events: () => send<{ events: AdminEvent[] }>('/api/admin/events'),
+  /**
+   * The audit trail, paged on the server.
+   *
+   * The only admin list that is: it only ever grows, since nothing deletes
+   * from it, so a page of it is what anybody needs and the whole of it is not
+   * something to send.
+   */
+  events: (page = 1, pageSize = 25) =>
+    send<{ events: AdminEvent[]; pagination: Pagination }>(
+      `/api/admin/events?page=${page}&page_size=${pageSize}`,
+    ),
 
   addAdmin: (body: { name: string; email: string; password: string }) =>
     send<{ admin: { id: string } }>('/api/admin/admins', {
