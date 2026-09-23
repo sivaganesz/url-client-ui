@@ -377,3 +377,102 @@ describe('suspending a customer', () => {
     assert.equal(res.status, 400)
   })
 })
+
+describe('administrators', () => {
+  beforeEach(async () => {
+    await truncate()
+    await query('TRUNCATE admins, admin_sessions CASCADE')
+    await start()
+    await makeAdmin()
+  })
+
+  test('are listed, added, and cannot be created twice', async () => {
+    const admin = await signedInAdmin()
+
+    const before = await (await admin.get('/api/admin/admins')).json()
+    assert.equal(before.admins.length, 1)
+    // Never a hash, not even to another admin.
+    assert.equal(JSON.stringify(before.admins).includes('argon2'), false)
+
+    const made = await admin.post('/api/admin/admins', {
+      name: 'Second',
+      email: 'second@t.test',
+      password: PASSWORD,
+    })
+    assert.equal(made.status, 201)
+
+    // And they can actually get in, which is the point of the page.
+    assert.equal((await new Client().post('/api/admin/login', {
+      email: 'second@t.test',
+      password: PASSWORD,
+    })).status, 200)
+
+    // One address, one account: a customer and an admin sharing one would make
+    // signing in depend on which form you happened to use.
+    assert.equal(
+      (await admin.post('/api/admin/admins', {
+        name: 'Again',
+        email: 'second@t.test',
+        password: PASSWORD,
+      })).status,
+      409,
+    )
+  })
+
+  test('cannot lock the last way in', async () => {
+    const admin = await signedInAdmin()
+    const me = await (await admin.get('/api/admin/me')).json()
+
+    // Suspending yourself needs somebody with psql to undo.
+    const self = await admin.post(`/api/admin/admins/${me.admin.id}/status`, {
+      status: 'suspended',
+    })
+    assert.equal(self.status, 400)
+
+    // And so does suspending the only other one when you are not active.
+    await admin.post('/api/admin/admins', {
+      name: 'Second',
+      email: 'second@t.test',
+      password: PASSWORD,
+    })
+    const list = await (await admin.get('/api/admin/admins')).json()
+    const second = list.admins.find((a: { email: string }) => a.email === 'second@t.test')
+
+    // Two active, so this one is allowed.
+    assert.equal((await admin.post(`/api/admin/admins/${second.id}/status`, {
+      status: 'suspended',
+    })).status, 200)
+
+    // Their open tab stops working, not merely their next sign-in.
+    assert.equal((await new Client().post('/api/admin/login', {
+      email: 'second@t.test',
+      password: PASSWORD,
+    })).status, 401)
+  })
+
+  test('a suspended admin loses the session they already had', async () => {
+    const admin = await signedInAdmin()
+    await admin.post('/api/admin/admins', {
+      name: 'Second',
+      email: 'second@t.test',
+      password: PASSWORD,
+    })
+
+    const second = new Client()
+    assert.equal((await second.post('/api/admin/login', {
+      email: 'second@t.test',
+      password: PASSWORD,
+    })).status, 200)
+    assert.equal((await second.get('/api/admin/customers')).status, 200)
+
+    const list = await (await admin.get('/api/admin/admins')).json()
+    const row = list.admins.find((a: { email: string }) => a.email === 'second@t.test')
+    await admin.post(`/api/admin/admins/${row.id}/status`, { status: 'suspended' })
+
+    assert.equal(
+      (await second.get('/api/admin/customers')).status,
+      401,
+      'a suspended admin kept their live session',
+    )
+  })
+})

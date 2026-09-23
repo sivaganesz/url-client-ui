@@ -385,3 +385,114 @@ adminRouter.post('/admin/password', requireAdmin, async (req, res) => {
 
   res.json({ ok: true })
 })
+
+/* ── administrators ──────────────────────────────────────── */
+
+/**
+ * Who else can get in here.
+ *
+ * The schema has allowed more than one admin since the beginning, on the
+ * grounds that a single shared login is how credentials end up being passed
+ * around in chat — but the only way to make a second one was to run
+ * `seed:admin` on the server, and there was nowhere at all to see who already
+ * had access. An account nobody can enumerate is not more secure; it is only
+ * harder to take away.
+ */
+interface AdminListRow {
+  id: string
+  name: string
+  email: string
+  status: string
+  created_at: string
+  last_seen: string | null
+}
+
+adminRouter.get('/admin/admins', requireAdmin, async (_req, res) => {
+  const rows = await query<AdminListRow>(
+    `SELECT a.id, a.name, a.email, a.status, a.created_at,
+            (SELECT max(s.created_at) FROM admin_sessions s WHERE s.admin_id = a.id) AS last_seen
+       FROM admins a
+      ORDER BY a.created_at`,
+  )
+  res.json({ admins: rows })
+})
+
+adminRouter.post('/admin/admins', requireAdmin, async (req, res) => {
+  const name = text(req.body?.name)
+  const email = isEmail(req.body?.email) ? text(req.body?.email).toLowerCase() : ''
+  const password = typeof req.body?.password === 'string' ? req.body.password : ''
+
+  if (!name || !email) {
+    res.status(400).json({ error: 'A name and a valid email are required.' })
+    return
+  }
+  const problem = passwordProblem(password)
+  if (problem) {
+    res.status(400).json({ error: problem })
+    return
+  }
+
+  // Both tables, because one address must not have an account on each —
+  // signing in would then depend on which form you happened to use.
+  const clash =
+    (await one<{ id: string }>('SELECT id FROM admins WHERE lower(email) = $1', [email])) ??
+    (await one<{ id: string }>('SELECT id FROM users WHERE lower(email) = $1', [email]))
+  if (clash) {
+    res.status(409).json({ error: 'That email address already has an account.' })
+    return
+  }
+
+  const rows = await query<{ id: string }>(
+    'INSERT INTO admins (name, email, password_hash) VALUES ($1,$2,$3) RETURNING id',
+    [name, email, await hashPassword(password)],
+  )
+  // No credential echoed back: whoever typed the password has it already.
+  res.status(201).json({ admin: { id: rows[0]!.id, name, email } })
+})
+
+/**
+ * Suspending another admin, with two things it will not do.
+ *
+ * It will not suspend you — locking yourself out of the only surface that can
+ * unlock you is a mistake nobody recovers from without database access. And it
+ * will not suspend the last active one, for the same reason: an admin surface
+ * with nobody able to sign in needs a person with psql to repair it.
+ */
+adminRouter.post('/admin/admins/:adminId/status', requireAdmin, async (req, res) => {
+  const status = text(req.body?.status)
+  if (status !== 'active' && status !== 'suspended') {
+    res.status(400).json({ error: "Status must be 'active' or 'suspended'." })
+    return
+  }
+  if (req.params.adminId === req.admin!.id) {
+    res.status(400).json({ error: 'You cannot suspend your own account.' })
+    return
+  }
+
+  if (status === 'suspended') {
+    const others = await one<{ count: string }>(
+      `SELECT count(*) AS count FROM admins
+        WHERE status = 'active' AND id <> $1`,
+      [req.params.adminId],
+    )
+    if (Number(others?.count ?? 0) === 0) {
+      res.status(400).json({ error: 'That is the last active administrator.' })
+      return
+    }
+  }
+
+  const rows = await query<{ id: string }>(
+    'UPDATE admins SET status = $1, updated_at = now() WHERE id = $2 RETURNING id',
+    [status, req.params.adminId],
+  )
+  if (rows.length === 0) {
+    res.status(404).json({ error: 'No such administrator.' })
+    return
+  }
+
+  if (status === 'suspended') {
+    // The open tab has to stop working, not merely the next sign-in.
+    await query('DELETE FROM admin_sessions WHERE admin_id = $1', [req.params.adminId])
+  }
+  res.json({ ok: true, status })
+})

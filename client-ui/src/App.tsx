@@ -4,6 +4,7 @@ import AppShell from './components/layout/AppShell'
 import Login from './pages/Login'
 import AdminLogin from './pages/admin/AdminLogin'
 import AdminShell from './pages/admin/AdminShell'
+import Admins from './pages/admin/Admins'
 import Customers from './pages/admin/Customers'
 import { PageSkeleton } from './components/ui/States'
 import { useSession } from './lib/session'
@@ -74,6 +75,7 @@ function AdminRoutes() {
         <Route path="login" element={<AdminLogin />} />
         <Route element={<RequireAdmin />}>
           <Route index element={<Customers />} />
+          <Route path="admins" element={<Admins />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />
         </Route>
       </Routes>

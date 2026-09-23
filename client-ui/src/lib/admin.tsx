@@ -100,6 +100,17 @@ export interface CustomerRow {
   created_at: string
 }
 
+/** Another person who can sign in at /admin/login. */
+export interface AdminRow {
+  id: string
+  name: string
+  email: string
+  status: string
+  created_at: string
+  /** When a session was last issued to them — blank means never signed in. */
+  last_seen: string | null
+}
+
 export interface NewCustomer {
   workspaceName: string
   name: string
@@ -163,6 +174,20 @@ export const adminApi = {
     send<{ ok: true }>('/api/admin/password', {
       method: 'POST',
       body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
+  admins: () => send<{ admins: AdminRow[] }>('/api/admin/admins'),
+
+  addAdmin: (body: { name: string; email: string; password: string }) =>
+    send<{ admin: { id: string } }>('/api/admin/admins', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  setAdminStatus: (adminId: string, status: 'active' | 'suspended') =>
+    send<{ ok: true }>(`/api/admin/admins/${adminId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
     }),
 
   /** Suspends the customer — the workspace and everyone in it, not one user. */

@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import Avatar from '../../components/ui/Avatar'
+import { cn } from '../../lib/cn'
 import ChangePasswordDialog from '../../components/ChangePasswordDialog'
 import ErrorBoundary from '../../components/ErrorBoundary'
 import { IconChat } from '../../components/icons'
@@ -25,6 +26,29 @@ export default function AdminShell() {
           <IconChat size={15} />
         </span>
         <span className="text-[14px] font-semibold tracking-tight">Administration</span>
+
+        {/* Two sections now that administrators can be listed, so the header
+            has to say which one you are in. Still no workspace anywhere. */}
+        <nav aria-label="Admin" className="ml-4 flex items-center gap-1">
+          {[
+            { to: '/admin', label: 'Customers', end: true },
+            { to: '/admin/admins', label: 'Administrators', end: false },
+          ].map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) =>
+                cn(
+                  'rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors',
+                  isActive ? 'bg-white/15 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white',
+                )
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
 
         <span className="ml-auto flex items-center gap-3">
           {admin && (

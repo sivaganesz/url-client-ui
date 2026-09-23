@@ -163,3 +163,38 @@ test('an admin can reach the password form, and it checks the old one', async ({
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(page.getByRole('heading', { name: 'Customers' })).toBeVisible()
 })
+
+test('the administrators page lists who can get in, and guards the last way in', async ({ page }) => {
+  /**
+   * More than one admin has been allowed since the first migration, but making
+   * one meant running `seed:admin` on the server and there was nowhere to see
+   * who already had access.
+   *
+   * Read-only on purpose: creating admins here would leave a row behind on
+   * every run, and this suite signs in as the seeded one.
+   */
+  await signIn(page)
+  await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Administrators' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Administrators' })).toBeVisible()
+  await expect(page.getByText(ADMIN.email)).toBeVisible()
+
+  // Your own row cannot be suspended: locking yourself out of the only surface
+  // that can unlock you needs a person with psql to undo.
+  const mine = page.locator('table tbody tr').filter({ hasText: ADMIN.email })
+  await expect(mine.getByRole('button', { name: /Suspend|Reinstate/ })).toBeDisabled()
+
+  // The form is there and says what it needs before it will send anything.
+  await page.getByRole('button', { name: 'Add administrator' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Add administrator' })).toBeDisabled()
+
+  await dialog.getByLabel('Name').fill('Second')
+  await dialog.getByLabel('Email').fill('second@example.com')
+  await dialog.getByLabel('Password').fill('short')
+  await expect(dialog.getByText(/at least 12 characters/i)).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Add administrator' })).toBeDisabled()
+
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+})
