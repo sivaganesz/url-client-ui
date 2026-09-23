@@ -56,6 +56,7 @@ the test reads it from the API in the same run rather than hardcoding it, and
 | `agents.spec.ts` | paging, the view toggle, the stat tiles counting the whole list rather than the page, and the destructive-action confirm |
 | `analytics.spec.ts` | the over-time chart across all three intervals, credits, the log's filters and CSV export, and the page's behaviour with the API down |
 | `responsive.spec.ts` | phone layout: no horizontal overflow, the drawer, and the single-column conversation view. Runs under the `mobile` project only |
+| `admin.spec.ts` | the admin surface: that customers cannot sign themselves up, that /admin needs an admin session, that an admin creates a customer who can then sign in, that the key typed into the form is never readable afterwards, and that neither session can stand in for the other |
 | `operator.spec.ts` | operator calling: the signing endpoint never leaks the secret, the Call button explains itself when the connector is unavailable, and the phone tab drops the agent picker |
 
 ## The console watch

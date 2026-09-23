@@ -678,7 +678,7 @@ test with a readable message.
 
 **Registration is closed** (`ALLOW_REGISTRATION=false`) and should stay so.
 The console reads real customer conversations, so a public sign-up form is a
-door onto them. Accounts are created with `npm run seed` until the invitation
+door onto them. Accounts are created by an administrator on /admin until the invitation
 flow exists — at which point the page becomes "accept an invitation" and the
 workspace comes from the invite rather than from whoever filled the form in.
 The page and the endpoint both exist already, so switching it on is

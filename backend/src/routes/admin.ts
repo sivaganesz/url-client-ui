@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { one, query, type UserRow } from '../db/index.ts'
-import { encrypt } from '../crypto.ts'
+import { decrypt, encrypt } from '../crypto.ts'
 import { hashPassword, passwordProblem, verifyPassword, wasteTime } from '../auth/password.ts'
 import {
   createAdminSession,
@@ -9,6 +9,7 @@ import {
   requireAdmin,
   type AdminRow,
 } from '../auth/admin-session.ts'
+import { limitLogins } from '../auth/rate-limit.ts'
 
 export const adminRouter: Router = Router()
 
@@ -33,7 +34,7 @@ const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 
 /* ── sign in ─────────────────────────────────────────────── */
 
-adminRouter.post('/admin/login', async (req, res) => {
+adminRouter.post('/admin/login', limitLogins, async (req, res) => {
   const email = text(req.body?.email).toLowerCase()
   const password = typeof req.body?.password === 'string' ? req.body.password : ''
 
@@ -48,10 +49,12 @@ adminRouter.post('/admin/login', async (req, res) => {
   // unknown-address path so the timing does not answer what the wording won't.
   if (!admin) {
     await wasteTime()
+    res.locals.loginFailed = true
     res.status(401).json({ error: 'Those details did not match an account.' })
     return
   }
   if (!(await verifyPassword(admin.password_hash, password)) || admin.status !== 'active') {
+    res.locals.loginFailed = true
     res.status(401).json({ error: 'Those details did not match an account.' })
     return
   }
@@ -227,4 +230,146 @@ adminRouter.post('/admin/customers/:userId/status', requireAdmin, async (req, re
     await query('DELETE FROM sessions WHERE user_id = $1', [req.params.userId])
   }
   res.json({ ok: true, status })
+})
+
+/**
+ * Changing a workspace's Perfox connection.
+ *
+ * Only the fields sent are touched, and a blank one means "leave it alone"
+ * rather than "clear it" — otherwise a form that renders a secret as an empty
+ * box (which it must, since nothing can read one back) would wipe the
+ * credential every time somebody corrected a typo in the workspace name.
+ *
+ * Clearing is therefore explicit: send `null`.
+ */
+adminRouter.patch('/admin/customers/:workspaceId', requireAdmin, async (req, res) => {
+  const b = req.body ?? {}
+  const sets: string[] = []
+  const values: unknown[] = []
+
+  const put = (column: string, value: unknown) => {
+    sets.push(`${column} = $${sets.length + 1}`)
+    values.push(value)
+  }
+
+  // null is a deliberate clear; undefined and '' are "not supplied".
+  const given = (v: unknown) => v !== undefined && v !== ''
+  const trim = (v: unknown) => (v === null ? null : text(v).replace(/\/+$/, '') || null)
+  const plain = (v: unknown) => (v === null ? null : text(v) || null)
+  const secret = (v: unknown) => (v === null ? null : encrypt(text(v)))
+
+  if (given(b.workspaceName)) put('name', text(b.workspaceName))
+  if (given(b.perfoxApiBase)) put('perfox_api_base', trim(b.perfoxApiBase))
+  if (given(b.perfoxApiToken)) put('perfox_api_token_enc', secret(b.perfoxApiToken))
+  if (given(b.operatorApiHost)) put('operator_api_host', trim(b.operatorApiHost))
+  if (given(b.operatorSiteId)) put('operator_site_id', plain(b.operatorSiteId))
+  if (given(b.operatorSiteSecret)) put('operator_site_secret_enc', secret(b.operatorSiteSecret))
+  if (given(b.operatorWorkflowId)) put('operator_workflow_id', plain(b.operatorWorkflowId))
+
+  if (sets.length === 0) {
+    res.status(400).json({ error: 'Nothing to change.' })
+    return
+  }
+
+  values.push(req.params.workspaceId)
+  const rows = await query<{ id: string }>(
+    `UPDATE workspaces SET ${sets.join(', ')}, updated_at = now()
+      WHERE id = $${values.length} RETURNING id`,
+    values,
+  )
+  if (rows.length === 0) {
+    res.status(404).json({ error: 'No such workspace.' })
+    return
+  }
+
+  // Flags, as everywhere else on this surface. Nothing is read back.
+  res.json({ ok: true })
+})
+
+/**
+ * Does this connection actually work?
+ *
+ * Without it, an admin types a key and finds out it was wrong when the
+ * customer complains. One cheap authenticated GET against the workspace's own
+ * credentials answers it in a second.
+ *
+ * The upstream's body is never returned — only whether it answered and how.
+ * This endpoint exists to check a credential, not to become a second way of
+ * reading a customer's data through an admin session.
+ */
+adminRouter.post('/admin/customers/:workspaceId/test', requireAdmin, async (req, res) => {
+  const w = await one<{
+    perfox_api_base: string | null
+    perfox_api_token_enc: string | null
+  }>('SELECT perfox_api_base, perfox_api_token_enc FROM workspaces WHERE id = $1', [
+    req.params.workspaceId,
+  ])
+
+  if (!w) {
+    res.status(404).json({ error: 'No such workspace.' })
+    return
+  }
+
+  const base = w.perfox_api_base?.replace(/\/+$/, '')
+  const token = decrypt(w.perfox_api_token_enc)
+  if (!base || !token) {
+    res.json({ ok: false, reason: 'This workspace has no API base and key yet.' })
+    return
+  }
+
+  try {
+    const upstream = await fetch(`${base}/agents`, {
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    })
+
+    if (upstream.ok) {
+      res.json({ ok: true, reason: 'The workspace answered.' })
+      return
+    }
+
+    /**
+     * 401 is the one worth naming. This API answers an unknown path with 401
+     * rather than 404, so a trailing slash in the base builds "//agents" and
+     * looks exactly like a bad key — an afternoon lost to the wrong problem.
+     */
+    res.json({
+      ok: false,
+      reason:
+        upstream.status === 401
+          ? 'Refused (401). Either the key is wrong, or the API base is — this API answers an unknown path with 401, not 404.'
+          : `The workspace answered ${upstream.status}.`,
+    })
+  } catch (err) {
+    const message = (err as Error).name === 'TimeoutError' ? 'timed out' : (err as Error).message
+    res.json({ ok: false, reason: `Could not reach it: ${message}.` })
+  }
+})
+
+/** An admin changing their own password. Mirrors the customer's. */
+adminRouter.post('/admin/password', requireAdmin, async (req, res) => {
+  const admin = req.admin!
+  const current = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : ''
+  const next = typeof req.body?.newPassword === 'string' ? req.body.newPassword : ''
+
+  if (!(await verifyPassword(admin.password_hash, current))) {
+    res.status(401).json({ error: 'Your current password is not right.' })
+    return
+  }
+  const problem = passwordProblem(next)
+  if (problem) {
+    res.status(400).json({ error: problem })
+    return
+  }
+
+  await query('UPDATE admins SET password_hash = $1, updated_at = now() WHERE id = $2', [
+    await hashPassword(next),
+    admin.id,
+  ])
+  // Every other session goes — changing a password is what someone does when
+  // they think one has been taken.
+  await query('DELETE FROM admin_sessions WHERE admin_id = $1', [admin.id])
+  await createAdminSession(res, admin, req)
+
+  res.json({ ok: true })
 })

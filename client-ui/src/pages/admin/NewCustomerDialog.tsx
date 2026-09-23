@@ -5,7 +5,7 @@ import Spinner from '../../components/ui/Spinner'
 import { FormField, controlClass } from '../../components/ui/Field'
 import { IconAlert } from '../../components/icons'
 import { cn } from '../../lib/cn'
-import { adminApi, type NewCustomer } from '../../lib/admin'
+import { adminApi, type CustomerRow, type NewCustomer } from '../../lib/admin'
 
 /**
  * Creating a customer: the workspace, its first user, and the Perfox
@@ -22,18 +22,22 @@ import { adminApi, type NewCustomer } from '../../lib/admin'
  */
 export default function NewCustomerDialog({
   onClose,
-  onCreated,
+  onSaved,
+  editing,
 }: {
   onClose: () => void
-  onCreated: () => void
+  onSaved: () => void
+  /** Set to change an existing workspace's connection rather than create one. */
+  editing?: CustomerRow
 }) {
+  const isEdit = Boolean(editing)
   const [f, setF] = useState<NewCustomer>({
-    workspaceName: '',
+    workspaceName: editing?.workspace_name ?? '',
     name: '',
     email: '',
     mobile: '',
     password: '',
-    perfoxApiBase: '',
+    perfoxApiBase: editing?.perfox_api_base ?? '',
     perfoxApiToken: '',
     operatorApiHost: '',
     operatorSiteId: '',
@@ -46,21 +50,36 @@ export default function NewCustomerDialog({
   const set = (k: keyof NewCustomer) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setF((prev) => ({ ...prev, [k]: e.target.value }))
 
-  const tooShort = f.password !== '' && f.password.length < 12
-  const ready =
-    f.workspaceName.trim() !== '' &&
-    f.name.trim() !== '' &&
-    f.email.trim() !== '' &&
-    f.password.length >= 12 &&
-    !busy
+  const tooShort = !isEdit && f.password !== '' && f.password.length < 12
+  const ready = isEdit
+    ? f.workspaceName.trim() !== '' && !busy
+    : f.workspaceName.trim() !== '' &&
+      f.name.trim() !== '' &&
+      f.email.trim() !== '' &&
+      f.password.length >= 12 &&
+      !busy
 
   async function submit() {
     if (!ready) return
     setBusy(true)
     setError(null)
     try {
-      await adminApi.createCustomer(f)
-      onCreated()
+      if (editing) {
+        // Only the connection, and only what was filled in. The user's name,
+        // email and password are theirs to change, not an admin's to overwrite.
+        await adminApi.updateCustomer(editing.workspace_id, {
+          workspaceName: f.workspaceName,
+          perfoxApiBase: f.perfoxApiBase,
+          perfoxApiToken: f.perfoxApiToken,
+          operatorApiHost: f.operatorApiHost,
+          operatorSiteId: f.operatorSiteId,
+          operatorSiteSecret: f.operatorSiteSecret,
+          operatorWorkflowId: f.operatorWorkflowId,
+        })
+      } else {
+        await adminApi.createCustomer(f)
+      }
+      onSaved()
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -95,7 +114,7 @@ export default function NewCustomerDialog({
     <Modal
       open
       onClose={onClose}
-      title="Add a customer"
+      title={isEdit ? 'Change the connection' : 'Add a customer'}
       footer={
         <>
           <Button variant="ghost" size="md" onClick={onClose} disabled={busy}>
@@ -103,7 +122,7 @@ export default function NewCustomerDialog({
           </Button>
           <Button variant="primary" size="md" disabled={!ready} onClick={submit}>
             {busy ? <Spinner size={12} /> : null}
-            {busy ? 'Creating…' : 'Create customer'}
+            {busy ? 'Saving…' : isEdit ? 'Save changes' : 'Create customer'}
           </Button>
         </>
       }
@@ -120,24 +139,37 @@ export default function NewCustomerDialog({
         )}
 
         <p className="text-[12.5px] leading-relaxed text-ink-3">
-          Creates the workspace and its first sign-in. Give the email and password to
-          the customer yourself — neither is shown again.
+          {isEdit
+            ? 'Leave a secret blank to keep the one already stored — they cannot be shown, so an empty box means "unchanged", not "clear it".'
+            : 'Creates the workspace and its first sign-in. Give the email and password to the customer yourself — neither is shown again.'}
         </p>
 
         {field('workspaceName', 'Workspace name', { placeholder: 'Northwind' })}
 
-        <Section title="Who signs in" />
-        {field('name', 'Contact name')}
-        {field('email', 'Email', { type: 'email', placeholder: 'name@northwind.com' })}
-        {field('mobile', 'Mobile (optional)', { type: 'tel', placeholder: '+91 9342022401' })}
-        {field('password', 'Password', {
-          secret: true,
-          hint: tooShort ? 'Use at least 12 characters.' : 'At least 12 characters. Give it to them yourself.',
-        })}
+        {!isEdit && (
+          <>
+            <Section title="Who signs in" />
+            {field('name', 'Contact name')}
+            {field('email', 'Email', { type: 'email', placeholder: 'name@northwind.com' })}
+            {field('mobile', 'Mobile (optional)', { type: 'tel', placeholder: '+91 9342022401' })}
+            {field('password', 'Password', {
+              secret: true,
+              hint: tooShort
+                ? 'Use at least 12 characters.'
+                : 'At least 12 characters. Give it to them yourself.',
+            })}
+          </>
+        )}
 
         <Section
           title="Perfox connection"
-          note="Optional now — the account works without it and says it is not connected."
+          note={
+            isEdit
+              ? editing?.has_api_token
+                ? 'A key is stored. Type a new one only to replace it.'
+                : 'No key stored yet.'
+              : 'Optional now — the account works without it and says it is not connected.'
+          }
         />
         {field('perfoxApiBase', 'API base', {
           placeholder: 'https://acme-api.perfox.ai/api/v1',

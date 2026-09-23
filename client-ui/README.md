@@ -19,7 +19,7 @@ forwards `/api/*` to it, so the browser sees **one origin**.
 
 ```bash
 # first, in ../backend — see its README
-#   docker compose up -d ; npm run migrate ; npm run seed
+#   docker compose up -d ; npm run migrate ; npm run seed:admin
 
 npm install
 npm run dev              # http://localhost:5180
@@ -40,7 +40,7 @@ workspace returned it.
 ```bash
 npm run typecheck        # app and tests, strict, noUncheckedIndexedAccess
 npm run lint
-npm test                 # 44 Playwright tests, ~3 min — see tests/README.md
+npm test                 # 50 Playwright tests, ~3 min — see tests/README.md
 npm run build            # runs tsc first, then bundles into dist/
 ```
 
@@ -51,6 +51,19 @@ database and a seeded account, and it drives the live Perfox API.
 `npm run discover`, in the backend, prints a workspace's MCP tools and their
 signatures. Useful when checking whether a resource exists before writing
 against it.
+
+## Two sign-in surfaces
+
+```
+/login         customers → the console
+/admin/login   administrators → customer provisioning
+```
+
+**Customers cannot create accounts.** There is no sign-up form and no route to
+one; an administrator creates them on `/admin` and hands over the details. The
+two surfaces have separate sessions, separate cookies and separate backend
+tables, so neither can stand in for the other — an admin cannot open the
+console, and a customer cannot reach the admin API.
 
 ## Why nothing here holds a credential
 

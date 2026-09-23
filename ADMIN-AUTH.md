@@ -63,14 +63,32 @@ away from being the worst in the system; changing a key means retyping it.
 - [x] 10. Browser tests updated
 - [x] 11. The existing customer flow is unaffected — 97 tests green (50 browser, 47 backend)
 
-## Deliberately not in scope
+## Closed afterwards
+
+Everything listed as out of scope above was done in a follow-up pass, along
+with three gaps the first pass left:
 
 | | |
 |---|---|
-| Editing a customer's credentials | Create and suspend first; edit after |
-| Password reset for the admin | Lose it and reseed. Worth knowing, not urgent |
-| Rate limiting on either login | argon2 is slow enough to make brute force expensive. `/admin/login` is the higher-value target and should get it next |
+| Editing a customer's connection | `PATCH`, plus an Edit button. A blank field means "leave it", since the form can never show an existing secret; clearing is explicit `null` |
+| Testing a connection | One authenticated GET against the stored credentials. Without it an admin types a key and finds out it was wrong when the customer complains. It reports whether the workspace answered, never the body |
+| Admin password change | Mirrors the customer's, and ends every other admin session |
+| Rate limiting on both logins | Ten failures in fifteen minutes, per address **and** per IP. In memory, so **ineffective with more than one instance** — it moves when the deployment does |
+| A fresh checkout could not run the browser tests | `admin.spec.ts` signed in as an account no seed created. `seed:dev` makes both now, and `seed:admin` runs unattended from `ADMIN_EMAIL`/`ADMIN_PASSWORD` |
+| `npm run seed` was misleading | It still created customers — the thing that moved into the UI. Removed, so there is one way to make a customer |
+| Docs said nothing about any of this | Both READMEs, the tests README and TEST-REPORT.md |
+
+One item listed as a gap turned out not to be: **a suspended admin does lose
+access immediately.** The session lookup checks `status = 'active'`, so the
+cookie stops working at once; only the row lingers until the daily sweep, which
+is tidiness rather than a hole.
+
+## Still deliberately out of scope
+
+| | |
+|---|---|
 | Invitations and magic links | Deferred earlier, still deferred |
+| Deleting a customer | Suspending keeps the audit trail and ends access in the same move. Deletion needs a decision about what happens to the workspace |
 
 More than one admin is allowed by the schema even though only one is seeded.
 It costs nothing now, and a single shared admin login is how credentials end up

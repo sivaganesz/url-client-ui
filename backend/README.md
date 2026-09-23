@@ -30,10 +30,15 @@ docker compose up -d        # Postgres on :5433
 npm install
 cp .env.example .env        # then generate an ENCRYPTION_KEY, below
 npm run migrate             # apply the schema
-npm run seed                # create a workspace and its first user
+npm run seed:admin          # create the admin account
 
 npm run dev                 # http://localhost:4400
 ```
+
+Then sign in at `/admin/login` and add customers there. `seed:admin` is the
+only account that cannot be made through the app, because something has to
+exist before anything else can be created; it prompts, or runs unattended if
+`ADMIN_EMAIL` and `ADMIN_PASSWORD` are set.
 
 Generate the encryption key with:
 
@@ -50,7 +55,28 @@ CSRF for us. In production this process serves the built app itself
 `npm run discover` prints a workspace's MCP tools, for checking whether a
 resource exists before writing against it.
 
-## Two decisions worth knowing
+## Admins and customers are separate
+
+Two tables, two session tables, two cookie names — not one table with a role
+column. `users.workspace_id` is NOT NULL and an admin belongs to no workspace,
+but the real reason is that an admin can create workspaces and write raw Perfox
+keys. That is a different privilege class, not a different row in the same one.
+
+The separation does work a guard would otherwise have to remember:
+
+- an admin session **cannot** reach `/api/perfox/*` — not "is refused", cannot,
+  because there is no `workspace_id` anywhere to resolve
+- no column exists that would turn a customer into an admin
+- with one cookie name, signing into either surface would silently sign you out
+  of the other in the same browser
+
+**Credentials are write-only.** No admin endpoint returns a key or a secret,
+not even to the admin who just typed it — the list carries flags. Changing a
+key means retyping it, and a blank field on the edit form means "leave it"
+rather than "clear it", since the form can never show what is already there.
+Clearing is explicit: send `null`.
+
+## Two more decisions worth knowing
 
 **Sessions, not JWTs.** A token in `localStorage` is readable by any injected
 script; an httpOnly cookie is not reachable from JavaScript at all. And a JWT
@@ -69,24 +95,38 @@ it means every workspace has to be reconfigured.
 ## Data model
 
 ```
-workspaces  the Perfox connection: REST base + key, operator site + secret
-users       belongs to exactly one workspace; owner or member
-sessions    a hash of the cookie, never the cookie
+workspaces      the Perfox connection: REST base + key, operator site + secret
+users           belongs to exactly one workspace; owner or member
+sessions        a hash of the cookie, never the cookie
+
+admins          above workspaces; no workspace_id exists for them
+admin_sessions  the same, for the admin cookie
 ```
 
 `Workspace → many users`, so a company's whole team shares one connection.
 Invitations and magic links drop in as a fourth table without disturbing this.
 
-## Registration is closed
+## Customers cannot create their own accounts
 
-`ALLOW_REGISTRATION` is `false` and should stay that way for now. The console
-reads real customer conversations, so a public sign-up form is a door onto
-them. Accounts are created with `npm run seed` until the invitation flow
-exists, at which point the page becomes "accept an invitation" and the
-workspace comes from the invite rather than from whoever filled the form in.
+There is no sign-up form and no route to one. The console reads real customer
+conversations, so a public sign-up would be a door onto them — an admin creates
+accounts on `/admin`, and hands over the email and password.
 
-The endpoint and the page both exist already, so switching it on later is
-configuration rather than a release.
+`ALLOW_REGISTRATION` still gates a dormant `/api/auth/register`, kept for the
+invitation flow: when that exists the endpoint becomes "accept an invitation"
+and the workspace comes from the invite rather than from whoever filled in the
+form.
+
+## Sign-in attempts are capped
+
+Ten failures in fifteen minutes, counted per address **and** per IP — per IP
+alone lets an attacker spread across a botnet, per address alone lets them try
+one password against every account they can name. A success clears the address,
+so two typos and then the right password is not a lockout.
+
+It is held in memory, which is fine for one process and **ineffective the
+moment there is more than one** — each instance would keep its own count. It
+moves to shared storage when the deployment does.
 
 ## Endpoints
 
@@ -98,6 +138,15 @@ configuration rather than a release.
 | `GET /api/auth/me` | 200 with `user: null` when signed out — not a 401, so a cold login page logs nothing |
 | `POST /api/auth/register` | 403 unless `ALLOW_REGISTRATION=true` |
 | `POST /api/auth/password` | requires the current password; ends every other session |
+| `POST /api/admin/login` | the admin's own cookie (`ufasid`), own table |
+| `POST /api/admin/logout` | |
+| `GET /api/admin/me` | 200 with `admin: null` when signed out |
+| `POST /api/admin/password` | ends every other admin session |
+| `GET /api/admin/customers` | flags, never credentials |
+| `POST /api/admin/customers` | creates a workspace and its owner, in one transaction |
+| `PATCH /api/admin/customers/:workspaceId` | changes the connection; blank means "leave it" |
+| `POST /api/admin/customers/:workspaceId/test` | does this key actually work? |
+| `POST /api/admin/customers/:userId/status` | suspend or reinstate; suspending ends their sessions |
 | `GET /api/config` | the workspace's name and what is configured |
 | `GET /api/operator/config` | the signed operator identity — never the site secret |
 | `/api/perfox/*` | the proxy, allowlisted |

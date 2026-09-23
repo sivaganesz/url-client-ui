@@ -5,6 +5,7 @@ import DataTable, { type Column } from '../../components/ui/DataTable'
 import Spinner from '../../components/ui/Spinner'
 import { EmptyState, ErrorState } from '../../components/ui/States'
 import { IconAgent, IconAlert, IconCheck } from '../../components/icons'
+import { cn } from '../../lib/cn'
 import { useResource } from '../../lib/useResource'
 import { adminApi, type CustomerRow } from '../../lib/admin'
 import NewCustomerDialog from './NewCustomerDialog'
@@ -21,8 +22,30 @@ export default function Customers() {
   const { data: customers, status, error, reload } = useResource<CustomerRow[]>(load, [], [])
 
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<CustomerRow | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
+  /** Per workspace, so the result sits next to the row it is about. */
+  const [tested, setTested] = useState<Record<string, { ok: boolean; reason: string }>>({})
+
+  /**
+   * Does this connection work?
+   *
+   * Without it an admin types a key and finds out it was wrong when the
+   * customer complains.
+   */
+  async function test(row: CustomerRow) {
+    setBusy(row.workspace_id)
+    setFailure(null)
+    try {
+      const result = await adminApi.testConnection(row.workspace_id)
+      setTested((t) => ({ ...t, [row.workspace_id]: result }))
+    } catch (err) {
+      setFailure((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
 
   async function setStatus(row: CustomerRow, next: 'active' | 'suspended') {
     if (!row.user_id) return
@@ -68,21 +91,36 @@ export default function Customers() {
     {
       key: 'connection',
       header: 'Perfox',
-      width: 150,
-      render: (r) => (
-        <span className="flex flex-wrap gap-1">
-          {/* A flag, never the key. There is no endpoint that would return it. */}
-          <Badge tone={r.has_api_token ? 'ok' : 'muted'} size="sm">
-            {r.has_api_token ? <IconCheck size={10} /> : null}
-            {r.has_api_token ? 'Connected' : 'No key'}
-          </Badge>
-          {r.has_operator && (
-            <Badge tone="info" size="sm">
-              Calling
-            </Badge>
-          )}
-        </span>
-      ),
+      width: 190,
+      render: (r) => {
+        const result = tested[r.workspace_id]
+        return (
+          <span className="flex flex-col gap-1">
+            <span className="flex flex-wrap gap-1">
+              {/* Flags, never the key. No endpoint would return it. */}
+              <Badge tone={r.has_api_token ? 'ok' : 'muted'} size="sm">
+                {r.has_api_token ? <IconCheck size={10} /> : null}
+                {r.has_api_token ? 'Connected' : 'No key'}
+              </Badge>
+              {r.has_operator && (
+                <Badge tone="info" size="sm">
+                  Calling
+                </Badge>
+              )}
+            </span>
+            {result && (
+              <span
+                className={cn(
+                  'text-[10.5px] leading-snug',
+                  result.ok ? 'text-ok' : 'text-danger',
+                )}
+              >
+                {result.reason}
+              </span>
+            )}
+          </span>
+        )
+      },
     },
     {
       key: 'status',
@@ -93,19 +131,29 @@ export default function Customers() {
     {
       key: 'actions',
       header: 'Action',
-      width: 120,
+      width: 230,
       render: (r) => {
         const suspended = r.status === 'suspended'
+        const working = busy === r.workspace_id || busy === r.user_id
         return (
-          <Button
-            size="sm"
-            variant={suspended ? 'secondary' : 'danger'}
-            disabled={!r.user_id || busy === r.user_id}
-            onClick={() => void setStatus(r, suspended ? 'active' : 'suspended')}
-          >
-            {busy === r.user_id ? <Spinner size={11} /> : null}
-            {suspended ? 'Reinstate' : 'Suspend'}
-          </Button>
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Button size="sm" disabled={working} onClick={() => void test(r)}>
+              {busy === r.workspace_id ? <Spinner size={11} /> : null}
+              Test
+            </Button>
+            <Button size="sm" disabled={working} onClick={() => setEditing(r)}>
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant={suspended ? 'secondary' : 'danger'}
+              disabled={!r.user_id || working}
+              onClick={() => void setStatus(r, suspended ? 'active' : 'suspended')}
+            >
+              {busy === r.user_id ? <Spinner size={11} /> : null}
+              {suspended ? 'Reinstate' : 'Suspend'}
+            </Button>
+          </span>
         )
       },
     },
@@ -154,11 +202,16 @@ export default function Customers() {
         />
       )}
 
-      {creating && (
+      {(creating || editing) && (
         <NewCustomerDialog
-          onClose={() => setCreating(false)}
-          onCreated={() => {
+          editing={editing ?? undefined}
+          onClose={() => {
             setCreating(false)
+            setEditing(null)
+          }}
+          onSaved={() => {
+            setCreating(false)
+            setEditing(null)
             reload()
           }}
         />

@@ -139,6 +139,32 @@ export const adminApi = {
       { method: 'POST', body: JSON.stringify(input) },
     ),
 
+  /**
+   * Changes a workspace's connection.
+   *
+   * Only the fields passed are touched; a blank string means "leave it" and
+   * `null` means "clear it". The form can never show an existing secret —
+   * nothing reads one back — so its field is always empty, and treating empty
+   * as a clear would wipe the key on every unrelated edit.
+   */
+  updateCustomer: (workspaceId: string, changes: Partial<NewCustomer>) =>
+    send<{ ok: true }>(`/api/admin/customers/${workspaceId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    }),
+
+  /** Asks the workspace whether its stored credentials actually work. */
+  testConnection: (workspaceId: string) =>
+    send<{ ok: boolean; reason: string }>(`/api/admin/customers/${workspaceId}/test`, {
+      method: 'POST',
+    }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    send<{ ok: true }>('/api/admin/password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
   setStatus: (userId: string, status: 'active' | 'suspended') =>
     send<{ ok: true }>(`/api/admin/customers/${userId}/status`, {
       method: 'POST',

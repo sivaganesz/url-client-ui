@@ -4,6 +4,7 @@ import { hashPassword, passwordProblem, verifyPassword, wasteTime } from '../aut
 import { createSession, currentUser, destroySession, requireAuth } from '../auth/session.ts'
 import { credentialsFor, publicWorkspace } from '../workspace.ts'
 import { ALLOW_REGISTRATION } from '../env.ts'
+import { limitLogins } from '../auth/rate-limit.ts'
 
 export const authRouter: Router = Router()
 
@@ -30,7 +31,7 @@ async function identity(user: UserRow) {
 const isEmail = (s: unknown): s is string =>
   typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())
 
-authRouter.post('/auth/login', async (req, res) => {
+authRouter.post('/auth/login', limitLogins, async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
   const password = typeof req.body?.password === 'string' ? req.body.password : ''
 
@@ -50,12 +51,14 @@ authRouter.post('/auth/login', async (req, res) => {
    */
   if (!user) {
     await wasteTime()
+    res.locals.loginFailed = true
     res.status(401).json({ error: 'Those details did not match an account.' })
     return
   }
 
   const ok = await verifyPassword(user.password_hash, password)
   if (!ok || user.status !== 'active') {
+    res.locals.loginFailed = true
     res.status(401).json({ error: 'Those details did not match an account.' })
     return
   }

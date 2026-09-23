@@ -9,12 +9,15 @@ import { hashPassword } from '../auth/password.ts'
  *
  * This exists so the new backend proxies to exactly the same workspace the old
  * one did, which makes "does this still work?" a like-for-like comparison
- * rather than a new variable. `npm run seed` is the real, interactive one.
+ * rather than a new variable. It also creates the admin the browser suite
+ * signs in as, so a fresh checkout can run the tests.
  *
  *   node --experimental-strip-types src/db/seed-dev.ts
  */
 const EMAIL = 'siva@example.com'
 const PASSWORD = 'correct-horse-battery'
+const ADMIN_EMAIL = 'admin@example.com'
+const ADMIN_PASSWORD = 'admin-correct-horse'
 
 function readEnv(path: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -71,6 +74,22 @@ try {
 
     console.log(`  workspace ${ws[0]!.id}`)
     console.log(`  user      ${EMAIL} / ${PASSWORD}`)
+  }
+
+  // The browser suite signs in as this admin (tests/admin.spec.ts). Created
+  // here rather than by hand, so a fresh checkout can run the tests.
+  const admin = await one<{ id: string }>('SELECT id FROM admins WHERE lower(email) = $1', [
+    ADMIN_EMAIL,
+  ])
+  if (admin) {
+    console.log(`  admin ${ADMIN_EMAIL} already exists`)
+  } else {
+    await query('INSERT INTO admins (name, email, password_hash) VALUES ($1,$2,$3)', [
+      'Main Admin',
+      ADMIN_EMAIL,
+      await hashPassword(ADMIN_PASSWORD),
+    ])
+    console.log(`  admin     ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`)
   }
 
   console.log(`  REST configured     : ${Boolean(env.PERFOX_API_KEY)}`)
