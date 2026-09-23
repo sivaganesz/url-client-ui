@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { CLIENT_DIST, IS_PROD } from './env.ts'
 import { authRouter } from './routes/auth.ts'
 import { perfoxRouter } from './routes/perfox.ts'
+import { adminRouter } from './routes/admin.ts'
 import { pool } from './db/index.ts'
 
 const app = express()
@@ -68,6 +69,9 @@ app.get('/api/health', async (_req, res) => {
 
 app.use('/api', authRouter)
 app.use('/api', perfoxRouter)
+// Its own router, its own cookie, its own table. An admin session cannot
+// satisfy a customer route and a customer session cannot satisfy an admin one.
+app.use('/api', adminRouter)
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'No such endpoint.' })

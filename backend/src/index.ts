@@ -1,6 +1,7 @@
 import app from './app.ts'
 import { CLIENT_DIST, PORT } from './env.ts'
 import { sweepExpiredSessions } from './auth/session.ts'
+import { sweepExpiredAdminSessions } from './auth/admin-session.ts'
 import { pool } from './db/index.ts'
 
 /**
@@ -24,8 +25,8 @@ const server = app.listen(PORT, () => {
  * database as down on /api/health.
  */
 function sweep() {
-  sweepExpiredSessions()
-    .then((n) => n && console.log(`[backend] swept ${n} expired sessions`))
+  Promise.all([sweepExpiredSessions(), sweepExpiredAdminSessions()])
+    .then(([a, b]) => a + b && console.log(`[backend] swept ${a + b} expired sessions`))
     .catch((err: Error) => console.warn(`[backend] session sweep skipped: ${err.message}`))
 }
 

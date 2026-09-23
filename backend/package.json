@@ -13,7 +13,8 @@
     "seed": "node --experimental-strip-types src/db/seed.ts",
     "discover": "node discover.js",
     "seed:dev": "node --experimental-strip-types src/db/seed-dev.ts",
-    "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts"
+    "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts",
+    "seed:admin": "node --experimental-strip-types src/db/seed-admin.ts"
   },
   "dependencies": {
     "argon2": "^0.44.0",

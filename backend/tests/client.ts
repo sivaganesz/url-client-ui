@@ -30,24 +30,40 @@ export async function stop(): Promise<void> {
   server = null
 }
 
-/** A signed-in browser: one cookie jar, carried across requests. */
+/**
+ * A browser: one cookie jar, carried across requests.
+ *
+ * It keeps every cookie by name rather than just the customer session's,
+ * because the two surfaces use different names — `ufsid` and `ufasid`. A jar
+ * that only recognised one silently threw the other away, and every admin
+ * test failed as though the session had not been created.
+ */
 export class Client {
-  private cookie = ''
+  private jar = new Map<string, string>()
 
   async request(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers)
-    if (this.cookie) headers.set('cookie', this.cookie)
+    if (this.jar.size > 0) {
+      headers.set(
+        'cookie',
+        [...this.jar].map(([k, v]) => `${k}=${v}`).join('; '),
+      )
+    }
     if (init.body && !headers.has('content-type')) {
       headers.set('content-type', 'application/json')
     }
 
     const res = await fetch(`${base}${path}`, { ...init, headers, redirect: 'manual' })
 
-    // One cookie in this application, so no parser is warranted.
-    const setCookie = res.headers.get('set-cookie')
-    if (setCookie) {
-      const pair = setCookie.split(';')[0] ?? ''
-      this.cookie = pair.startsWith('ufsid=') && !pair.endsWith('=') ? pair : ''
+    for (const line of res.headers.getSetCookie()) {
+      const pair = line.split(';')[0] ?? ''
+      const eq = pair.indexOf('=')
+      if (eq < 1) continue
+      const name = pair.slice(0, eq)
+      const value = pair.slice(eq + 1)
+      // An empty value is the server clearing it, which is a removal.
+      if (value) this.jar.set(name, value)
+      else this.jar.delete(name)
     }
     return res
   }
@@ -64,8 +80,9 @@ export class Client {
     return this.post('/api/auth/login', { email, password })
   }
 
+  /** A customer session specifically, not any cookie. */
   get hasSession(): boolean {
-    return this.cookie !== ''
+    return this.jar.has('ufsid')
   }
 }
 

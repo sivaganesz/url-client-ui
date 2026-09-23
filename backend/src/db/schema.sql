@@ -71,3 +71,49 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions (expires_at);
+
+-- ── administration ─────────────────────────────────────────────────────
+--
+-- Admins are a separate table rather than a role on the users table, because
+-- they can create workspaces and write raw Perfox API keys — a different
+-- privilege class, not a different row in the same one.
+--
+-- The separation does work that a guard would otherwise have to remember: an
+-- admin has no workspace_id anywhere, so an admin session cannot resolve a
+-- workspace and cannot reach the proxy at all. Not "is refused" — cannot. And
+-- no column exists that would turn a customer into an admin.
+--
+-- Line comments, not block comments: Postgres NESTS /* */, so a path like
+-- /api/perfox/* inside one opens a comment that is never closed, and the whole
+-- migration fails with "unterminated comment" pointing at the wrong place.
+
+CREATE TABLE IF NOT EXISTS admins (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name          TEXT NOT NULL,
+  email         TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Only one admin is seeded, but more than one is allowed on purpose: a single
+-- shared login is how credentials end up being passed around in chat.
+CREATE UNIQUE INDEX IF NOT EXISTS admins_email_key ON admins (lower(email));
+
+-- A separate session table, not a nullable column on the customer one.
+--
+-- A customer's session row can never authenticate an admin request, because
+-- the lookup reads a different table entirely — and the two surfaces use
+-- different cookie names, so one cannot be replayed at the other.
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  token_hash  TEXT PRIMARY KEY,
+  admin_id    UUID NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  user_agent  TEXT,
+  ip          TEXT
+);
+
+CREATE INDEX IF NOT EXISTS admin_sessions_admin_idx ON admin_sessions (admin_id);
+CREATE INDEX IF NOT EXISTS admin_sessions_expiry_idx ON admin_sessions (expires_at);
