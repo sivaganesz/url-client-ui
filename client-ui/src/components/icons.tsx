@@ -209,6 +209,14 @@ export const IconLines = (p: IconProps) => (
   </Svg>
 )
 
+/** Two sheets, one behind the other — the copy-to-clipboard convention. */
+export const IconCopy = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+  </Svg>
+)
+
 export const IconNote = (p: IconProps) => (
   <Svg {...p}>
     <path d="M5 3h9l5 5v13H5z" />

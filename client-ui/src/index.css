@@ -97,6 +97,35 @@
 }
 
 @layer utilities {
+  /**
+   * The one moment in the console worth marking: a confirmation arriving.
+   *
+   * A quarter-second settle, not a bounce — it says "this just happened"
+   * without asking to be watched. Skipped for anyone who has asked their
+   * system for less motion, since something that moves on arrival is exactly
+   * what that setting is about.
+   */
+  @keyframes settle-in {
+    from {
+      opacity: 0;
+      transform: scale(0.94) translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .settle-in {
+    animation: settle-in 240ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .settle-in {
+      animation: none;
+    }
+  }
+
   /* One shared elevation so cards, menus and popovers never disagree. */
   .shadow-card {
     box-shadow:

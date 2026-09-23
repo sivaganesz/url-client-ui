@@ -4,7 +4,7 @@ import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
 import Spinner from '../../components/ui/Spinner'
 import { FormField, controlClass } from '../../components/ui/Field'
-import { IconAlert, IconCheck, IconChevronLeft, IconChevronRight } from '../../components/icons'
+import { IconAlert, IconCheck, IconChevronLeft, IconChevronRight, IconCopy } from '../../components/icons'
 import { cn } from '../../lib/cn'
 import { adminApi, type NewCustomer as NewCustomerInput } from '../../lib/admin'
 
@@ -330,73 +330,112 @@ function Created({
   workspace: string
   onAnother: () => void
 }) {
+  return (
+    <section className="settle-in mx-auto flex w-full max-w-lg flex-col items-center py-6 sm:py-10">
+      {/* Concentric rings rather than a flat disc: the tick reads as the
+          subject of the page at a glance, without a graphic that has to be
+          drawn twice for dark mode. */}
+      <span
+        aria-hidden="true"
+        className="flex h-20 w-20 items-center justify-center rounded-full bg-ok/8"
+      >
+        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-ok/15">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-ok text-white shadow-card">
+            <IconCheck size={22} />
+          </span>
+        </span>
+      </span>
+
+      <h1 className="mt-5 text-center text-[20px] font-semibold tracking-tight">
+        {workspace} is set up
+      </h1>
+      <p className="mt-2 max-w-md text-center text-[13px] leading-relaxed text-ink-2">
+        Please share these customer credentials with the customer. They can use this email and
+        password to log in.
+      </p>
+
+      <dl className="mt-7 w-full overflow-hidden rounded-card border border-line bg-surface shadow-card">
+        <div className="flex items-center justify-between gap-3 border-b border-line bg-sunken px-4 py-2.5">
+          <span className="text-[10.5px] font-semibold tracking-[0.07em] text-ink-3 uppercase">
+            Sign-in details
+          </span>
+          <span className="text-[10.5px] text-ink-4">Shown once</span>
+        </div>
+        <Detail label="Email" value={email} />
+        <Detail label="Password" value={password} last />
+      </dl>
+
+      {/* The one thing that is irreversible about this page, said where it
+          cannot be missed rather than as a footnote under the buttons. */}
+      <p className="mt-3 flex items-start gap-2 text-[11.5px] leading-relaxed text-ink-3">
+        <IconAlert size={13} className="mt-0.5 shrink-0 text-warn" />
+        <span>
+          The password is not shown again — it is stored as a hash, so nothing here, and nobody
+          here, can read it back.
+        </span>
+      </p>
+
+      <div className="mt-7 flex w-full flex-col-reverse items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center">
+        <Button size="md" onClick={onAnother}>
+          Add another
+        </Button>
+        <Link to="/admin" className="sm:w-auto">
+          <Button variant="primary" size="md" className="w-full">
+            Back to customers
+          </Button>
+        </Link>
+      </div>
+    </section>
+  )
+}
+
+/**
+ * One credential, with its own copy button.
+ *
+ * Per row rather than one "copy both": these get pasted into different places
+ * — an email here, a password into a password manager there — and a copy that
+ * takes both means editing the result wherever it lands.
+ */
+function Detail({ label, value, last }: { label: string; value: string; last?: boolean }) {
   const [copied, setCopied] = useState(false)
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(`Email: ${email}\nPassword: ${password}`)
+      await navigator.clipboard.writeText(value)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setTimeout(() => setCopied(false), 1800)
     } catch {
-      // Clipboard access can be refused; the values are on screen regardless.
+      // Clipboard access can be refused; the value is on screen regardless.
       setCopied(false)
     }
   }
 
   return (
-    <section className="mx-auto flex max-w-2xl flex-col gap-5">
-      <Card className="flex flex-col items-center gap-4 px-6 py-8 text-center">
-        <span
-          aria-hidden="true"
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-ok-bg text-ok"
-        >
-          <IconCheck size={24} />
-        </span>
-
-        <div>
-          <h1 className="text-[17px] font-semibold tracking-tight">{workspace} is set up</h1>
-          <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-            Please share these customer credentials with the customer. They can use this email and
-            password to log in.
-          </p>
-        </div>
-
-        <dl className="w-full max-w-sm overflow-hidden rounded-card border border-line text-left">
-          <Detail label="Email" value={email} />
-          <Detail label="Password" value={password} last />
-        </dl>
-
-        <p className="text-[11.5px] leading-relaxed text-ink-3">
-          The password is not shown again. It is stored as a hash, so nothing here — and nobody
-          here — can read it back.
-        </p>
-
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button size="md" onClick={copy}>
-            {copied ? <IconCheck size={13} /> : null}
-            {copied ? 'Copied' : 'Copy both'}
-          </Button>
-          <Button size="md" onClick={onAnother}>
-            Add another
-          </Button>
-          <Link to="/admin">
-            <Button variant="primary" size="md">
-              Back to customers
-            </Button>
-          </Link>
-        </div>
-      </Card>
-    </section>
-  )
-}
-
-function Detail({ label, value, last }: { label: string; value: string; last?: boolean }) {
-  return (
-    <div className={cn('flex items-baseline gap-3 px-4 py-3', !last && 'border-b border-line')}>
-      <dt className="w-20 shrink-0 text-[11.5px] text-ink-3">{label}</dt>
+    <div
+      className={cn(
+        'group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-sunken/60',
+        !last && 'border-b border-line',
+      )}
+    >
+      <dt className="w-[74px] shrink-0 text-[11.5px] text-ink-3">{label}</dt>
       <dd className="min-w-0 flex-1 font-mono text-[12.5px] break-all text-ink select-all">
         {value}
       </dd>
+      <button
+        type="button"
+        onClick={copy}
+        aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
+        // Visible at rest, not only on hover: a control that appears when the
+        // pointer arrives is one a touch screen never announces at all.
+        className={cn(
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors',
+          copied
+            ? 'border-ok/30 bg-ok-bg text-ok'
+            : 'border-line text-ink-3 hover:border-line-strong hover:bg-sunken hover:text-ink',
+        )}
+      >
+        {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+      </button>
     </div>
   )
 }
