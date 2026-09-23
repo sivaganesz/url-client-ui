@@ -858,13 +858,26 @@ export function spoken(seconds: number | null | undefined): string | null {
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
 /**
- * Every number and address the workspace can be reached on.
+ * The integration that carries phone numbers.
  *
- * Two hops: the credential list, then each credential's resources. There is no
- * single endpoint that returns them all, so this is 1 + N requests — four
- * credentials means five. Credentials that carry no communication identifier
- * (a spreadsheet, an OAuth token) answer with an empty list rather than an
- * error, so they cost a request and contribute nothing.
+ * One constant rather than a list: the workspace supports a couple of dozen
+ * credential types, and this page is about numbers. Adding Twilio or Exotel
+ * later is this line plus nothing else.
+ */
+const PHONE_PROVIDER = 'plivo'
+
+/**
+ * Every number the workspace can be reached on.
+ *
+ * Plivo only, deliberately. The endpoint returns identifiers for every
+ * connected integration — email hosts, spreadsheets, OAuth tokens — and this
+ * page is about the numbers a workspace is reachable on. Filtering at the
+ * source also means the spreadsheet and OAuth credentials are never asked for
+ * their resources, which is two fewer requests that were always going to
+ * answer with an empty list.
+ *
+ * Two hops: the credential list, then each Plivo credential's resources. There
+ * is no single endpoint that returns them all.
  *
  * A credential that fails is skipped rather than failing the page: one broken
  * integration should not hide the numbers that do work. `credentials:read` is
@@ -873,7 +886,9 @@ export function spoken(seconds: number | null | undefined): string | null {
  * recognising.
  */
 export async function getPhoneNumbers(signal?: AbortSignal): Promise<Connection[]> {
-  const credentials = rows<ApiCredential>(await rest('credentials', undefined, signal))
+  const credentials = rows<ApiCredential>(await rest('credentials', undefined, signal)).filter(
+    (c) => c.type === PHONE_PROVIDER,
+  )
 
   const perCredential = await Promise.all(
     credentials.map(async (c) => {
