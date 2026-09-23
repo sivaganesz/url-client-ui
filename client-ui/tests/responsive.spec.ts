@@ -24,6 +24,36 @@ test('no page scrolls sideways on a phone', async ({ page }) => {
   }
 })
 
+test('a menu opened near the edge stays on the screen', async ({ page }) => {
+  /**
+   * A dropdown hangs from its own button, and on a phone most buttons sit too
+   * near an edge for what hangs off them: the date filter's menu is 256px wide
+   * under a button two thirds of the way across a 390px screen, so half of it
+   * used to be off the side — including one of the two date inputs.
+   *
+   * It does not show as horizontal overflow, because the menu is absolutely
+   * positioned and simply clipped, which is why the test above never saw it.
+   */
+  await visit(page, '/analytics')
+  await expect(page.locator('table tbody tr').first()).toBeVisible()
+  const log = page.locator('section', { hasText: 'Conversation log' }).first()
+
+  for (const name of [/Any time/, /^Status/, /^Channel/, /^Started by/]) {
+    await log.getByRole('button', { name }).click()
+
+    const menu = page.locator('[role="menu"]')
+    await expect(menu).toBeVisible()
+    const box = (await menu.boundingBox())!
+    const width = page.viewportSize()!.width
+
+    expect(box.x, `${name} menu is off the left edge`).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width, `${name} menu is off the right edge`).toBeLessThanOrEqual(width)
+
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+  }
+})
+
 test('the sidebar is a drawer that opens, navigates and closes itself', async ({ page }) => {
   await visit(page, '/')
 
