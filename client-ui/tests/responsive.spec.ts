@@ -113,14 +113,22 @@ test('every table pager fits a phone, and they all look the same', async ({ page
    * push the total off a 320px screen.
    */
   for (const path of ['/analytics', '/call-logs', '/agents']) {
+    /**
+     * Loaded once and resized, not loaded once per width. Nine page loads in
+     * one test is a burst the workspace answers `rate_limited` to, and the
+     * layout here is CSS — the widths do not need fresh data to prove
+     * anything.
+     */
+    await page.setViewportSize({ width: 390, height: 780 })
+    await visit(page, path)
+
+    const size = page.getByLabel('Rows per page').first()
+    const count = page.locator('span[aria-live]').first()
+    await expect(size).toBeVisible()
+    await expect(count).toBeVisible()
+
     for (const width of [320, 360, 390]) {
       await page.setViewportSize({ width, height: 780 })
-      await visit(page, path)
-
-      const size = page.getByLabel('Rows per page').first()
-      const count = page.locator('span[aria-live]').first()
-      await expect(size).toBeVisible()
-      await expect(count).toBeVisible()
 
       const shape = await count.evaluate((el) => {
         const pager = el.parentElement!

@@ -106,7 +106,26 @@ function messageOf(body: unknown): string | null {
   return [...new Set(parts)].join(' — ') || null
 }
 
-async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+/**
+ * How long to wait before trying a throttled read again, per attempt.
+ *
+ * Two waits, growing: one burst of reads clears in well under a second, but a
+ * workspace that has been busy for a while stays throttled past the first
+ * pause. Three attempts in a little over two seconds is still faster than the
+ * reader noticing an error and pressing Retry, and it is bounded — a workspace
+ * that is genuinely rate-limited says so rather than being asked forever.
+ */
+const THROTTLE_PAUSES_MS = [600, 1500]
+
+const throttled = (res: Response, body: unknown) =>
+  res.status === 429 || /rate.?limit/i.test(messageOf(body) ?? '')
+
+async function request<T = unknown>(
+  path: string,
+  options: RequestInit = {},
+  /** Which attempt this is; indexes into the pauses above. */
+  attempt = 0,
+): Promise<T> {
   const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...options })
   const text = await res.text()
   let body
@@ -115,7 +134,29 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   } catch {
     body = { raw: text }
   }
-  if (!res.ok) throw new Error(messageOf(body) ?? `HTTP ${res.status} from ${path}`)
+
+  if (!res.ok) {
+    /**
+     * A throttled read waits and tries again, twice at most.
+     *
+     * The workspace rate-limits bursts, and a page that opens six reads at
+     * once can have its last one refused — which showed the reader "Couldn't
+     * load this · rate_limited" beside a Retry button that worked the moment
+     * it was pressed. Pressing it for them is the whole fix.
+     *
+     * Reads only. A write is never repeated on its own: the same POST could
+     * place a second call or send a second message, and an error is far
+     * cheaper than that.
+     */
+    const method = (options.method ?? 'GET').toUpperCase()
+    const pause = THROTTLE_PAUSES_MS[attempt]
+    if (pause !== undefined && method === 'GET' && throttled(res, body)) {
+      await new Promise((wait) => setTimeout(wait, pause))
+      return request<T>(path, options, attempt + 1)
+    }
+    throw new Error(messageOf(body) ?? `HTTP ${res.status} from ${path}`)
+  }
+
   return body as T
 }
 

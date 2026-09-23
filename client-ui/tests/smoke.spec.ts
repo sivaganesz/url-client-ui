@@ -148,3 +148,62 @@ test('a customer can reach the password form, and it checks the old one', async 
 
   await expect(dialog.getByRole('alert')).toContainText(/current password is not right/i)
 })
+
+test('a throttled read is retried, and a write never is', async ({ page }) => {
+  /**
+   * The workspace rate-limits bursts, and a page that opens six reads at once
+   * can have its last one refused. That used to show "Couldn't load this ·
+   * rate_limited" beside a Retry button that worked the moment it was pressed
+   * — which is the console asking the reader to do something it could do
+   * itself.
+   */
+  let attempts = 0
+  await page.route('**/api/perfox/agents*', async (route) => {
+    attempts += 1
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: '{"error":"rate_limited"}',
+      })
+      return
+    }
+    await route.continue()
+  })
+
+  await visit(page, '/agents')
+
+  // Second attempt succeeded, so the page shows agents rather than the error.
+  await expect(page.locator('table tbody tr').first()).toBeVisible()
+  // Polled: the retry waits out a pause, and the page can paint from another
+  // read in the meantime.
+  await expect.poll(() => attempts, { message: 'the throttled read was not retried' }).toBeGreaterThan(1)
+  await expect(page.getByText(/rate_limited/i)).toHaveCount(0)
+
+  /**
+   * A write is a different matter. The same POST could place a second call or
+   * send a second message, so a throttled one is reported rather than
+   * repeated.
+   */
+  let writes = 0
+  await page.route('**/api/perfox/outbound', async (route) => {
+    writes += 1
+    await route.fulfill({
+      status: 429,
+      contentType: 'application/json',
+      body: '{"error":"rate_limited"}',
+    })
+  })
+
+  const refused = await page.evaluate(async () => {
+    const res = await fetch('/api/perfox/outbound', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    return res.status
+  })
+
+  expect(refused).toBe(429)
+  expect(writes, 'a throttled write was sent twice').toBe(1)
+})

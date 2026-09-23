@@ -25,7 +25,21 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  /**
+   * One retry everywhere, for the workspace's rate limiter and nothing else.
+   *
+   * A full run is a few hundred reads in four minutes, which is a heavier
+   * burst than any person produces, and the workspace answers `rate_limited`
+   * to the tail of it. Which test wears that is luck — it moved between
+   * exports, the conversation rail and the pagers on consecutive runs — and
+   * the console itself already retries a throttled read twice before showing
+   * an error, so what is left is the suite outrunning the API rather than
+   * anything the code did.
+   *
+   * This is not cover for a flaky assertion. A test that fails on its own, or
+   * fails on both attempts, is a real failure and should be read as one.
+   */
+  retries: process.env.CI ? 2 : 1,
   timeout: 45_000,
   expect: { timeout: 10_000 },
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list']],
