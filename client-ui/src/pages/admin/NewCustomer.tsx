@@ -349,17 +349,23 @@ function Created({
       <h1 className="mt-5 text-center text-[20px] font-semibold tracking-tight">
         {workspace} is set up
       </h1>
+      {/* Two lines, not a wrapped one: the first says what to do, the second
+          says what it is for, and a break between them keeps the instruction
+          from reading as a paragraph to skim. */}
       <p className="mt-2 max-w-md text-center text-[13px] leading-relaxed text-ink-2">
-        Please share these customer credentials with the customer. They can use this email and
-        password to log in.
+        Please share these customer credentials with the customer.
+        <span className="block">They can use this email and password to log in.</span>
       </p>
 
       <dl className="mt-7 w-full overflow-hidden rounded-card border border-line bg-surface shadow-card">
-        <div className="flex items-center justify-between gap-3 border-b border-line bg-sunken px-4 py-2.5">
+        <div className="flex items-center justify-between gap-3 border-b border-line bg-sunken px-4 py-2">
           <span className="text-[10.5px] font-semibold tracking-[0.07em] text-ink-3 uppercase">
             Sign-in details
           </span>
-          <span className="text-[10.5px] text-ink-4">Shown once</span>
+          {/* One button for the pair. They are handed over together, in one
+              message, so copying them one at a time only makes the person
+              paste twice and reassemble what they already had. */}
+          <CopyBoth email={email} password={password} />
         </div>
         <Detail label="Email" value={email} />
         <Detail label="Password" value={password} last />
@@ -390,52 +396,50 @@ function Created({
 }
 
 /**
- * One credential, with its own copy button.
+ * Both credentials, as the two lines they get pasted as.
  *
- * Per row rather than one "copy both": these get pasted into different places
- * — an email here, a password into a password manager there — and a copy that
- * takes both means editing the result wherever it lands.
+ * Labelled rather than bare values, because what lands in the message has to
+ * say which is which on its own — a paste of two strings is a guess at the
+ * other end.
  */
-function Detail({ label, value, last }: { label: string; value: string; last?: boolean }) {
+function CopyBoth({ email, password }: { email: string; password: string }) {
   const [copied, setCopied] = useState(false)
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(value)
+      await navigator.clipboard.writeText(`email : ${email}\npassword : ${password}`)
       setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
+      setTimeout(() => setCopied(false), 2000)
     } catch {
-      // Clipboard access can be refused; the value is on screen regardless.
+      // Clipboard access can be refused; both values are on screen regardless.
       setCopied(false)
     }
   }
 
   return (
-    <div
+    <button
+      type="button"
+      onClick={copy}
       className={cn(
-        'group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-sunken/60',
-        !last && 'border-b border-line',
+        'inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11.5px] font-medium transition-colors',
+        copied
+          ? 'border-ok/30 bg-ok-bg text-ok'
+          : 'border-line-strong bg-surface text-ink-2 hover:bg-sunken hover:text-ink',
       )}
     >
+      {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
+
+function Detail({ label, value, last }: { label: string; value: string; last?: boolean }) {
+  return (
+    <div className={cn('flex items-baseline gap-3 px-4 py-3', !last && 'border-b border-line')}>
       <dt className="w-[74px] shrink-0 text-[11.5px] text-ink-3">{label}</dt>
       <dd className="min-w-0 flex-1 font-mono text-[12.5px] break-all text-ink select-all">
         {value}
       </dd>
-      <button
-        type="button"
-        onClick={copy}
-        aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
-        // Visible at rest, not only on hover: a control that appears when the
-        // pointer arrives is one a touch screen never announces at all.
-        className={cn(
-          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors',
-          copied
-            ? 'border-ok/30 bg-ok-bg text-ok'
-            : 'border-line text-ink-3 hover:border-line-strong hover:bg-sunken hover:text-ink',
-        )}
-      >
-        {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-      </button>
     </div>
   )
 }
