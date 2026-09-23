@@ -12,7 +12,8 @@
     "migrate": "node --experimental-strip-types src/db/migrate.ts",
     "seed": "node --experimental-strip-types src/db/seed.ts",
     "discover": "node discover.js",
-    "seed:dev": "node --experimental-strip-types src/db/seed-dev.ts"
+    "seed:dev": "node --experimental-strip-types src/db/seed-dev.ts",
+    "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts"
   },
   "dependencies": {
     "argon2": "^0.44.0",
