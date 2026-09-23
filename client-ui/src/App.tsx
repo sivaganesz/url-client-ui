@@ -2,9 +2,12 @@ import { lazy } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
 import Login from './pages/Login'
-import Register from './pages/Register'
+import AdminLogin from './pages/admin/AdminLogin'
+import AdminShell from './pages/admin/AdminShell'
+import Customers from './pages/admin/Customers'
 import { PageSkeleton } from './components/ui/States'
 import { useSession } from './lib/session'
+import { AdminProvider, useAdmin } from './lib/admin'
 
 /**
  * One chunk per route.
@@ -15,9 +18,9 @@ import { useSession } from './lib/session'
  * wide margin. Six routes is the right granularity — splitting finer would
  * trade a smaller first load for a request per component.
  *
- * Login and Register are NOT split. They are the first thing most visits
- * render, so a separate chunk for them would add a round trip to the one page
- * that has to be quick.
+ * The sign-in pages are NOT split. They are the first thing most visits
+ * render, so a separate chunk would add a round trip to the one page that has
+ * to be quick.
  *
  * The Suspense boundary that covers the lazy pages lives in AppShell, around
  * the same Outlet that renders them.
@@ -49,11 +52,42 @@ function RequireSession() {
   return <AppShell />
 }
 
+/** The same idea for the admin surface, against its own session. */
+function RequireAdmin() {
+  const { status } = useAdmin()
+  if (status === 'loading') return <PageSkeleton />
+  if (status === 'signed-out') return <Navigate to="/admin/login" replace />
+  return <AdminShell />
+}
+
+/**
+ * The admin routes carry their own provider.
+ *
+ * Mounted here rather than around the whole app so that a customer's browser
+ * never calls /api/admin/me at all — there is nothing for it there, and asking
+ * would only add a request to every cold load of the console.
+ */
+function AdminRoutes() {
+  return (
+    <AdminProvider>
+      <Routes>
+        <Route path="login" element={<AdminLogin />} />
+        <Route element={<RequireAdmin />}>
+          <Route index element={<Customers />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
+        </Route>
+      </Routes>
+    </AdminProvider>
+  )
+}
+
 export default function App() {
   return (
     <Routes>
+      {/* Customers cannot create accounts — there is no register route. An
+          administrator provisions them at /admin. */}
       <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      <Route path="/admin/*" element={<AdminRoutes />} />
 
       <Route element={<RequireSession />}>
         <Route index element={<Dashboard />} />

@@ -53,15 +53,15 @@ away from being the worst in the system; changing a key means retyping it.
 
 ### Frontend
 
-- [ ] 6. `/login` — split panel, branding left, form right
-- [ ] 7. `/admin/login`
-- [ ] 8. Admin shell: customers list + create
-- [ ] 9. Remove the Register page and route
+- [x] 6. `/login` — split panel, branding left, form right
+- [x] 7. `/admin/login`
+- [x] 8. Admin shell: customers list + create
+- [x] 9. Remove the Register page and route
 
 ### Verification
 
-- [ ] 10. Browser tests updated
-- [ ] 11. The existing customer flow is unaffected — all 76 existing tests green
+- [x] 10. Browser tests updated
+- [x] 11. The existing customer flow is unaffected — 97 tests green (50 browser, 47 backend)
 
 ## Deliberately not in scope
 
