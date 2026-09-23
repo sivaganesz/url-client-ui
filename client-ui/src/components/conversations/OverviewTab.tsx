@@ -4,6 +4,8 @@ import RecordingPlayer from '../RecordingPlayer'
 import { IconDownload } from '../icons'
 import { cn } from '../../lib/cn'
 import { duration } from '../../lib/api'
+import { EXPORT_FORMATS, exportConversation, type ExportFormat } from '../../lib/export'
+import { useSession } from '../../lib/session'
 import type { callInfoOf } from '../../lib/api'
 import type { Conversation, Message } from '../../lib/types'
 import type { Resource } from '../../lib/useResource'
@@ -59,33 +61,31 @@ export default function OverviewTab({
   /** What the transcript's own events say about a call on this thread. */
   call: ReturnType<typeof callInfoOf>
 }) {
-  const download = (format: string) => {
-    const lines = thread.data.map((m) =>
-      m.role === 'tool' ? `[${m.text}]` : `${m.author} (${m.time}): ${m.text}`,
+  const { user, workspace } = useSession()
+
+  /**
+   * The same exporter the Analytics log uses. These two wrote different files
+   * for the same conversation until it was shared — a difference nobody
+   * notices until two people compare their copies and find they disagree.
+   */
+  const download = (format: ExportFormat) =>
+    exportConversation(
+      format,
+      {
+        id: conversation.id,
+        status: conversation.status,
+        startedAt: conversation.createdAt,
+        customerName: conversation.name ?? undefined,
+        customerEmail: conversation.email || undefined,
+        customerPhone: conversation.phone || undefined,
+        channel: conversation.channel,
+        agent: conversation.agent ?? undefined,
+        summary: conversation.preview || undefined,
+        exportedBy: user?.email,
+        workspace: workspace?.name,
+      },
+      thread.data,
     )
-    let body
-    let type
-    let ext
-    if (format === 'json') {
-      body = JSON.stringify({ conversation, messages: thread.data }, null, 2)
-      type = 'application/json'
-      ext = 'json'
-    } else if (format === 'md') {
-      body = `# ${conversation.title} · ${conversation.ref}\n\n_${conversation.preview}_\n\n${lines.map((l) => `- ${l}`).join('\n')}\n`
-      type = 'text/markdown'
-      ext = 'md'
-    } else {
-      body = `${conversation.title} · ${conversation.ref}\n\n${lines.join('\n')}\n`
-      type = 'text/plain'
-      ext = 'txt'
-    }
-    const url = URL.createObjectURL(new Blob([body], { type }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `conversation-${String(conversation.id).slice(0, 8)}.${ext}`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 sm:p-5">
@@ -133,15 +133,15 @@ export default function OverviewTab({
         title="Artifacts"
         action={
           <div className="flex gap-1.5">
-            {['json', 'txt', 'md'].map((f) => (
+            {EXPORT_FORMATS.map(({ id, label }) => (
               <Button
-                key={f}
+                key={id}
                 size="sm"
                 disabled={thread.status === 'loading' || thread.data.length === 0}
-                onClick={() => download(f)}
+                onClick={() => download(id)}
               >
                 <IconDownload size={12} />
-                {f.toUpperCase()}
+                {label}
               </Button>
             ))}
           </div>

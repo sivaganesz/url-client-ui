@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Card from './ui/Card'
 import DataTable, { type Column } from './ui/DataTable'
@@ -6,6 +6,8 @@ import Button from './ui/Button'
 import Dropdown, { MenuItem } from './ui/Dropdown'
 import Badge, { StatusBadge } from './ui/Badge'
 import { ChipGroup, DateRange, SearchInput } from './ui/Field'
+import Spinner from './ui/Spinner'
+import TablePager from './ui/TablePager'
 import { EmptyState } from './ui/States'
 import {
   IconAlert,
@@ -18,15 +20,24 @@ import {
   channelIcon,
 } from './icons'
 import { cn } from '../lib/cn'
-import { dateTime } from '../lib/format'
-import { getCases } from '../lib/api'
+import { dateTime, num } from '../lib/format'
+import { getCases, getMessages } from '../lib/api'
+import { EXPORT_FORMATS, exportConversation, type ExportFormat, type ExportMeta } from '../lib/export'
+import { useSession } from '../lib/session'
 import { useResource } from '../lib/useResource'
 import type { Attribution, Case, CaseFilters } from '../lib/types'
 
 const STATUSES = ['All', 'active', 'ended', 'resolved', 'escalated', 'abandoned']
 const CHANNELS = ['All', 'web', 'phone', 'whatsapp', 'sms', 'email']
 const ORIGINATORS = ['All', 'system', 'customer', 'agent']
-const PAGE_SIZE = 25
+
+/**
+ * Rows per page. The endpoint caps `page_size` at 100 — ask for 200 and it
+ * answers with 100 and says so in `pagination.page_size` — so offering more
+ * would be offering a page the workspace will not serve.
+ */
+const PAGE_SIZES = [10, 25, 50, 100]
+const DEFAULT_PAGE_SIZE = 25
 
 const SENTIMENT: Record<string, { tone: string; mood: 'positive' | 'neutral' | 'negative' }> = {
   positive: { tone: 'text-ok', mood: 'positive' },
@@ -103,63 +114,85 @@ function Verdict({ c }: { c: Case }) {
   )
 }
 
-/** Saves a Blob without leaving the page. */
-function save(name: string, text: string, type: string) {
-  const url = URL.createObjectURL(new Blob([text], { type }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-const csvCell = (v: unknown) => `"${String(v ?? '').replaceAll('"', '""')}"`
-
-/**
- * One case, as a file.
- *
- * The JSON is the row as the workspace described it; the CSV flattens it for a
- * spreadsheet. Both are per row rather than per page, because the use is
- * "send me this one conversation", not "export the log".
- */
-function ExportMenu({ c }: { c: Case }) {
-  const flat: Record<string, string | number> = {
-    case_id: c.id,
-    started: c.createdAt ?? '',
-    customer: c.who,
-    email: c.email,
-    phone: c.phone,
-    channel: c.channel,
+/** Everything the file says about the case, minus the transcript. */
+function metaOf(c: Case, stamp: Pick<ExportMeta, 'exportedBy' | 'workspace'>): ExportMeta {
+  return {
+    id: c.id,
     status: c.status,
+    startedAt: c.createdAt,
+    /**
+     * `who` falls back to "Case 01a0cd50" for an anonymous conversation, which
+     * is a useful column heading and a poor answer to "Customer:" in a file.
+     * Recognising the fallback leaves the line out instead of printing an id
+     * where a name should be.
+     */
+    customerName: c.who === `Case ${c.ref}` ? undefined : c.who,
+    customerEmail: c.email || undefined,
+    customerPhone: c.phone || undefined,
+    channel: c.channel,
     // The two absences, preserved rather than flattened into one word.
-    handled_by:
+    agent:
       c.agent.kind === 'agent'
         ? c.agent.name
         : c.agent.kind === 'deleted'
           ? '(agent deleted)'
           : '(no agent matched)',
-    summary: c.summary,
-    // Empty where unscored, not "false" — a case nobody judged is not a case
-    // judged unresolved.
-    resolved: c.resolved === null ? '' : String(c.resolved),
-    resolution_reason: c.resolutionReason,
-    sentiment: c.sentiment ?? '',
-    needs_followup: String(c.needsFollowUp),
-    qa_overall: c.qaOverall ?? '',
+    summary: c.summary || undefined,
+    sentiment: c.sentiment,
+    resolved: c.resolved,
+    needsFollowUp: c.needsFollowUp,
+    qaOverall: c.qaOverall,
+    resolutionReason: c.resolutionReason || undefined,
+    ...stamp,
   }
+}
 
-  const pick = (format: string) => {
-    if (format === 'json') {
-      save(`case-${c.ref}.json`, JSON.stringify(c, null, 2), 'application/json')
-    } else {
-      const keys = Object.keys(flat)
-      save(
-        `case-${c.ref}.csv`,
-        `${keys.join(',')}
-${keys.map((k) => csvCell(flat[k])).join(',')}
-`,
-        'text/csv',
-      )
+/**
+ * One conversation, as a file.
+ *
+ * The transcript is fetched when a format is picked, not when the page loads —
+ * a case row carries no events, and prefetching them for every row on screen
+ * would be a hundred requests to serve the one export somebody eventually
+ * asks for. Same three formats as the conversation page, through the same
+ * exporter, so a file pulled from here matches one pulled from there.
+ */
+function ExportMenu({
+  c,
+  stamp,
+}: {
+  c: Case
+  stamp: Pick<ExportMeta, 'exportedBy' | 'workspace'>
+}) {
+  const [busy, setBusy] = useState<ExportFormat | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  /**
+   * The row unmounts when the page turns, and the fetch outlives it.
+   *
+   * Re-armed on mount rather than only initialised: StrictMode mounts, tears
+   * down and mounts again, so a flag that is only ever cleared reads "gone"
+   * for the rest of the component's life and swallows every export.
+   */
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
+
+  const pick = async (format: ExportFormat) => {
+    setBusy(format)
+    setFailed(false)
+    try {
+      const messages = await getMessages(c.id)
+      if (!alive.current) return
+      exportConversation(format, metaOf(c, stamp), messages)
+    } catch {
+      // Saying nothing would look like a download the browser swallowed.
+      if (alive.current) setFailed(true)
+    } finally {
+      if (alive.current) setBusy(null)
     }
   }
 
@@ -167,23 +200,27 @@ ${keys.map((k) => csvCell(flat[k])).join(',')}
     <Dropdown
       menuClassName="w-28"
       button={({ open, toggle }) => (
-        <Button size="sm" aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
+        <Button
+          size="sm"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          disabled={busy !== null}
+          title={failed ? 'The transcript would not load. Try again.' : undefined}
+          onClick={toggle}
+        >
+          {busy ? <Spinner size={11} /> : failed ? <IconAlert size={12} className="text-danger" /> : null}
           Export
+          {failed && <span className="sr-only">— the transcript would not load, try again</span>}
           <IconChevronDown size={12} />
         </Button>
       )}
     >
       {({ close }) =>
-        (
-          [
-            ['json', 'JSON'],
-            ['csv', 'CSV'],
-          ] as const
-        ).map(([id, label]) => (
+        EXPORT_FORMATS.map(({ id, label }) => (
           <MenuItem
             key={id}
             onClick={() => {
-              pick(id)
+              void pick(id)
               close()
             }}
           >
@@ -215,6 +252,13 @@ export default function ConversationLog() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+
+  // Whose data this is. Every request already resolves the workspace from the
+  // session server-side; this only stamps the file so an export that travels
+  // still says which customer it came from.
+  const { user, workspace } = useSession()
+  const stamp = { exportedBy: user?.email, workspace: workspace?.name }
 
   // Debounced, so typing a name is one request at the end rather than one per
   // keystroke against a workspace that pages 315 rows.
@@ -240,18 +284,38 @@ export default function ConversationLog() {
   useEffect(() => setPage(1), [key])
 
   const load = useCallback(
-    (signal: AbortSignal) => getCases(JSON.parse(key) as CaseFilters, page, PAGE_SIZE, signal),
-    [key, page],
+    (signal: AbortSignal) => getCases(JSON.parse(key) as CaseFilters, page, pageSize, signal),
+    [key, page, pageSize],
   )
   const { data, status: loadState, error, reload } = useResource(
     load,
-    { cases: [], page: 1, pageSize: PAGE_SIZE, total: 0, totalPages: 0 },
-    [key, page],
+    { cases: [], page: 1, pageSize, total: 0, totalPages: 0 },
+    [key, page, pageSize],
   )
 
   const loading = loadState === 'loading'
-  const first = data.total === 0 ? 0 : (data.page - 1) * data.pageSize + 1
-  const last = Math.min(data.page * data.pageSize, data.total)
+
+  /**
+   * The pager reads the page the workspace actually served, not the one that
+   * was asked for: the rows on screen are the old page until the new one
+   * arrives, and a range counted from the requested page would describe rows
+   * nobody can see yet.
+   */
+  const pager = {
+    rows: data.cases,
+    sizes: PAGE_SIZES,
+    perPage: pageSize,
+    setPerPage: (n: number) => {
+      // Page 13 of 100-row pages doesn't exist when the pages hold 10.
+      setPageSize(n)
+      setPage(1)
+    },
+    page: data.page,
+    pageCount: Math.max(1, data.totalPages),
+    from: (data.page - 1) * data.pageSize,
+    total: data.total,
+    goto: setPage,
+  }
 
   const columns: Column<Case>[] = [
     {
@@ -323,7 +387,12 @@ export default function ConversationLog() {
       width: 104,
       render: (c) => <StatusBadge label={c.status} size="sm" />,
     },
-    { key: 'export', header: 'Export', width: 96, render: (c) => <ExportMenu c={c} /> },
+    {
+      key: 'export',
+      header: 'Export',
+      width: 96,
+      render: (c) => <ExportMenu c={c} stamp={stamp} />,
+    },
     {
       key: 'actions',
       header: '',
@@ -346,9 +415,11 @@ export default function ConversationLog() {
             Every conversation with its AI scoring and ticket status
           </p>
         </div>
-        {!loading && data.total > 0 && (
+        {data.total > 0 && (
+          // The count of everything matching the filters, which is only
+          // honest because the workspace filters before it pages.
           <span className="font-mono text-[11.5px] text-ink-3">
-            {first}–{last} of {data.total}
+            {num(data.total)} {data.total === 1 ? 'conversation' : 'conversations'}
           </span>
         )}
       </div>
@@ -407,28 +478,15 @@ export default function ConversationLog() {
           />
         }
         footer={
-          data.totalPages > 1 ? (
-            <div className="flex items-center justify-between gap-3 px-1">
-              <span className="font-mono text-[11.5px] text-ink-3">
-                Page {data.page} of {data.totalPages}
-              </span>
-              <span className="flex gap-1.5">
-                <Button
-                  size="sm"
-                  disabled={data.page <= 1 || loading}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={data.page >= data.totalPages || loading}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </Button>
-              </span>
-            </div>
+          // Shown from the first row rather than from the second page: the
+          // page size is a control, not a consequence of having enough rows.
+          data.total > 0 ? (
+            <TablePager
+              pager={pager}
+              noun="conversations"
+              loading={loading}
+              className="font-mono text-[11.5px] text-ink-3"
+            />
           ) : null
         }
       />

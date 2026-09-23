@@ -495,8 +495,15 @@ export async function getMessages(conversationId: string, signal?: AbortSignal):
   }, signal)
   return rows<Record<string, any>>(res).map((e): Message => {
     const isUser = e.event_type === 'user_message' || e.actor === 'user'
-    const isAi = e.event_type === 'ai_response' || e.actor === 'ai'
+    /**
+     * Tool before actor. A `tool_call` is raised with `actor: 'ai'`, so an
+     * actor-first test classified it as an AI message — which rendered as an
+     * empty speech bubble (the call has no text) and dropped `tool_input`
+     * entirely, since only the `tool_result` reached the tool branch. The
+     * arguments the agent called with never appeared anywhere.
+     */
     const isTool = e.event_type === 'tool_call' || e.event_type === 'tool_result'
+    const isAi = !isTool && (e.event_type === 'ai_response' || e.actor === 'ai')
     return {
       id: e.id,
       eventType: e.event_type,

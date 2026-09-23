@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { allowConsoleErrors, expect, test, visit } from './helpers'
 
 /**
@@ -11,6 +12,12 @@ import { allowConsoleErrors, expect, test, visit } from './helpers'
 const log = (page: import('@playwright/test').Page) =>
   page.locator('section', { hasText: 'Conversation log' }).first()
 
+/** "26–50 of 317" — blank while a page is in flight, so this can be undefined. */
+async function range(page: import('@playwright/test').Page) {
+  const m = (await log(page).innerText()).match(/(\d+)–(\d+) of (\d+)/)
+  return m ? { first: Number(m[1]), last: Number(m[2]), total: Number(m[3]) } : null
+}
+
 test.beforeEach(async ({ page }) => {
   await visit(page, '/analytics')
   await expect(page.locator('table tbody tr').first()).toBeVisible()
@@ -22,9 +29,15 @@ test('shows real cases, not the mock it replaced', async ({ page }) => {
   const rows = page.locator('table tbody tr')
   expect(await rows.count()).toBeGreaterThan(0)
 
-  // "1–25 of 315". The count is of everything matching, not of the page —
-  // which is only true because the workspace filters before it pages.
+  // "1–25 of 317" in the footer, "317 conversations" in the header. The count
+  // is of everything matching, not of the page — which is only true because
+  // the workspace filters before it pages.
   await expect(log(page)).toContainText(/\d+–\d+ of \d+/)
+  await expect(log(page)).toContainText(/\d[\d,]* conversations?/)
+
+  const r = await range(page)
+  expect(r).not.toBeNull()
+  expect(r!.last - r!.first + 1).toBe(await rows.count())
 })
 
 test('filtering goes to the server, and the total follows', async ({ page }) => {
@@ -33,8 +46,8 @@ test('filtering goes to the server, and the total follows', async ({ page }) => 
     if (r.url().includes('/cases')) sent.push(new URL(r.url()).search)
   })
 
-  const countText = async () => (await log(page).innerText()).match(/\d+–\d+ of (\d+)/)?.[1]
-  const before = await countText()
+  const before = (await range(page))?.total
+  expect(before).toBeGreaterThan(0)
 
   await page.getByRole('button', { name: 'phone', exact: true }).first().click()
   await expect.poll(() => sent.at(-1) ?? '').toContain('channel=phone')
@@ -42,9 +55,13 @@ test('filtering goes to the server, and the total follows', async ({ page }) => 
   /**
    * The total has to change, not just the rows. A browser filtering rows it
    * already holds would leave the total at the unfiltered figure and report
-   * "1–25 of 315" over a filtered table.
+   * "1–25 of 317" over a filtered table.
+   *
+   * The range is blank while a page is in flight, so an absent reading counts
+   * as "unchanged" — otherwise this passes the moment the request starts,
+   * which proves nothing about what came back.
    */
-  await expect.poll(countText).not.toBe(before)
+  await expect.poll(async () => (await range(page))?.total ?? before).not.toBe(before)
 })
 
 test('the two ways an agent can be missing are told apart', async ({ page }) => {
@@ -67,14 +84,15 @@ test('the two ways an agent can be missing are told apart', async ({ page }) => 
 
     const next = page.getByRole('button', { name: 'Next' })
     if (await next.isDisabled()) break
-    await next.click()
 
     /**
-     * Wait for the page NUMBER, not for a row. The table keeps the previous
+     * Wait for the OFFSET to move, not for a row. The table keeps the previous
      * rows on screen while the next page loads — so waiting for "a row to be
      * visible" returns instantly and reads the page it was already on.
      */
-    await expect(log(page)).toContainText(`Page ${i + 1} of`)
+    const from = (await range(page))?.first
+    await next.click()
+    await expect.poll(async () => (await range(page))?.first ?? from).not.toBe(from)
   }
 
   expect(seen.none, 'no case showed "No agent matched"').toBe(true)
@@ -111,9 +129,33 @@ test('paging asks for the next page rather than slicing one it has', async ({ pa
   const next = page.getByRole('button', { name: 'Next' })
   test.skip(await next.isDisabled(), 'this workspace has one page of cases')
 
+  const size = (await range(page))!.last
   await next.click()
   await expect.poll(() => sent.at(-1) ?? '').toContain('page=2')
-  await expect(log(page)).toContainText('Page 2 of')
+  await expect.poll(async () => (await range(page))?.first).toBe(size + 1)
+})
+
+test('the page size is a choice, and the workspace serves it', async ({ page }) => {
+  const sent: string[] = []
+  page.on('request', (r) => {
+    if (r.url().includes('/cases')) sent.push(new URL(r.url()).search)
+  })
+
+  const total = (await range(page))!.total
+  await log(page).getByLabel('Rows per page').selectOption('50')
+
+  /**
+   * The request has to carry the new size. Slicing 50 rows out of the 25 the
+   * browser holds is impossible, but slicing 10 out of them is not — and that
+   * would quietly turn the pager into a client-side one whose total lies.
+   */
+  await expect.poll(() => sent.at(-1) ?? '').toContain('page_size=50')
+  await expect.poll(() => page.locator('table tbody tr').count()).toBe(Math.min(50, total))
+
+  // Page 13 of 25-row pages is not page 13 of 50-row pages, so the size
+  // change returns to the first page rather than to a page that may not exist.
+  expect(sent.at(-1)).toContain('page=1')
+  await expect.poll(async () => (await range(page))?.first).toBe(1)
 })
 
 test('a case links to its own transcript', async ({ page }) => {
@@ -135,18 +177,45 @@ test('the page survives cases failing', async ({ page }) => {
   await expect(log(page)).toContainText(/Couldn.t load|Retry/i)
 })
 
-test('a case exports as CSV', async ({ page }) => {
-  /**
-   * This existed on the mock log and was lost in the rewrite to /cases, which
-   * nothing caught until the old test failed. It is pinned here now.
-   */
-  await page.getByRole('button', { name: 'Export' }).first().click()
+/**
+ * The per-row export existed on the mock log and was lost in the rewrite to
+ * /cases, which nothing caught until the old test failed. It is pinned here.
+ */
+test('a case exports as JSON, TXT or MD, transcript included', async ({ page }) => {
+  // The row carries no events, so picking a format has to go and get them.
+  let fetchedEvents = 0
+  page.on('request', (r) => {
+    if (/\/conversations\/[0-9a-f-]+\/events/.test(r.url())) fetchedEvents++
+  })
 
-  // menuitemradio, not menuitem — it is a single choice.
-  const csv = page.getByRole('menuitemradio', { name: 'CSV' })
-  await expect(csv).toBeVisible()
+  for (const format of ['JSON', 'TXT', 'MD'] as const) {
+    await page.getByRole('button', { name: 'Export' }).first().click()
 
-  const download = page.waitForEvent('download')
-  await csv.click()
-  expect((await download).suggestedFilename()).toMatch(/^case-[0-9a-f]{8}\.csv$/)
+    // menuitemradio, not menuitem — it is a single choice.
+    const item = page.getByRole('menuitemradio', { name: format, exact: true })
+    await expect(item).toBeVisible()
+
+    const download = page.waitForEvent('download')
+    await item.click()
+
+    const file = await download
+    const ext = format.toLowerCase()
+    expect(file.suggestedFilename()).toMatch(new RegExp(`^conversation-[0-9a-f]{8}\\.${ext}$`))
+
+    // The named format, not three copies of one file under three extensions.
+    const body = await readFile((await file.path())!, 'utf8')
+    if (format === 'JSON') {
+      const parsed = JSON.parse(body) as { conversation?: { id?: string }; messages?: unknown[] }
+      expect(parsed.conversation?.id).toBeTruthy()
+      expect(Array.isArray(parsed.messages)).toBe(true)
+    } else if (format === 'MD') {
+      expect(body).toMatch(/^# Conversation [0-9a-f-]{20,}/)
+      expect(body).toContain('## Transcript')
+    } else {
+      expect(body).toMatch(/^Conversation [0-9a-f-]{20,}/)
+      expect(body).toContain('─── Transcript ───')
+    }
+  }
+
+  expect(fetchedEvents, 'no export fetched the transcript').toBeGreaterThan(0)
 })
