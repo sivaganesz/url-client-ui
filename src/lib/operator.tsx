@@ -90,6 +90,27 @@ export function useCall(): CallApi {
  * config arrives, and a gate that rendered nothing until then would blank the
  * whole app on a slow or missing connector.
  */
+/** How long to wait for the config before calling the connector unreachable. */
+const CONFIG_TIMEOUT_MS = 8000
+
+/**
+ * Everything the SDK needs, present and the right shape.
+ *
+ * Checked because the alternative is worse than a missing connector: mounting
+ * `OperatorProvider` on a half-formed config throws inside the SDK, and the
+ * gate would still report `ready`, so the Call button would offer a call that
+ * cannot be placed.
+ */
+function usable(body: unknown): body is OperatorConfig {
+  const c = body as Partial<OperatorConfig> | null
+  return Boolean(
+    c?.apiHost?.startsWith('https://') &&
+      c.siteId &&
+      c.operator?.externalId &&
+      c.operator?.userHash,
+  )
+}
+
 export function OperatorGate({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<OperatorConfig | null>(null)
   const [reason, setReason] = useState<string>('Connecting to the operator service…')
@@ -97,6 +118,9 @@ export function OperatorGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     let live = true
     const controller = new AbortController()
+    // Without this a proxy that accepts the connection and never answers
+    // leaves the button saying "Connecting…" for the rest of the session.
+    const timer = setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS)
 
     fetch('/api/operator/config', { signal: controller.signal })
       .then(async (r) => {
@@ -106,17 +130,24 @@ export function OperatorGate({ children }: { children: ReactNode }) {
         // error — it answers 200 and says so, and calling stays unavailable
         // with a reason the buttons can show.
         if (body?.configured === false) throw new Error(body.reason ?? 'Operator calling is not configured.')
-        return body as OperatorConfig
+        if (!usable(body)) throw new Error('The operator service returned an incomplete configuration.')
+        return body
       })
       .then((c) => {
         if (live) setConfig(c)
       })
       .catch((err: Error) => {
-        if (live && err.name !== 'AbortError') setReason(err.message)
+        if (!live) return
+        // "Failed to fetch" and an abort are both just "we couldn't reach it",
+        // and neither is worth showing a user verbatim.
+        const network = err.name === 'AbortError' || err.name === 'TypeError'
+        setReason(network ? 'The operator service could not be reached.' : err.message)
       })
+      .finally(() => clearTimeout(timer))
 
     return () => {
       live = false
+      clearTimeout(timer)
       controller.abort()
     }
   }, [])

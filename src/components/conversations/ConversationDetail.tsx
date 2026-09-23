@@ -29,8 +29,9 @@ export default function ConversationDetail({
   )
   const thread = useResource(loadMessages, [], [conversation.id])
 
-  // What this conversation's own agent can be reached on. One request, and the
-  // Call button and the composer chips both read it.
+  // What this conversation's own agent can be reached on — the composer chips
+  // read it. The Call button no longer does: the operator places the call
+  // through the site, so the agent's triggers have no say in it.
   const loadReach = useCallback(
     (signal: AbortSignal) => getAgentReach(conversation.agentId, signal),
     [conversation.agentId],

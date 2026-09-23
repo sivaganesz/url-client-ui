@@ -1,4 +1,4 @@
-import { conversationRows, expect, test, visit } from './helpers'
+import { allowConsoleErrors, conversationRows, expect, test, visit } from './helpers'
 
 /**
  * Operator calling.
@@ -93,4 +93,51 @@ test.describe('the call surface', () => {
     // The shell mounts it, so it must not render itself into view unprompted.
     await expect(page.getByRole('dialog', { name: /^Call with/ })).toBeHidden()
   })
+})
+
+/**
+ * A broken connector must not offer a call, and must not take the console
+ * with it.
+ *
+ * The console is mostly not about calling; someone reading conversations
+ * should be unaffected by the phone being down. And the failure that matters
+ * most is the quiet one — a malformed config used to leave the button saying
+ * "Call them yourself" while the SDK threw underneath it.
+ */
+test.describe('when the connector is broken', () => {
+  const brokenConfig = [
+    {
+      name: 'the endpoint fails',
+      fulfil: { status: 500, body: '{"error":"boom"}' },
+      says: /answered 500/i,
+    },
+    {
+      name: 'the config is incomplete',
+      fulfil: {
+        status: 200,
+        contentType: 'application/json',
+        // A 200 with nothing usable in it: the case that used to slip through.
+        body: '{"apiHost":"not-a-url","siteId":"","operator":null}',
+      },
+      says: /incomplete configuration/i,
+    },
+  ]
+
+  for (const { name, fulfil, says } of brokenConfig) {
+    test(`${name}: the page works and the button explains itself`, async ({ page }) => {
+      // The failing status is the point of the test, so it is declared
+      // rather than switching the console watch off.
+      allowConsoleErrors(page, /Failed to load resource/)
+      await page.route('**/api/operator/config', (route) => route.fulfill(fulfil))
+      await visit(page, '/conversations')
+
+      // The rest of the console is unaffected.
+      await expect(conversationRows(page).first()).toBeVisible()
+      await conversationRows(page).first().click()
+
+      const call = page.getByRole('button', { name: /^Call/ })
+      await expect(call).toBeDisabled()
+      expect(await call.getAttribute('title')).toMatch(says)
+    })
+  }
 })
