@@ -439,12 +439,11 @@ export default function ConversationLog() {
           // Shown from the first row rather than from the second page: the
           // page size is a control, not a consequence of having enough rows.
           data.total > 0 ? (
-            <TablePager
-              pager={pager}
-              noun="conversations"
-              loading={loading}
-              className="font-mono text-[11.5px] text-ink-3"
-            />
+            // No type overrides: the footer sets them, and the monospace this
+            // used to ask for made the select 13px wider than the same control
+            // on Call Logs and Agents — enough to push the total off a 320px
+            // screen, and enough to look like a different component.
+            <TablePager pager={pager} noun="conversations" loading={loading} />
           ) : null
         }
       />

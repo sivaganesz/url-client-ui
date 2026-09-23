@@ -104,6 +104,53 @@ test('the chart thins its axis rather than stacking the dates', async ({ page })
   }
 })
 
+test('every table pager fits a phone, and they all look the same', async ({ page }) => {
+  /**
+   * Analytics, Call Logs and Agents share one pager, and the requirement is
+   * the same on each: page size on the left, the total in the middle, arrows
+   * on the right, one line. Analytics was the odd one out because it asked for
+   * a monospace footer — 13px wider on the same control, which was enough to
+   * push the total off a 320px screen.
+   */
+  for (const path of ['/analytics', '/call-logs', '/agents']) {
+    for (const width of [320, 360, 390]) {
+      await page.setViewportSize({ width, height: 780 })
+      await visit(page, path)
+
+      const size = page.getByLabel('Rows per page').first()
+      const count = page.locator('span[aria-live]').first()
+      await expect(size).toBeVisible()
+      await expect(count).toBeVisible()
+
+      const shape = await count.evaluate((el) => {
+        const pager = el.parentElement!
+        const footer = pager.parentElement!
+        const boxes = (Array.from(pager.children) as HTMLElement[]).map((c) =>
+          c.getBoundingClientRect(),
+        )
+        return {
+          clipped: el.scrollWidth > el.clientWidth + 1,
+          /**
+           * One line, counted by vertical centre rather than by top edge: the
+           * row centres items of three different heights, so their tops differ
+           * even when they sit side by side.
+           */
+          lines: new Set(boxes.map((b) => Math.round(b.top + b.height / 2))).size,
+          spills: footer.scrollWidth > footer.clientWidth + 1,
+        }
+      })
+
+      expect(shape.clipped, `${path} @${width} clips the total`).toBe(false)
+      expect(shape.lines, `${path} @${width} wraps onto two lines`).toBe(1)
+      expect(shape.spills, `${path} @${width} overflows the footer`).toBe(false)
+
+      // Arrows only down here; the words belong to the desktop.
+      await expect(page.getByRole('button', { name: 'Next page' }).first()).toBeVisible()
+      await expect(page.getByRole('button', { name: /^Next$/ })).toHaveCount(0)
+    }
+  }
+})
+
 test('an empty date field still shows its format once tapped', async ({ page }) => {
   /**
    * Focusing a date input on a phone opens a calendar dialog and the field
