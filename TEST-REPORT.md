@@ -1,8 +1,9 @@
 # Client Console — Test Report & Page Completion Status
 
 **Branch:** `prod-grade` · **Tested:** 22–23 September 2026 · **Last updated:** 23 September 2026
+**Latest round:** operator calling, tested against a real phone — §10.
 **Method:** Automated browser testing (Playwright + Chromium) against two live workspaces, plus the production build.
-**Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a **committed regression suite of 34 tests** (§9).
+**Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a **committed regression suite of 41 tests** (§9).
 
 > Outbound actions were restricted to the single authorised number **+916374160200**. No other number was contacted.
 
@@ -28,7 +29,7 @@ The second workspace exercised cases the first could not: an **empty** call log,
 |---|------|--------|:---:|-------|
 | 1 | Dashboard | ✅ Complete | 4 | All figures live |
 | 2 | Analytics | 🟡 Partial | 6 | Conversation Log is mock data, awaiting API |
-| 3 | Conversations | ✅ Complete | 7 | Includes outbound send/call |
+| 3 | Conversations | ✅ Complete | 7 + SDK | Text outbound, and operator calling (§10) |
 | 4 | Call Log Analytics | ✅ Complete | 2 | Recording playback working |
 | 5 | AI Agents | ✅ Complete | 3 | Includes activate/deactivate |
 | 6 | Phone Numbers | 🔴 Blocked | 0 | No API exists yet |
@@ -88,7 +89,8 @@ The second workspace exercised cases the first could not: an **empty** call log,
 | `/conversations/{id}/events` | GET | The transcript — messages and tool calls |
 | `/agents/{id}` | GET | Reads the agent's graph to decide which channels it can send on |
 | `/conversations/{id}/recordings` | GET | Signed audio URLs for the Overview tab player |
-| `/outbound` | **POST** | Starts a conversation, sends a message, or places a call |
+| `/outbound` | **POST** | Starts a conversation or sends a message on a text channel |
+| operator SDK | — | Places a call, with the operator on the line. See §10 |
 
 **Verified working:**
 
@@ -98,15 +100,15 @@ The second workspace exercised cases the first could not: an **empty** call log,
 - Composer: channel chips enable/disable with a stated reason, Send gated correctly
 - New-conversation dialog: agent list filtered by trigger node, per-channel contact field
 - **Outbound WhatsApp sent successfully** to the authorised number
-- **Outbound call placed successfully**, call popup displayed
+- **Calls placed and answered** on the authorised number, with working mute, hold and hang-up — §10
 
 **Gaps / issues:**
 
 | Item | Detail |
 |------|--------|
 | ✅ **Rail count — FIXED** | Previously read "50 of 200 conversations" when the workspace held 294, reporting the API cap as the total. Now reads `50 of 200 · 294 in workspace`, with a tooltip explaining the cap. See §7.1. |
-| ⚪ Call popup controls inert | Mute / Hold / End are display-only by design — integration pending. |
-| ⚪ Call popup naming | Shows the **agent's** name ("phone call testing") rather than who is being called. The number is correct. Not changed — call work is frozen. |
+| ✅ **Call popup controls — FIXED** | Mute / Hold / End were display-only. They now act on the real audio stream, verified on answered calls. See §10. |
+| ✅ **Call popup naming — RESOLVED** | It showed the agent's name because the agent placed the call. The operator places it now, so the panel carries the customer's name from the click. |
 
 ---
 
@@ -175,14 +177,15 @@ The second workspace exercised cases the first could not: an **empty** call log,
 | Pages | All 6 routes, in both dev and production builds |
 | Navigation | SPA routing, back/forward, direct URL, refresh, unknown route |
 | Conversations | List, filters, search, agent dropdown, load-more, detail pane, both tabs, composer |
-| Outbound | New-conversation dialog, WhatsApp send, phone call, composer send |
-| Call popup | Display, controls, timer, toggle states |
+| Outbound (text) | New-conversation dialog, WhatsApp send, composer send |
+| Operator calling | 5 real calls: dial, pickup, mute, hold, navigation, hang-up, no-answer, double-dial (§10) |
+| Call panel | Status from the platform, timer, controls against a live audio stream |
 | Agents | Table/grid toggle, pagination, action buttons, confirmation dialog |
 | Call Logs | Table, filters, pagination, recording playback |
 | Analytics | Stat tiles, chart intervals, conversation log filters, CSV export |
 | Accessibility | Tab order, focus ring, focus trap, Escape, scroll lock, heading hierarchy |
 | Responsive | 375 / 768 / 1280 / 1920 px |
-| Error handling | Complete API failure |
+| Error handling | Complete API failure; and for calling, a config endpoint that fails, is unreachable, returns nonsense or never answers |
 | Console | Errors, warnings and failed requests on every page |
 
 Everything in this table was tested by hand or by one-off script during the
@@ -217,9 +220,21 @@ are covered up to the confirmation and no further.
 
 ## 4. Errors found
 
-**None.** No console errors, page errors or React warnings anywhere.
+**None in the pages.** No console errors, page errors or React warnings on any
+route, in either build.
 
-One development-only artefact: `/api/health net::ERR_ABORTED` appears once per page. This is React StrictMode invoking the effect twice and aborting the first. **It does not occur in the production build.** Not a defect.
+**Two in the call flow**, both found only by phoning a real number and both now
+fixed — the panel reporting a false mute state at pickup, and a raw SDK error
+string shown to the user. They are written up in §10.3, because neither could
+have been caught by reading the code or by any test that does not place a call.
+
+Two artefacts that are not defects:
+
+- `/api/health net::ERR_ABORTED`, once per page in development. React
+  StrictMode runs the effect twice and aborts the first. Absent from the
+  production build.
+- `POST /operator/answer` 404s about once a second while a call rings, until
+  the customer picks up. That is the SDK polling for pickup — see §6, item 7.
 
 ---
 
@@ -229,9 +244,11 @@ One development-only artefact: `/api/health net::ERR_ABORTED` appears once per p
 |---|-------|:---:|--------|
 | 1 | Conversation rail reported the API cap (200) as the total | 🟡 Medium | ✅ **Fixed** — see §7.1 |
 | 2 | Sidebar showed "Siva Workspace" regardless of which workspace was connected | 🟡 Medium | ✅ **Fixed** — see §7.2 |
-| 3 | Call popup shows the agent's name instead of the person being called | ⚪ Low | ⏸ Deferred — call work is frozen |
+| 3 | Call popup showed the agent's name instead of the person being called | ⚪ Low | ✅ **Resolved** by the operator work — §10 |
 | 4 | No `<main>` landmark anywhere in the app | 🟡 Medium | ✅ **Fixed** — see §7.3 |
 | 5 | An empty bordered strip sat above a healthy conversation rail | ⚪ Low | ✅ **Fixed** — see §7.4 |
+| 6 | The panel said you were muted for ~2s after the customer answered | 🔴 High | ✅ **Fixed** — see §10.3 |
+| 7 | A failed call reported `call no_answer` — a raw SDK error string | 🟡 Medium | ✅ **Fixed** — see §10.3 |
 
 ---
 
@@ -245,6 +262,7 @@ One development-only artefact: `/api/health net::ERR_ABORTED` appears once per p
 | 4 | `/calls` reports `direction: unknown` on every record | Direction column omitted rather than shown blank |
 | 5 | `/agents` reports `channels: ["web"]` for **every** agent, whatever its triggers | The console cannot use it. To know what an agent can be reached on it fetches that agent's full graph — **one request per agent**. Opening the New conversation dialog on an 11-agent workspace costs 12 requests; on a 50-agent workspace it would cost 51 |
 | 6 | The API **rate-limits** (HTTP 429) and the console has no backoff | Surfaced while building the regression suite: a full run trips it, because of the N+1 above. A client browsing quickly could hit it too, and today it renders as a generic load failure rather than "too fast, retrying" |
+| 7 | The operator SDK polls `POST /operator/answer` once a second while a call rings, and **every poll 404s** until the customer picks up | ~25 console errors per unanswered call. Normal SDK behaviour, not a defect, but console-error monitoring will be noisy during calls and should filter it |
 
 **Two recommended API requests, in priority order:**
 
@@ -333,8 +351,9 @@ strip with no content in it.
 | Distinct API operations in use | **13** — 10 reads, 3 writes |
 | Console errors | **0** |
 | Failed user flows | **0** |
-| Bugs found and fixed | **4** — 2 during testing, 2 since (§7) |
-| Regression tests committed | **34**, green on 3 consecutive runs |
+| Bugs found and fixed | **6** — 2 during testing, 2 since (§7), 2 on real calls (§10) |
+| Regression tests committed | **41**, green on 3 consecutive runs |
+| Real calls placed | **5**, all to the authorised number, 2 answered |
 | Outbound actions | 2 sent, both to the authorised number, both successful |
 | Responsive breakpoints | 4 of 4 clean |
 | Accessibility checks | All passed |
@@ -345,22 +364,24 @@ strip with no content in it.
 | # | Action | Owner | Effort |
 |---|--------|-------|--------|
 | 1 | Set `ACCESS_CODE` and `ALLOW_OUTBOUND=true` in the hosting project | DevOps | ~5 min |
-| 2 | Decide on the call-popup naming | Product | — |
+| 2 | Set `OPERATOR_SITE_SECRET` in the hosting project | DevOps | ~2 min |
 
-> **Item 1 is required.** Outbound is disabled by default in production as a safety measure — a deployment without these variables cannot place calls, and the Call button will return 403.
+> **Both items are required.** Item 1 guards agent outbound, which sends messages; item 2 is what lets a person place a call. Neither is set by the app — without them the buttons are disabled and say so, which is the intended failure.
 
-> All four frontend issues in §7 are **fixed**. Item 2 is a product decision, not a defect, and is on hold at the client's request.
+> All seven frontend issues in §5 are now **fixed**.
 
 ### Done since the first version of this report
 
 - ✅ **TypeScript migration.** Every file under `src/` is `.ts`/`.tsx`, type-checked under `strict` with `noUncheckedIndexedAccess`. `npm run build` runs `tsc --noEmit` first, so a type error fails the build. It found the bug in §7.4.
-- ✅ **Automated regression suite.** 34 tests, committed, run with `npm test` (§9).
+- ✅ **Automated regression suite.** 41 tests, committed, run with `npm test` (§9).
+- ✅ **Operator calling.** A person on the line rather than the AI, with working mute, hold and hang-up. Tested against a real phone — §10.
 
 ### Recommended next
 
-1. Ask the platform team for the two API changes in §6 — paging on `/conversations`, and real channels on `/agents`.
-2. Handle 429 with a retry/backoff in the shared request layer.
-3. Replace the Conversation Log mock data once the scoring API is available.
+1. **Continuous integration.** The 41 tests exist but nothing runs them; they only catch a regression if someone remembers to look. This is the last engineering gap.
+2. Ask the platform team for the two API changes in §6 — paging on `/conversations`, and real channels on `/agents`.
+3. Handle 429 with a retry/backoff in the shared request layer.
+4. Replace the Conversation Log mock data once the scoring API is available.
 
 ---
 
@@ -371,7 +392,7 @@ npm test              # headless, ~2 minutes
 npm run test:ui       # Playwright UI mode, for debugging
 ```
 
-34 tests in `tests/`, run by Playwright. The suite starts its own proxy and
+41 tests in `tests/`, run by Playwright. The suite starts its own proxy and
 Vite server, so it works from a clean checkout; it needs a configured `.env`,
 and says so plainly if one is missing.
 
@@ -383,6 +404,7 @@ and says so plainly if one is missing.
 | `analytics.spec.ts` | 5 | The over-time chart across all three intervals, credits, the log's filters and CSV export, and the page's behaviour with the API cut off |
 | `new-conversation.spec.ts` | 3 | The dialog's focus trap, Escape, scroll lock and per-channel agent gating |
 | `responsive.spec.ts` | 3 | Phone layout: no horizontal overflow on any route, the drawer, and the single-column conversation view |
+| `operator.spec.ts` | 7 | Calling: the signing endpoint never leaks the secret, the Call button explains itself when the connector is unavailable, the phone tab drops the agent picker, and a broken connector does not take the console with it |
 
 ### Nothing in the suite sends
 
@@ -394,6 +416,7 @@ No test places a call, sends a message, or publishes or unpublishes an agent.
 | Call button | presence, gating, explanation | never clicked |
 | New conversation | dialog contract, agent gating, Send disabled | never submitted |
 | Agent activate / deactivate | confirm opens and names the agent | always cancelled |
+| Operator calling | the config contract, the secret staying server-side, the button gating, four broken-connector states | **never dialled** |
 
 ### Two design decisions worth knowing
 
@@ -409,3 +432,110 @@ the test reads it from the API in the same run.
 the shared fixture rather than something each test remembers to check. A test
 that provokes an error deliberately declares it; upstream 429s are excluded
 with the reasoning recorded in `tests/helpers.ts`.
+
+---
+
+## 10. Operator calling
+
+### 10.1 What changed
+
+Two different things on this platform both look like "making a call", and the
+console was doing the wrong one:
+
+| | Agent outbound (before) | Operator calling (now) |
+|---|---|---|
+| Who talks to the customer | the AI agent | **the person at the console** |
+| Where the audio lives | on the platform | the browser's microphone |
+| Can Mute / Hold do anything? | no — no local audio | **yes** |
+| Authorised by | the workspace API key | a site key + a server-signed `user_hash` |
+
+That is why the popup's controls were inert: there was no local audio stream to
+act on. Only **phone** changed. WhatsApp, SMS and email still go through
+`POST /outbound` as the conversation's agent, because there the agent really is
+the one talking.
+
+The site secret signs the operator's identity and never reaches the browser —
+both proxies expose `GET /api/operator/config`, which returns the public site
+config plus the signature.
+
+### 10.2 What was tested
+
+Five calls to the authorised number **+916374160200**, two of them answered. No
+other number was contacted.
+
+| # | Scenario | Result |
+|:---:|---|---|
+| 1 | Connector handshake — signing and the platform's three gates | ✅ `{"ok":true}` |
+| 2 | Dial from a conversation's Call button | ✅ Confirm names the number, the microphone and the separate conversation |
+| 3 | Ring → answer → live | ⚠️ Defect found — §10.3 |
+| 4 | Mute / Unmute on a live call | ✅ Acts on the real stream |
+| 5 | Hold / Resume | ✅ Timer pauses (`0:02 → 0:02` over six seconds) and resumes (`0:03 → 0:07`) |
+| 6 | Call survives navigating to another page | ✅ Stayed up across to AI Agents |
+| 7 | End | ✅ Panel cleared, button re-enabled |
+| 8 | No answer after 30s | ⚠️ Defect found — §10.3 |
+| 9 | Second dial while a call is up | ✅ Refused — "You are already on a call" |
+| 10 | Dial again after ending | ✅ Timer reset, no error carried over |
+| 11 | Dial from the New conversation dialog | ✅ No agent picker, and **no `POST /outbound` fired** |
+| 12 | Microphone blocked | ⚪ **Not established** — see §10.4 |
+
+The console's own failure handling was tested separately, without dialling: a
+failing config endpoint, an unreachable one, a malformed response and one that
+never answers. In all four the conversation pages keep working and the Call
+button explains itself.
+
+### 10.3 Defects found on real calls
+
+**The panel said you were muted at the moment of pickup.** 🔴
+
+The SDK sets the call status to `live` in `beginSession`, which runs *before*
+the audio room finishes connecting — and its `micEnabled` flag starts false,
+flipping true only once the room is up. So for about two seconds after the
+customer answered, the panel read "In call" while the button offered "Unmute":
+it told the operator they were muted when they were not, at the one moment that
+matters.
+
+`micEnabled` alone cannot distinguish "not connected yet" from "deliberately
+muted", so the console now latches a separate flag the first time the audio
+comes up, and resets it per call. The panel shows **"Connecting audio…"** with
+the controls disabled until the audio is really there. Measured on a live call:
+the window is 2.2 seconds.
+
+**A failed call reported `call no_answer`.** 🟡
+
+That is the SDK's raw error string going straight onto the screen of whoever
+just tried to phone a customer. All seven of its error shapes are now mapped to
+sentences — "No answer.", "The line was busy." — with anything unrecognised
+passed through rather than flattened into "an error occurred", since a message
+nobody has seen before is more useful raw. Verified on a live call: the banner
+now reads *"Could not reach out — No answer."*
+
+There was a third, caught earlier by reading the SDK rather than by calling: on
+a no-answer it sets an error but leaves the call's status at `dialing`, so a
+status check alone would leave the panel saying "Calling…" indefinitely. The
+console reads the error too. Confirmed on an unanswered call — the panel
+cleared at 36.7s.
+
+### 10.4 The one case not established
+
+**A call answered while the microphone is blocked.** Dialling with the
+microphone denied does *not* fail early — the call is placed normally. If it
+were then answered, the SDK's documented worst case would apply: the dial
+resolves, no audio flows, and nothing says so. Establishing that needs an
+answered call with the microphone denied, which was left for the client to
+decide on rather than sprung on them.
+
+Note also that the microphone needs a **secure context**. `localhost` is exempt,
+so development works over plain HTTP, but any other host — including a LAN IP —
+silently fails to get a microphone until it is served over HTTPS.
+
+### 10.5 What this needs to work in production
+
+`OPERATOR_SITE_SECRET` must be set in the hosting project, alongside the
+existing `ACCESS_CODE`. It is a different credential from the workspace API key
+and is not covered by `ALLOW_OUTBOUND`, which guards the AI phoning someone
+unattended — a person clicking dial with their own microphone open is a
+different risk. Without the secret the Call button is disabled and says why.
+
+The app's origin must also be on the site's `allowed_origins` **and** on the
+operator node's. Both were already correct for `http://localhost:5180`;
+production's origin needs adding before it will work there.
