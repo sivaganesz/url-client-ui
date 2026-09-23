@@ -87,17 +87,19 @@ export default function LogFilters({
 
       <span aria-hidden="true" className="mx-0.5 hidden h-5 w-px bg-line sm:block" />
 
-      <FilterMenu
-        label="Status"
-        value={value.status}
-        options={STATUS}
-        onChange={(status) => onChange({ status })}
-      />
+      {/* Channel first: it is how people say which conversations they mean
+          ("the WhatsApp ones") before they say what state those are in. */}
       <FilterMenu
         label="Channel"
         value={value.channel}
         options={CHANNEL}
         onChange={(channel) => onChange({ channel })}
+      />
+      <FilterMenu
+        label="Status"
+        value={value.status}
+        options={STATUS}
+        onChange={(status) => onChange({ status })}
       />
       <FilterMenu
         label="Started by"
