@@ -1,9 +1,9 @@
 # Client Console — Test Report & Page Completion Status
 
-**Branch:** `prod-grade` · **Tested:** 22–23 September 2026 · **Last updated:** 23 September 2026
-**Latest round:** accounts, a separate backend, and multi-tenancy — §11.
+**Branch:** `fs-ini` · **Tested:** 22–24 September 2026 · **Last updated:** 24 September 2026
+**Latest round:** the admin surface — who can get in, what they did, and closing the gaps left open at handover — §12.
 **Method:** Automated browser testing (Playwright + Chromium) against two live workspaces, plus the production build.
-**Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a **committed regression suite of 44 browser tests** (§9), with 32 more on the backend (§11).
+**Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a committed regression suite of **139 tests: 71 in the browser** (§9, §12) and **68 on the backend** (§11, §12).
 
 > Outbound actions were restricted to the single authorised number **+916374160200**. No other number was contacted.
 
@@ -690,3 +690,99 @@ configuration rather than a release.
 decision: the browser suite drives the live Perfox API and needs a workspace
 key as a repository secret, a database, and a seeded account. The backend
 suite needs only Postgres, so it could run in CI today on its own.
+
+> Six items listed as open at the end of this round's §11 have since been
+> closed — see §12.3. What remains is in §12.4.
+
+---
+
+## 12. The admin surface
+
+Added after §11 and, until this round, almost entirely absent from this report
+— the word "admin" appeared once in it. That was a fair description of the
+coverage too: the surface that creates every account and holds every
+credential had three browser tests and no section of its own.
+
+### 12.1 What it is
+
+Three sections behind `/admin`, on a session that has nothing to do with a
+customer's:
+
+| Section | What it does |
+|---|---|
+| **Customers** | every workspace, its owner, whether it has a Perfox key and whether calling is configured; create, edit the connection, test it, suspend or reinstate |
+| **Administrators** | who else can sign in here, when they were added, when they last did, and whether they are active; add one, suspend one |
+| **Activity** | every action any admin took, newest first |
+
+Nothing here can read a credential back. No endpoint returns one, so no page
+can show one, and changing a key means typing it again.
+
+### 12.2 What is tested
+
+**Browser (8 tests, `admin.spec.ts`)** — that a customer cannot create their
+own account and `/register` redirects; that the sign-in panel drops on a
+phone; that `/admin` demands an admin session; that an admin creates a
+customer who then signs in, that the key typed in is nowhere in the page
+afterwards, that the customer cannot reach the admin API, and that the
+creation is recorded in Activity by workspace name and by who did it; that an
+admin session is not a console session; that the password form rejects a wrong
+current password; and that the administrators page refuses to suspend you or
+the last active account.
+
+**Backend (68 tests)** — the admin half covers: separate tables and separate
+cookie names; that a customer session reaches no admin route and an admin
+session reaches no workspace; that a suspension ends live sessions rather than
+only future sign-ins, and reaches a colleague in the same workspace; that
+sign-in attempts are capped per address and per IP, including attempts cut off
+mid-guess; that administrators can be listed and added but not locked out
+entirely; and that the audit trail records who did what without recording a
+single credential.
+
+### 12.3 What this round fixed
+
+Six items, each of which had been reported as open and left that way.
+
+**Aborted sign-in attempts were free.** The rate limiter counted on
+`res.on('finish')`, which fires only for a response written out in full.
+Hanging up the moment a guess was in flight meant the password was still
+checked and the attempt was never counted — an unlimited supply of guesses
+from a limiter that read as correct. It counts on `close` now, and an attempt
+that did not finish counts as a failure.
+
+**Suspension reached one user, not the account.** It set `users.status` on the
+owner. With one person per workspace that is the same thing; with an invited
+colleague it would have left a suspended customer running under somebody
+else's login. It suspends the workspace now, and both checks live where the
+session is read, so either takes effect on the next request.
+
+**Nobody could change their own password.** Both endpoints had existed since
+the login work and neither was called by anything, so the only way to change a
+password was for someone with database access to do it.
+
+**A second administrator could not be made, or seen.** More than one has been
+allowed since the first migration, but making one meant running `seed:admin`
+on the server and there was nowhere to see who already had access.
+
+**No trace of anything an admin did.** "Who suspended Northwind, and when?"
+had no answer. There is an append-only `admin_events` row per action now,
+readable by any admin, holding which fields changed and never what they
+changed to.
+
+**A fresh checkout could not run the browser suite.** `seed:dev` insisted on
+`client-ui/.env`, the file the console kept its key in before there was a
+database — so it worked on one machine and nowhere else, which made "the tests
+pass" a claim only one person could check.
+
+### 12.4 Still open
+
+**CI** — the oldest item outstanding, and unchanged: 139 tests
+(71 browser, 68 backend) and nothing runs them but a person. The backend suite
+needs only Postgres and could run today; the browser suite needs a workspace
+key as a repository secret.
+
+**Invitations and magic links** — deferred deliberately. Until they exist,
+`ALLOW_REGISTRATION` stays `false` and accounts are made by an admin.
+
+**Admin sessions are not listable or revocable** by their owner, the way a
+customer's eventually should be. The rows are there, with user agent and IP;
+nothing reads them.
