@@ -7,6 +7,7 @@ import { IconAlert, IconEye, IconEyeOff } from '../../components/icons'
 import { cn } from '../../lib/cn'
 import { useResource } from '../../lib/useResource'
 import { adminApi, type CustomerDetail, type CustomerRow, type NewCustomer } from '../../lib/admin'
+import { OperatorHelp, PerfoxHelp } from './CredentialHelp'
 
 /**
  * Changing an existing workspace's connection.
@@ -126,6 +127,7 @@ export default function EditConnectionDialog({
         })}
 
         <Section title="Perfox connection" />
+        <PerfoxHelp collapsible />
         {field('perfoxApiBase', 'API base', saved?.perfoxApiBase, {
           placeholder: 'https://acme-api.perfox.ai/api/v1',
           hint: 'No trailing slash — it builds //agents, which answers 401 and reads like a bad key.',
@@ -141,6 +143,7 @@ export default function EditConnectionDialog({
         />
 
         <Section title="Operator calling" note="Only if this workspace places calls." />
+        <OperatorHelp collapsible />
         {field('operatorApiHost', 'Operator API host', saved?.operatorApiHost, {
           placeholder: 'https://acme-api.perfox.ai',
         })}

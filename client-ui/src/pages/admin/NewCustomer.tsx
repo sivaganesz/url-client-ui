@@ -7,6 +7,7 @@ import { FormField, controlClass } from '../../components/ui/Field'
 import { IconAlert, IconCheck, IconChevronLeft, IconChevronRight, IconCopy } from '../../components/icons'
 import { cn } from '../../lib/cn'
 import { adminApi, type NewCustomer as NewCustomerInput } from '../../lib/admin'
+import { OperatorHelp, PerfoxHelp } from './CredentialHelp'
 
 const MIN_LENGTH = 12
 
@@ -168,6 +169,7 @@ export default function NewCustomer() {
 
         {step === 1 && (
           <>
+            <PerfoxHelp />
             {field('perfoxApiBase', 'API base', {
               placeholder: 'https://acme-api.perfox.ai/api/v1',
               hint: 'No trailing slash — it builds //agents, which answers 401 and reads like a bad key.',
@@ -182,6 +184,7 @@ export default function NewCustomer() {
 
         {step === 2 && (
           <>
+            <OperatorHelp />
             {field('operatorApiHost', 'Operator API host', {
               placeholder: 'https://acme-api.perfox.ai',
             })}
