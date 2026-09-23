@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { encrypt } from '../crypto.ts'
 import { one, pool, query } from './index.ts'
 import { hashPassword } from '../auth/password.ts'
@@ -29,7 +29,18 @@ function readEnv(path: string): Record<string, string> {
 }
 
 try {
-  const env = readEnv('../client-ui/.env')
+  const source = process.env.SEED_ENV_FILE ?? '../client-ui/.env'
+  if (!existsSync(source)) {
+    throw new Error(
+      `no credentials to seed from — ${source} does not exist.\n\n` +
+        "  This script carries the console's old .env into the database, so it\n" +
+        '  only works on a machine that had the pre-database setup. On a fresh\n' +
+        '  checkout use `npm run seed`, which prompts for the credentials, or\n' +
+        '  point SEED_ENV_FILE at a file holding PERFOX_API_BASE and\n' +
+        '  PERFOX_API_KEY.',
+    )
+  }
+  const env = readEnv(source)
   const trim = (v: string | undefined) => v?.replace(/\/+$/, '') || null
 
   const existing = await one<{ id: string }>('SELECT id FROM users WHERE lower(email) = $1', [EMAIL])

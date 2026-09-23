@@ -3,25 +3,31 @@
 React + Vite + Tailwind + TypeScript. Six sections: Dashboard, Analytics,
 Conversations, Call Log Analytics, AI Agents, Phone Number Connections.
 
-The console is not tied to one workspace. It reads whichever workspace
-`PERFOX_API_BASE` points at, and names it in the sidebar from that URL — so the
-label cannot disagree with the data on screen.
+This is the frontend half of a monorepo. The other half is
+[`../backend`](../backend), which holds the accounts and the workspace
+credentials; **nothing here reads an environment variable at runtime.**
+
+The console is not tied to one workspace. Each signed-in user reaches their
+own, and the sidebar names it from the session — so the label cannot disagree
+with the data on screen, and two people signed in at once see two different
+workspaces through the same URLs.
 
 ## Running it
 
-Two processes. The proxy holds the API key; the Vite dev server forwards
-`/api/*` to it.
+Two processes. The backend holds each workspace's API key; the Vite dev server
+forwards `/api/*` to it, so the browser sees **one origin**.
 
 ```bash
-npm install
-cp .env.example .env     # then paste your Perfox key into PERFOX_API_KEY
+# first, in ../backend — see its README
+#   docker compose up -d ; npm run migrate ; npm run seed
 
-npm run proxy            # terminal 1 — http://localhost:8787
-npm run dev              # terminal 2 — http://localhost:5180
+npm install
+npm run dev              # http://localhost:5180
 ```
 
-**Without the proxy, no page shows data.** The sidebar reads *Workspace
-unreachable*, and every page shows an error banner with a Retry button.
+**Without the backend, you cannot sign in**, and the pages behind the login are
+unreachable. With it up but a workspace unconfigured, the sidebar says so and
+every page shows a banner rather than an empty table.
 
 That is deliberate. There is no sample-data fallback and no placeholder
 figures: a console that invents conversations or resolution rates when it
@@ -34,28 +40,41 @@ workspace returned it.
 ```bash
 npm run typecheck        # app and tests, strict, noUncheckedIndexedAccess
 npm run lint
-npm test                 # 39 Playwright tests, ~2 min — see tests/README.md
+npm test                 # 44 Playwright tests, ~3 min — see tests/README.md
 npm run build            # runs tsc first, then bundles into dist/
 ```
 
 `npm run build` fails on a type error rather than shipping. `npm test` starts
-its own proxy and Vite server, so it works from a clean checkout, but it needs
-a real `.env` — it drives the live API.
+the backend and Vite itself, so it works from a clean checkout — but it needs a
+database and a seeded account, and it drives the live Perfox API.
 
-`npm run discover` prints the workspace's MCP tools and their signatures.
-Useful when checking whether a resource exists before writing against it.
+`npm run discover`, in the backend, prints a workspace's MCP tools and their
+signatures. Useful when checking whether a resource exists before writing
+against it.
 
-## Why there's a proxy
+## Why nothing here holds a credential
 
-The Perfox key authorises **everything** in the workspace — read and write
-across customers, conversations, knowledge base, credentials and workflows. A
-key in client-side JavaScript is readable by anyone who opens devtools, so it
-stays server-side, in `server/index.js` for local work and `api/[...path].js`
-on Vercel. Both inject the `Authorization` header and redact the key from
-anything they log or return. The browser only ever talks to same-origin
-`/api/*`.
+A Perfox workspace key authorises **everything** in that workspace — read and
+write across customers, conversations, knowledge base, credentials and
+workflows. A key in client-side JavaScript is readable by anyone who opens
+devtools.
 
-`.env` is gitignored. `.env.example` is the template.
+So the browser never receives one. It holds a session cookie it cannot even
+read (httpOnly), and the backend resolves the signed-in user's workspace on
+every request:
+
+```
+browser ──(session cookie)──▶ backend ──(that user's key)──▶ Perfox
+```
+
+Login returns a name, an email, a mobile number and two booleans about the
+workspace — no API base, no token. A test in `tests/smoke.spec.ts` fails if a
+key ever becomes readable from the page, in markup, storage or cookies.
+
+**One origin, deliberately.** The app and the API answer on the same host —
+Vite proxies in development, the backend serves the built app in production —
+which is what lets the session cookie stay `SameSite=Lax` and have the browser
+block cross-site request forgery without us writing anything.
 
 ## What is live, and what is not
 
@@ -131,7 +150,7 @@ console does both. Which one you get depends on the channel:
 | Where the audio lives | on the platform | your microphone and speakers |
 | The request | `POST /outbound` | the operator SDK → `call_outbound` |
 | Can Mute / Hold do anything? | no — no local audio | **yes** |
-| Authorised by | `PERFOX_API_KEY` | a site key + a server-signed `user_hash` |
+| Authorised by | the workspace API key | a site key + a server-signed `user_hash` |
 
 **Phone is operator calling.** The Call button on a conversation and the Phone
 tab of the New conversation dialog both open the line here — your microphone
@@ -213,19 +232,23 @@ that order, so the error body names which one to fix.
 
 ## Deploying
 
-The Vercel proxy (`api/[...path].js`) is deliberately narrower than the local
-one and **fails closed**:
+**This half deploys as static files.** `npm run build` produces `dist/`, and
+the backend serves it — which is what keeps the app and the API on one origin.
+Point the backend's `CLIENT_DIST` at it.
 
-| Variable | Effect |
+There is nothing to configure here. Everything that was once an environment
+variable of this project now lives per workspace in the backend's database:
+
+| Was | Is now |
 |---|---|
-| `PERFOX_API_KEY` | required — nothing works without it |
-| `PERFOX_API_BASE` | which workspace, and the name in the sidebar |
-| `ACCESS_CODE` | gates every request. Strongly recommended |
-| `ALLOW_OUTBOUND` | `true` **and** an `ACCESS_CODE` permits `POST /outbound` |
-| `OPERATOR_API_HOST` | the tenant API host for operator calling |
-| `OPERATOR_SITE_ID` | an operator-enabled site key |
-| `OPERATOR_SITE_SECRET` | **server-side only** — signs the operator identity |
-| `OPERATOR_WORKFLOW_ID` | optional — omit for the tenant default agent |
+| `PERFOX_API_KEY` | `workspaces.perfox_api_token_enc`, encrypted at rest |
+| `PERFOX_API_BASE` | `workspaces.perfox_api_base` |
+| `OPERATOR_SITE_ID` / `_SECRET` / `_WORKFLOW_ID` | the matching `workspaces` columns |
+| `ACCESS_CODE` | superseded by the login |
+
+`ALLOW_OUTBOUND` is gone with the Vercel proxy it guarded. Agent outbound is
+now reachable only by a signed-in user whose workspace has a key, which is a
+narrower door than a shared access code was.
 
 `ALLOW_OUTBOUND` does **not** gate operator calling. That flag guards agent
 outbound, where the workspace pays for an AI to phone someone unattended;
@@ -253,14 +276,13 @@ src/
     operator.tsx  the call session: OperatorGate + useCall()
     types.ts      Api* wire shapes, and the UI types they map onto
     useResource.ts  loading / ready / error / unavailable, with no fallback
-    useDataSource.ts  probes the proxy on boot for the sidebar
+    session.tsx   who is signed in, and which workspace they reach
     cn.ts format.ts collections.ts shapes.ts usePagination.ts
     useDialog.ts useMeasure.ts useCallAudio.ts
-  pages/          one per section
-server/index.js   the local proxy, and the operator signer
-api/[...path].js  the deployed proxy — narrower, fails closed
+  pages/          one per section, plus Login and Register
 vendor/           the operator SDK tarball, installed via file:
 tests/            the regression suite
+../backend/       accounts, workspace credentials, and the proxy
 ```
 
 `src/lib/types.ts` keeps two layers apart on purpose: `Api*` types are the wire

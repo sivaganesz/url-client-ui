@@ -1,9 +1,9 @@
 # Client Console — Test Report & Page Completion Status
 
 **Branch:** `prod-grade` · **Tested:** 22–23 September 2026 · **Last updated:** 23 September 2026
-**Latest round:** operator calling, tested against a real phone — §10.
+**Latest round:** accounts, a separate backend, and multi-tenancy — §11.
 **Method:** Automated browser testing (Playwright + Chromium) against two live workspaces, plus the production build.
-**Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a **committed regression suite of 41 tests** (§9).
+**Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a **committed regression suite of 44 browser tests** (§9), with 32 more on the backend (§11).
 
 > Outbound actions were restricted to the single authorised number **+916374160200**. No other number was contacted.
 
@@ -365,7 +365,7 @@ strip with no content in it.
 | Console errors | **0** |
 | Failed user flows | **0** |
 | Bugs found and fixed | **6** — 2 during testing, 2 since (§7), 2 on real calls (§10) |
-| Regression tests committed | **41**, green on 3 consecutive runs |
+| Regression tests committed | **76** — 44 browser, 32 backend |
 | Real calls placed | **5**, all to the authorised number, 2 answered |
 | Outbound actions | 2 sent, both to the authorised number, both successful |
 | Responsive breakpoints | 4 of 4 clean |
@@ -388,13 +388,19 @@ as §6 items 1–4.
 
 ### Done since the first version of this report
 
+- ✅ **A login, and one workspace per account.** The console was a
+  single-tenant app configured by an env file; it now has accounts, and each
+  reaches its own workspace. No credential reaches the browser — §11.
+- ✅ **A separate backend**, and a monorepo holding both halves.
+
 - ✅ **TypeScript migration.** Every file under `src/` is `.ts`/`.tsx`, type-checked under `strict` with `noUncheckedIndexedAccess`. `npm run build` runs `tsc --noEmit` first, so a type error fails the build. It found the bug in §7.4.
-- ✅ **Automated regression suite.** 41 tests, committed, run with `npm test` (§9).
+- ✅ **Automated regression suite.** 44 browser tests (§9) and 32 backend tests (§11.4).
 - ✅ **Operator calling.** A person on the line rather than the AI, with working mute, hold and hang-up. Tested against a real phone — §10.
+- ✅ **Backend tests.** 32 of them, including the tenant-isolation proof the design rests on — §11.3.
 
 ### Recommended next
 
-1. **Continuous integration.** The 41 tests exist but nothing runs them; they only catch a regression if someone remembers to look. This is the last engineering gap.
+1. **Continuous integration.** All 76 tests exist and nothing runs them; they only catch a regression if someone remembers to look. This is the last engineering gap — see §11.6 for what it needs.
 2. Ask the platform team for the two API changes in §6 — paging on `/conversations`, and real channels on `/agents`.
 3. Handle 429 with a retry/backoff in the shared request layer.
 4. Replace the Conversation Log mock data once the scoring API is available.
@@ -408,7 +414,7 @@ npm test              # headless, ~2 minutes
 npm run test:ui       # Playwright UI mode, for debugging
 ```
 
-41 tests in `tests/`, run by Playwright. The suite starts its own proxy and
+44 tests in `tests/`, run by Playwright. The suite starts the backend and
 Vite server, so it works from a clean checkout; it needs a configured `.env`,
 and says so plainly if one is missing.
 
@@ -554,3 +560,133 @@ different risk. Without the secret the Call button is disabled and says why.
 The app's origin must also be on the site's `allowed_origins` **and** on the
 operator node's. Both were already correct for `http://localhost:5180`;
 production's origin needs adding before it will work there.
+
+---
+
+## 11. Accounts, and one workspace each
+
+### 11.1 What changed
+
+The console read one workspace, named by `PERFOX_API_BASE` in a file on the
+server. That cannot serve two clients: one key in one env file is one tenant.
+
+It now has accounts. Each user belongs to a workspace, each workspace carries
+its own Perfox connection, and the same URLs return different data depending on
+who is signed in.
+
+The frontend is now only a frontend. The two proxies that used to live inside
+it — `server/index.js` and `api/[...path].js` — are replaced by a dedicated
+backend, and both repositories became one monorepo:
+
+```
+url-factory/
+  client-ui/   React + Vite. Reads no environment variable at runtime.
+  backend/     Express + Postgres. Accounts, credentials, and the proxy.
+```
+
+### 11.2 The decision worth recording
+
+The original proposal was for login to return the workspace's `base_url` and
+`api_token`, for the frontend to use.
+
+**That was not built, and should not be.** A Perfox workspace key authorises
+everything in that workspace — read *and* write across customers,
+conversations, knowledge base, credentials and workflows. Sent to the browser
+it would be readable in devtools by anyone who could sign in, would keep
+working after that person was deactivated, and would let them bypass every
+permission added later. One leaked browser session would be a full workspace
+compromise with no way to tell it had happened, and rotating the key would cut
+off every tenant sharing it.
+
+So the credentials stay server-side and the browser gets a session cookie it
+cannot read:
+
+```
+browser ──(httpOnly cookie)──▶ backend ──(that user's key)──▶ Perfox
+```
+
+Login returns a name, an email, a mobile number and two booleans about the
+workspace. Nothing else.
+
+**Sessions rather than JWTs**, for two reasons. A token in `localStorage` is
+readable by injected script; an httpOnly cookie is not reachable from
+JavaScript at all. And a JWT stays valid until it expires, so suspending a user
+would need a revocation list — at which point the database is read on every
+request anyway and the statelessness that justified the JWT is gone. This
+backend already reads it every request to find the caller's workspace.
+
+**One origin**, deliberately: Vite proxies in development and the backend
+serves the built app in production, so the session cookie stays
+`SameSite=Lax` and the browser blocks cross-site request forgery without a
+line of code from us.
+
+### 11.3 Tenant isolation, proved rather than asserted
+
+The claim everything else rests on is that one client cannot reach another's
+data. Until these tests it rested on reading the code.
+
+The technique: two workspaces pointed at two **different** fake upstream
+servers. Against the real Perfox API you cannot see which workspace a request
+went to; against a pair of fakes you can see exactly which one it reached and
+which token it carried.
+
+| What is proved | |
+|---|---|
+| Each user reaches only their own workspace, with only their own key | ✅ |
+| Neither key ever arrives at the other's upstream | ✅ |
+| The workspace comes from the session, not a query string, header or body | ✅ |
+| Signing out of one browser leaves the other signed in | ✅ |
+| A suspended user loses access through a live session **immediately** | ✅ |
+
+The last one is the case a JWT would have got wrong.
+
+### 11.4 The backend suite
+
+32 tests on Node's built-in runner against a real Postgres — no new dependency
+for either. The database is created and dropped per run, so a failing test
+cannot leave rows that make the next one pass.
+
+| Area | Covers |
+|---|---|
+| `tenancy.test.ts` | the five rows above |
+| `auth.test.ts` | that no credential is in the login response; cookie flags; that a wrong password and an unknown address are indistinguishable in status *and* wording; that changing a password ends every other session; expiry; that the table stores a hash, not the cookie |
+| `proxy.test.ts` | the allowlist from both sides — every path the frontend uses passes, and real Perfox resources it has no business reaching are refused without the request leaving the process; encryption round trip, fresh IV per encryption, and refusal to decrypt a tampered value |
+
+On the browser side the suite grew to 44, with three additions: that no
+credential is readable from the page in markup, storage or cookies; that
+signing out kills the session server-side rather than only redirecting; and a
+setup project that signs in once and shares the cookie, because argon2 is slow
+on purpose and forty verifications a run would dominate it.
+
+### 11.5 Defects found while building it
+
+**Express 5 hands a multi-segment wildcard back as an array.** So
+`analytics/summary` arrived as `analytics,summary`, matched no allowlist
+pattern, and 403'd every nested path while single-segment ones worked. It
+looked exactly like a permissions problem and was not. The proxy tests now pin
+every nested path the frontend uses.
+
+**The boot-time session sweep took the process down.** It ran unguarded, so an
+unhandled rejection killed the server whenever the database was unreachable —
+which is precisely when a deploy restarts both at once. The result was a
+backend that could not start at all, rather than one that starts and reports
+the database as down on `/api/health`. Found when the Postgres container had
+stopped and the test suite failed to launch the backend instead of failing a
+test with a readable message.
+
+### 11.6 Still open
+
+**Registration is closed** (`ALLOW_REGISTRATION=false`) and should stay so.
+The console reads real customer conversations, so a public sign-up form is a
+door onto them. Accounts are created with `npm run seed` until the invitation
+flow exists — at which point the page becomes "accept an invitation" and the
+workspace comes from the invite rather than from whoever filled the form in.
+The page and the endpoint both exist already, so switching it on is
+configuration rather than a release.
+
+**Invitations and magic links** are not built. Deferred deliberately.
+
+**CI** still does not exist, and is now the oldest item outstanding. It needs a
+decision: the browser suite drives the live Perfox API and needs a workspace
+key as a repository secret, a database, and a seeded account. The backend
+suite needs only Postgres, so it could run in CI today on its own.
