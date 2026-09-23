@@ -184,11 +184,14 @@ export function DateRange({
 }) {
   const fromId = useId()
   const toId = useId()
+  // A native date input is as wide as its own "dd-mm-yyyy" plus the picker, so
+  // the type size is what sets the width. Small enough to sit beside a chip
+  // row without taking half of it, on a phone as well as a desktop.
   const field =
-    'h-8 rounded-lg border border-line-strong bg-surface px-2 text-[11.5px] text-ink transition-colors hover:border-ink-4 focus:border-brand focus:outline-none'
+    'h-7 rounded-lg border border-line-strong bg-surface px-1.5 text-[10.5px] text-ink transition-colors hover:border-ink-4 focus:border-brand focus:outline-none'
 
   return (
-    <div className={cn('flex items-center gap-2 text-[11.5px] text-ink-3', className)}>
+    <div className={cn('flex items-center gap-1.5 text-[10.5px] text-ink-3', className)}>
       <label htmlFor={fromId}>From</label>
       <input
         id={fromId}
