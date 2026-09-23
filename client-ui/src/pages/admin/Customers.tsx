@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Badge, { StatusBadge } from '../../components/ui/Badge'
 import Button from '../../components/ui/Button'
 import DataTable, { type Column } from '../../components/ui/DataTable'
@@ -8,7 +9,7 @@ import { IconAgent, IconAlert, IconCheck } from '../../components/icons'
 import { cn } from '../../lib/cn'
 import { useResource } from '../../lib/useResource'
 import { adminApi, type CustomerRow } from '../../lib/admin'
-import NewCustomerDialog from './NewCustomerDialog'
+import EditConnectionDialog from './EditConnectionDialog'
 
 /**
  * Every customer, and the button that makes another.
@@ -21,7 +22,6 @@ export default function Customers() {
   const load = useCallback(async () => (await adminApi.customers()).customers, [])
   const { data: customers, status, error, reload } = useResource<CustomerRow[]>(load, [], [])
 
-  const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<CustomerRow | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -173,9 +173,11 @@ export default function Customers() {
               : 'Loading…'}
           </p>
         </div>
-        <Button variant="primary" size="md" onClick={() => setCreating(true)}>
-          Add customer
-        </Button>
+        {/* A page, not a dialog: fifteen fields across three groups, and a
+            result worth staying on screen. */}
+        <Link to="/admin/customers/new">
+          <Button variant="primary" size="md">Add customer</Button>
+        </Link>
       </div>
 
       {failure && (
@@ -205,15 +207,11 @@ export default function Customers() {
         />
       )}
 
-      {(creating || editing) && (
-        <NewCustomerDialog
-          editing={editing ?? undefined}
-          onClose={() => {
-            setCreating(false)
-            setEditing(null)
-          }}
+      {editing && (
+        <EditConnectionDialog
+          editing={editing}
+          onClose={() => setEditing(null)}
           onSaved={() => {
-            setCreating(false)
             setEditing(null)
             reload()
           }}

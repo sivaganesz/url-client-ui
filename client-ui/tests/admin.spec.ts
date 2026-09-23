@@ -68,25 +68,43 @@ test('an admin creates a customer, who can then sign in', async ({ page }) => {
   const workspace = `E2E Northwind ${stamp}`
   const FAKE_KEY = 'sk_not_a_real_key_only_for_this_test_000000'
 
-  await page.getByRole('button', { name: /Add customer/i }).click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toBeVisible()
+  // A page of its own, and all three groups on it — customer details, Perfox
+  // credentials, operator details — rather than a dialog that scrolls.
+  await page.getByRole('link', { name: /Add customer/i }).click()
+  await expect(page).toHaveURL(/\/admin\/customers\/new/)
+  await expect(page.getByRole('heading', { name: 'Customer details' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Perfox credentials' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Operator details' })).toBeVisible()
 
-  await dialog.getByLabel('Workspace name').fill(workspace)
-  await dialog.getByLabel('Contact name').fill('Nora')
-  await dialog.getByLabel('Email').fill(email)
-  await dialog.getByLabel('Password').fill(password)
-  await dialog.getByLabel('API base').fill('https://example-api.perfox.ai/api/v1')
-  await dialog.getByLabel('API key').fill(FAKE_KEY)
+  await page.getByLabel('Workspace name').fill(workspace)
+  await page.getByLabel('Contact name').fill('Nora')
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password', { exact: true }).fill(password)
+  await page.getByLabel('API base').fill('https://example-api.perfox.ai/api/v1')
+  await page.getByLabel('API key').fill(FAKE_KEY)
 
   // Secrets are never plain inputs — a shoulder and a screenshot are both
   // real, and a browser offering to remember a customer's API key is worse.
-  await expect(dialog.getByLabel('API key')).toHaveAttribute('type', 'password')
-  await expect(dialog.getByLabel('API key')).toHaveAttribute('autocomplete', 'off')
+  await expect(page.getByLabel('API key')).toHaveAttribute('type', 'password')
+  await expect(page.getByLabel('API key')).toHaveAttribute('autocomplete', 'off')
 
-  await dialog.getByRole('button', { name: /Create customer/i }).click()
-  await expect(dialog).toBeHidden({ timeout: 20_000 })
+  await page.getByRole('button', { name: /Create customer/i }).click()
 
+  /**
+   * The credentials stay on screen, once. This is the only moment the password
+   * exists outside the admin's head — it is stored as an argon2 hash and no
+   * endpoint returns it — so a dialog that closed on success took the one
+   * thing worth keeping with it.
+   */
+  await expect(page.getByRole('heading', { name: new RegExp(workspace) })).toBeVisible({
+    timeout: 20_000,
+  })
+  const handover = page.getByText(/share these customer credentials/i)
+  await expect(handover).toBeVisible()
+  await expect(page.getByText(email, { exact: true })).toBeVisible()
+  await expect(page.getByText(password, { exact: true })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Back to customers' }).click()
   const row = page.locator('table tbody tr', { hasText: workspace })
   await expect(row).toBeVisible()
   await expect(row).toContainText('Connected')
