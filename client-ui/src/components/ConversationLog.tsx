@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import Card from './ui/Card'
 import DataTable, { type Column } from './ui/DataTable'
 import Button from './ui/Button'
 import Dropdown, { MenuItem } from './ui/Dropdown'
 import Badge, { StatusBadge } from './ui/Badge'
-import { ChipGroup, DateRange, SearchInput } from './ui/Field'
+import LogFilters from './LogFilters'
 import Spinner from './ui/Spinner'
 import TablePager from './ui/TablePager'
 import { EmptyState } from './ui/States'
@@ -25,11 +24,8 @@ import { getCases, getMessages } from '../lib/api'
 import { EXPORT_FORMATS, exportConversation, type ExportFormat, type ExportMeta } from '../lib/export'
 import { useSession } from '../lib/session'
 import { useResource } from '../lib/useResource'
-import type { Attribution, Case, CaseFilters } from '../lib/types'
-
-const STATUSES = ['All', 'active', 'ended', 'resolved', 'escalated', 'abandoned']
-const CHANNELS = ['All', 'web', 'phone', 'whatsapp', 'sms', 'email']
-const ORIGINATORS = ['All', 'system', 'customer', 'agent']
+import { NO_FILTERS } from '../lib/shapes'
+import type { Attribution, Case, CaseFilters, LogFilterValues } from '../lib/types'
 
 /**
  * Rows per page. The endpoint caps `page_size` at 100 — ask for 200 and it
@@ -244,13 +240,11 @@ function ExportMenu({
  * scored a conversation. It is real now.
  */
 export default function ConversationLog() {
-  const [q, setQ] = useState('')
-  const [status, setStatus] = useState('All')
-  const [channel, setChannel] = useState('All')
-  const [originator, setOriginator] = useState('All')
-  const [followUp, setFollowUp] = useState(false)
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [f, setF] = useState<LogFilterValues>(NO_FILTERS)
+  const patch = useCallback(
+    (next: Partial<LogFilterValues>) => setF((prev) => ({ ...prev, ...next })),
+    [],
+  )
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
 
@@ -264,18 +258,18 @@ export default function ConversationLog() {
   // keystroke against a workspace that pages 315 rows.
   const [query, setQuery] = useState('')
   useEffect(() => {
-    const t = setTimeout(() => setQuery(q.trim()), 350)
+    const t = setTimeout(() => setQuery(f.q.trim()), 350)
     return () => clearTimeout(t)
-  }, [q])
+  }, [f.q])
 
   const filters: CaseFilters = {
     q: query || undefined,
-    status: status === 'All' ? undefined : status,
-    channel: channel === 'All' ? undefined : channel,
-    originator: originator === 'All' ? undefined : originator,
-    needs_followup: followUp ? 'true' : undefined,
-    created_after: from || undefined,
-    created_before: to || undefined,
+    status: f.status === 'All' ? undefined : f.status,
+    channel: f.channel === 'All' ? undefined : f.channel,
+    originator: f.originator === 'All' ? undefined : f.originator,
+    needs_followup: f.followUp ? 'true' : undefined,
+    created_after: f.from || undefined,
+    created_before: f.to || undefined,
   }
   const key = JSON.stringify(filters)
 
@@ -424,43 +418,7 @@ export default function ConversationLog() {
         )}
       </div>
 
-      <Card className="flex flex-col gap-2.5 p-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <SearchInput
-            label="Search cases"
-            placeholder="Name, email, phone or case id"
-            value={q}
-            onChange={setQ}
-            className="w-full sm:w-64"
-          />
-          <ChipGroup label="Filter by status" options={STATUSES} value={status} onChange={setStatus} />
-          <span aria-hidden="true" className="h-5 w-px bg-line" />
-          <ChipGroup label="Filter by channel" options={CHANNELS} value={channel} onChange={setChannel} />
-          <span aria-hidden="true" className="h-5 w-px bg-line" />
-          <ChipGroup
-            label="Filter by originator"
-            options={ORIGINATORS}
-            value={originator}
-            onChange={setOriginator}
-          />
-          <span aria-hidden="true" className="h-5 w-px bg-line" />
-          <button
-            type="button"
-            aria-pressed={followUp}
-            onClick={() => setFollowUp((v) => !v)}
-            className={cn(
-              'inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[11.5px] font-medium transition-colors',
-              followUp
-                ? 'border-danger bg-danger text-white'
-                : 'border-line-strong bg-surface text-ink-2 hover:border-brand-line hover:text-brand',
-            )}
-          >
-            <IconFlag size={10} />
-            Needs follow-up
-          </button>
-        </div>
-        <DateRange from={from} to={to} onFrom={setFrom} onTo={setTo} />
-      </Card>
+      <LogFilters value={f} onChange={patch} />
 
       <DataTable
         dense={false}

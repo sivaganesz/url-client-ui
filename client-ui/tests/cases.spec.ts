@@ -49,7 +49,9 @@ test('filtering goes to the server, and the total follows', async ({ page }) => 
   const before = (await range(page))?.total
   expect(before).toBeGreaterThan(0)
 
-  await page.getByRole('button', { name: 'phone', exact: true }).first().click()
+  // Each filter states its own subject, so the control is found by it.
+  await log(page).getByRole('button', { name: /^Channel/ }).click()
+  await page.getByRole('menuitemradio', { name: 'Phone', exact: true }).click()
   await expect.poll(() => sent.at(-1) ?? '').toContain('channel=phone')
 
   /**
@@ -156,6 +158,38 @@ test('the page size is a choice, and the workspace serves it', async ({ page }) 
   // change returns to the first page rather than to a page that may not exist.
   expect(sent.at(-1)).toContain('page=1')
   await expect.poll(async () => (await range(page))?.first).toBe(1)
+})
+
+test('each filter says what it is set to, and Clear puts them all back', async ({ page }) => {
+  const sent: string[] = []
+  page.on('request', (r) => {
+    if (r.url().includes('/cases')) sent.push(new URL(r.url()).search)
+  })
+
+  const bar = log(page)
+  await bar.getByRole('button', { name: /^Status/ }).click()
+  await page.getByRole('menuitemradio', { name: 'Ended', exact: true }).click()
+
+  /**
+   * The control carries the answer as well as the question. Fifteen bare pills
+   * left a reader working out which row meant what, and a table filtered from
+   * a previous visit looked simply empty.
+   */
+  await expect(bar.getByRole('button', { name: /^Status/ })).toContainText('Ended')
+  await expect.poll(() => sent.at(-1) ?? '').toContain('status=ended')
+
+  // A range chosen by name still reaches the API as real dates.
+  await bar.getByRole('button', { name: /Any time/ }).click()
+  await page.getByRole('menuitemradio', { name: 'Last 7 days' }).click()
+  await expect.poll(() => sent.at(-1) ?? '').toMatch(/created_after=\d{4}-\d{2}-\d{2}/)
+
+  // And one control puts every one of them back, rather than four trips
+  // through four menus to find which ones were left on.
+  await bar.getByRole('button', { name: 'Clear' }).click()
+  await expect(bar.getByRole('button', { name: /^Status/ })).toContainText('Any status')
+  await expect(bar.getByRole('button', { name: /Any time/ })).toBeVisible()
+  await expect.poll(() => sent.at(-1) ?? '').not.toContain('status=')
+  await expect.poll(() => sent.at(-1) ?? '').not.toContain('created_after=')
 })
 
 test('a case links to its own transcript', async ({ page }) => {

@@ -476,6 +476,25 @@ export interface Case {
   updatedAt?: string
 }
 
+/**
+ * What the conversation log's filter bar holds, before it becomes a query.
+ *
+ * One object rather than seven pieces of state: it makes "Clear" a single
+ * assignment and keeps "is anything filtered?" answerable in one place,
+ * instead of a boolean expression that grows a term with every filter added
+ * and forgets one every other time. `All` and `''` mean "not narrowing" —
+ * they never reach the API, which is what `CaseFilters` is for.
+ */
+export interface LogFilterValues {
+  q: string
+  status: string
+  channel: string
+  originator: string
+  followUp: boolean
+  from: string
+  to: string
+}
+
 export interface CaseFilters {
   q?: string
   status?: string
