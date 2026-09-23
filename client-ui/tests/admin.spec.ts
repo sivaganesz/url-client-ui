@@ -293,3 +293,44 @@ test('a long customer list turns pages without going to the server', async ({ pa
   await expect(page.locator('span[aria-live]').first()).toContainText('1–')
   expect(await page.locator('table tbody tr').count()).toBeLessThanOrEqual(50)
 })
+
+test('the edit form fills itself in, and the secrets stay behind an eye', async ({ page }) => {
+  /**
+   * This is the one place in the product that shows a stored credential back,
+   * and the arrangement is the point: the settings load with the form, the two
+   * secrets do not, and revealing one is its own request that the audit trail
+   * records.
+   */
+  await signIn(page)
+
+  const row = page.locator('table tbody tr', { hasText: 'Connected' }).first()
+  await row.getByRole('button', { name: 'Edit' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+
+  // Configuration is there to edit rather than to retype.
+  await expect(dialog.getByLabel('API base', { exact: true })).not.toHaveValue('')
+
+  // The key is masked, empty, and nothing fetched it.
+  const key = dialog.getByLabel('API key', { exact: true })
+  await expect(key).toHaveAttribute('type', 'password')
+  await expect(key).toHaveAttribute('placeholder', '••••••••')
+  await expect(key).toHaveValue('')
+
+  let reveals = 0
+  page.on('request', (r) => {
+    if (/\/credentials$/.test(new URL(r.url()).pathname)) reveals += 1
+  })
+
+  await dialog.getByRole('button', { name: /Show API key/i }).click()
+  await expect(key).toHaveAttribute('type', 'text')
+  await expect(key).not.toHaveValue('')
+  expect(reveals, 'revealing did not ask the server').toBe(1)
+
+  // And back again, without asking twice.
+  await dialog.getByRole('button', { name: /Hide API key/i }).click()
+  await expect(key).toHaveAttribute('type', 'password')
+  await dialog.getByRole('button', { name: /Show API key/i }).click()
+  await expect(key).toHaveAttribute('type', 'text')
+  expect(reveals, 'a second look asked the server again').toBe(1)
+})

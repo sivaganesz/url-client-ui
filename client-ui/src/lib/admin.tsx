@@ -123,6 +123,17 @@ export interface AdminEvent {
   created_at: string
 }
 
+/** A workspace's settings as the edit form starts from them — never a secret. */
+export interface CustomerDetail {
+  workspaceName: string
+  perfoxApiBase: string | null
+  operatorApiHost: string | null
+  operatorSiteId: string | null
+  operatorWorkflowId: string | null
+  hasApiToken: boolean
+  hasSiteSecret: boolean
+}
+
 export interface NewCustomer {
   workspaceName: string
   name: string
@@ -175,6 +186,23 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify(changes),
     }),
+
+  /** Everything the edit form starts from, minus the two secrets. */
+  customer: (workspaceId: string) =>
+    send<{ customer: CustomerDetail }>(`/api/admin/customers/${workspaceId}`),
+
+  /**
+   * The two secrets in the clear.
+   *
+   * Its own call, made when somebody presses the eye and not before, because
+   * every one of them is written to the audit trail. Loading it with the form
+   * would put a credential in a response nobody asked for and an entry in the
+   * trail nobody meant.
+   */
+  reveal: (workspaceId: string) =>
+    send<{ perfoxApiToken: string | null; operatorSiteSecret: string | null }>(
+      `/api/admin/customers/${workspaceId}/credentials`,
+    ),
 
   /** Asks the workspace whether its stored credentials actually work. */
   testConnection: (workspaceId: string) =>

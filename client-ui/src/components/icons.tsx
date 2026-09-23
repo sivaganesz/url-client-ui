@@ -159,6 +159,16 @@ export const IconEye = (p: IconProps) => (
   </Svg>
 )
 
+/** The same eye, struck through: what is shown now will be hidden again. */
+export const IconEyeOff = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M10.6 6.1A9.9 9.9 0 0 1 12 6c6.4 0 10 6 10 6a17 17 0 0 1-3 3.6" />
+    <path d="M6.2 7.8A17 17 0 0 0 2 12s3.6 6 10 6a9.6 9.6 0 0 0 4.3-1" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+    <path d="M3 3l18 18" />
+  </Svg>
+)
+
 export const IconInbound = (p: IconProps) => (
   <Svg {...p}>
     <path d="M17 7L7 17M7 17h7M7 17v-7" />

@@ -545,3 +545,86 @@ describe('the audit trail', () => {
     assert.equal((await new Client().get('/api/admin/events')).status, 401)
   })
 })
+
+describe('reading a stored credential back', () => {
+  beforeEach(async () => {
+    await truncate()
+    await query('TRUNCATE admins, admin_sessions, admin_events CASCADE')
+    await start()
+    await makeAdmin()
+  })
+
+  async function aCustomer(admin: Client) {
+    return (
+      await (
+        await admin.post('/api/admin/customers', {
+          workspaceName: 'Northwind',
+          name: 'Nora',
+          email: 'nora@northwind.test',
+          password: PASSWORD,
+          perfoxApiBase: 'https://northwind.perfox.ai/api/v1',
+          perfoxApiToken: 'sk_northwind_secret_key',
+          operatorSiteId: 'sa_site_live_NW',
+          operatorSiteSecret: 'sa_secret_live_NW',
+        })
+      ).json()
+    ).customer.workspaceId
+  }
+
+  test('the edit form gets the settings without the secrets', async () => {
+    const admin = await signedInAdmin()
+    const id = await aCustomer(admin)
+
+    const body = await (await admin.get(`/api/admin/customers/${id}`)).text()
+
+    // Configuration comes back so a form can start from it; the two secrets
+    // do not, because this response is loaded merely by opening the form.
+    assert.doesNotMatch(body, /sk_northwind_secret_key/, 'the key came back with the settings')
+    assert.doesNotMatch(body, /sa_secret_live_NW/, 'the site secret came back with the settings')
+
+    const { customer } = JSON.parse(body)
+    assert.equal(customer.workspaceName, 'Northwind')
+    assert.equal(customer.perfoxApiBase, 'https://northwind.perfox.ai/api/v1')
+    assert.equal(customer.operatorSiteId, 'sa_site_live_NW')
+    assert.equal(customer.hasApiToken, true)
+    assert.equal(customer.hasSiteSecret, true)
+  })
+
+  test('asking outright returns them, and says so in the trail', async () => {
+    const admin = await signedInAdmin()
+    const id = await aCustomer(admin)
+
+    const revealed = await (await admin.get(`/api/admin/customers/${id}/credentials`)).json()
+    assert.equal(revealed.perfoxApiToken, 'sk_northwind_secret_key')
+    assert.equal(revealed.operatorSiteSecret, 'sa_secret_live_NW')
+
+    /**
+     * The safeguard that makes the endpoint defensible: reading a key cannot
+     * happen quietly. The entry says who read which customer's credentials —
+     * and, being an audit row, says nothing about what they were.
+     */
+    const events = await (await admin.get('/api/admin/events')).text()
+    assert.doesNotMatch(events, /sk_northwind_secret_key/, 'the trail recorded the key itself')
+
+    const [newest] = JSON.parse(events).events
+    assert.equal(newest.action, 'customer.reveal')
+    assert.equal(newest.admin_email, ADMIN.email)
+    assert.equal(newest.target_label, 'Northwind')
+    assert.deepEqual(newest.detail.fields, ['perfox_api_token', 'operator_site_secret'])
+  })
+
+  test('neither endpoint answers without an admin session', async () => {
+    const admin = await signedInAdmin()
+    const id = await aCustomer(admin)
+
+    const anonymous = new Client()
+    assert.equal((await anonymous.get(`/api/admin/customers/${id}`)).status, 401)
+    assert.equal((await anonymous.get(`/api/admin/customers/${id}/credentials`)).status, 401)
+
+    // Nor to the customer whose key it is — they sign in to the console, which
+    // is a different surface with no route to this one.
+    const customer = new Client()
+    await customer.login('nora@northwind.test', PASSWORD)
+    assert.equal((await customer.get(`/api/admin/customers/${id}/credentials`)).status, 401)
+  })
+})

@@ -551,3 +551,95 @@ adminRouter.get('/admin/events', requireAdmin, async (req, res) => {
   )
   res.json({ events: rows })
 })
+
+/**
+ * One customer's settings, for the edit form to start from.
+ *
+ * Everything except the two secrets. A form that cannot show what is already
+ * stored makes every edit a retyping exercise — the API base and the site id
+ * are configuration, not credentials, and hiding them bought nothing.
+ */
+adminRouter.get('/admin/customers/:workspaceId', requireAdmin, async (req, res) => {
+  const w = await one<{
+    name: string
+    perfox_api_base: string | null
+    perfox_api_token_enc: string | null
+    operator_api_host: string | null
+    operator_site_id: string | null
+    operator_site_secret_enc: string | null
+    operator_workflow_id: string | null
+  }>(
+    `SELECT name, perfox_api_base, perfox_api_token_enc, operator_api_host,
+            operator_site_id, operator_site_secret_enc, operator_workflow_id
+       FROM workspaces WHERE id = $1`,
+    [req.params.workspaceId],
+  )
+
+  if (!w) {
+    res.status(404).json({ error: 'No such workspace.' })
+    return
+  }
+
+  res.json({
+    customer: {
+      workspaceName: w.name,
+      perfoxApiBase: w.perfox_api_base,
+      operatorApiHost: w.operator_api_host,
+      operatorSiteId: w.operator_site_id,
+      operatorWorkflowId: w.operator_workflow_id,
+      // Flags, so the form knows whether there is anything to reveal.
+      hasApiToken: w.perfox_api_token_enc !== null,
+      hasSiteSecret: w.operator_site_secret_enc !== null,
+    },
+  })
+})
+
+/**
+ * The two secrets in the clear, asked for deliberately.
+ *
+ * This is the one endpoint in the system that returns a credential, and it
+ * exists because an admin who set a key up is the person who has to read it
+ * back when a customer asks what was configured. Everything about it is
+ * arranged so that it cannot happen quietly:
+ *
+ *   · its own request, not part of loading the edit form, so a secret is in a
+ *     response only when somebody pressed the eye
+ *   · one workspace at a time; there is no endpoint that returns two
+ *   · every call is written to the audit trail, naming the admin and the
+ *     customer, so "who read this key?" has an answer
+ *
+ * The trail records that it was read, never what was read.
+ */
+adminRouter.get('/admin/customers/:workspaceId/credentials', requireAdmin, async (req, res) => {
+  const w = await one<{
+    name: string
+    perfox_api_token_enc: string | null
+    operator_site_secret_enc: string | null
+  }>(
+    `SELECT name, perfox_api_token_enc, operator_site_secret_enc
+       FROM workspaces WHERE id = $1`,
+    [req.params.workspaceId],
+  )
+
+  if (!w) {
+    res.status(404).json({ error: 'No such workspace.' })
+    return
+  }
+
+  await record(
+    req,
+    'customer.reveal',
+    { type: 'customer', id: String(req.params.workspaceId), label: w.name },
+    {
+      fields: [
+        w.perfox_api_token_enc ? 'perfox_api_token' : null,
+        w.operator_site_secret_enc ? 'operator_site_secret' : null,
+      ].filter(Boolean),
+    },
+  )
+
+  res.json({
+    perfoxApiToken: decrypt(w.perfox_api_token_enc),
+    operatorSiteSecret: decrypt(w.operator_site_secret_enc),
+  })
+})

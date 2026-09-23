@@ -13,9 +13,10 @@ import { adminApi, type AdminEvent } from '../../lib/admin'
  * table stores. An unknown one falls back to its own name — a trail that hides
  * an action it does not recognise is worse than one that prints it raw.
  */
-const ACTIONS: Record<string, { label: string; tone: 'ok' | 'danger' | 'info' | 'muted' }> = {
+const ACTIONS: Record<string, { label: string; tone: 'ok' | 'danger' | 'info' | 'muted' | 'warn' }> = {
   'customer.create': { label: 'Created customer', tone: 'ok' },
   'customer.update': { label: 'Changed connection', tone: 'info' },
+  'customer.reveal': { label: 'Read a credential', tone: 'warn' },
   'customer.suspend': { label: 'Suspended customer', tone: 'danger' },
   'customer.reinstate': { label: 'Reinstated customer', tone: 'ok' },
   'admin.create': { label: 'Added administrator', tone: 'ok' },
