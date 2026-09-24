@@ -1,0 +1,16 @@
+{
+  "name": "url-factory",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The client console and the backend that serves it, as one deployable.",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build": "cd client-ui && npm ci && npm run build && cd ../backend && npm ci",
+    "start": "cd backend && npm start",
+    "migrate": "cd backend && npm run migrate",
+    "seed:admin": "cd backend && npm run seed:admin",
+    "seed:dev": "cd backend && npm run seed:dev"
+  }
+}
