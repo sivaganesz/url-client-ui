@@ -1,7 +1,24 @@
 import pg from 'pg'
 import { DATABASE_URL } from '../env.ts'
 
-export const pool = new pg.Pool({ connectionString: DATABASE_URL })
+/**
+ * TLS for anything that is not local.
+ *
+ * Every managed Postgres — Railway's public proxy, Render, Neon, RDS — refuses
+ * an unencrypted connection, and `pg` does not infer that from the URL. Without
+ * this, connecting from outside the host fails with an error that reads like a
+ * bad password, which is a miserable thing to debug.
+ *
+ * `rejectUnauthorized: false` because those providers terminate TLS with their
+ * own certificate authority. It buys encryption in transit, not proof of who is
+ * on the other end — the connection string is the secret doing that work. A
+ * deployment that wants the stronger guarantee passes the provider's CA
+ * instead, which is a change to make when there is one to pass.
+ */
+const LOCAL = /@(localhost|127\.0\.0\.1|\[::1\]|[\w-]+\.railway\.internal)[:/]/
+const ssl = LOCAL.test(DATABASE_URL) ? undefined : { rejectUnauthorized: false }
+
+export const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl })
 
 pool.on('error', (err) => {
   // An idle client dying is the pool's problem to recover from, not a reason
