@@ -125,6 +125,16 @@ export function useCall(): CallApi {
 const CONFIG_TIMEOUT_MS = 8000
 
 /**
+ * How often to ask the platform whether a live call is still live.
+ *
+ * The platform closes an orphaned call within a couple of seconds, so this is
+ * paced to that rather than to anything the SDK does. Faster would spend the
+ * workspace's rate limit to be right slightly sooner about a call that is
+ * already over.
+ */
+const RECONCILE_MS = 2000
+
+/**
  * Everything the SDK needs, present and the right shape.
  *
  * Checked because the alternative is worse than a missing connector: mounting
@@ -294,6 +304,51 @@ function CallBridge({ children }: { children: ReactNode }) {
     await hangup()
     setParty(null)
   }, [hangup])
+
+  /**
+   * The platform, asked directly, for as long as a call is up.
+   *
+   * Both halves of the SDK's call state rest on one event that can go
+   * missing. It ends a call with a request it never waits for and never
+   * retries, so a failed one leaves the line open with the panel already
+   * closed; and it learns the customer hung up only from a room participant
+   * whose identity starts with "phone-bridge", so a rename or a dropped
+   * socket leaves the panel showing a call that finished minutes ago.
+   * Neither recovers, because nothing re-checks.
+   *
+   * This re-checks. The platform is the side that knows, and it closes an
+   * orphaned call within a couple of seconds, so asking on that cadence
+   * keeps the panel honest in both directions.
+   *
+   * Only while 'live': dialOut runs its own call_status loop to decide
+   * whether a call was answered, and a second poll on the same id races it.
+   */
+  useEffect(() => {
+    const conversationId = active?.conversationId
+    if (!conversationId || active.status !== 'live') return
+
+    let watching = true
+    const ask = async () => {
+      try {
+        const res = await fetch(
+          `/api/operator/call-status?conversation_id=${encodeURIComponent(conversationId)}`,
+        )
+        const body = await res.json().catch(() => null)
+        // Only 'ended' acts. 'unknown' is what comes back when the platform
+        // could not be reached, and a blip in our own network must never be
+        // what takes a live call off the operator's screen.
+        if (watching && body?.state === 'ended') await end()
+      } catch {
+        // Same reasoning: a poll that failed says nothing about the call.
+      }
+    }
+
+    const timer = setInterval(() => void ask(), RECONCILE_MS)
+    return () => {
+      watching = false
+      clearInterval(timer)
+    }
+  }, [active?.conversationId, active?.status, end])
 
   const dismissError = useCallback(() => {
     setDismissed(session.getState().error ?? null)

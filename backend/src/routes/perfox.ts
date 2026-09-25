@@ -158,6 +158,79 @@ perfoxRouter.get('/operator/config', requireAuth, async (req, res) => {
   })
 })
 
+/** A poll while a call is up; long enough to fail, short enough not to queue. */
+const CALL_STATUS_TIMEOUT_MS = 4000
+
+/**
+ * What the platform thinks of a call, for the console to reconcile against.
+ *
+ * The operator SDK learns a call is over from a single event — the phone
+ * bridge leaving the audio room — and ends one with a single request it never
+ * waits for. Either can be missed, and then the panel and the phone line
+ * disagree: a line still open after the operator hung up, or a panel still
+ * showing a call the customer already ended.
+ *
+ * The platform closes an orphaned call within a few seconds, so it is the side
+ * that is right. This is how the browser asks it, rather than trusting an
+ * event that may never arrive.
+ *
+ * A failure answers 'unknown', never 'ended'. A poll that cannot reach the
+ * platform must not be able to close a live call's panel — that would turn a
+ * blip in our own network into a call the operator can no longer see.
+ */
+perfoxRouter.get('/operator/call-status', requireAuth, async (req, res) => {
+  const user = req.user!
+  const creds = await credentialsFor(user)
+  const { callingConfigured } = publicWorkspace(creds)
+  const conversationId = String(req.query.conversation_id ?? '')
+
+  if (!creds || !callingConfigured) {
+    res.json({ state: 'unknown' })
+    return
+  }
+  if (!new RegExp(`^${ID}$`).test(conversationId)) {
+    res.status(400).json({ state: 'unknown', error: 'A conversation id is required.' })
+    return
+  }
+
+  const externalId = `op_${user.id}`
+  try {
+    const upstream = await fetch(`${creds.operator.apiHost}/api/public/operator/call_status`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Perfox-Site': creds.operator.siteId!,
+      },
+      body: JSON.stringify({
+        operator: {
+          external_id: externalId,
+          name: user.name,
+          user_hash: sign(creds, externalId),
+        },
+        conversation_id: conversationId,
+      }),
+      signal: AbortSignal.timeout(CALL_STATUS_TIMEOUT_MS),
+    })
+
+    const body = (await upstream.json().catch(() => null)) as { status?: string | null } | null
+    if (!upstream.ok) {
+      res.json({ state: 'unknown' })
+      return
+    }
+
+    // The platform names a status only once a call has finished; while one is
+    // up the field is absent. Absent means live, not unknown — that absence is
+    // the whole signal the console is waiting on.
+    res.set('cache-control', 'no-store').json({
+      state: body?.status ? 'ended' : 'live',
+      status: body?.status ?? null,
+    })
+  } catch (err) {
+    console.error('[perfox] call-status', redact((err as Error).message, creds))
+    res.json({ state: 'unknown' })
+  }
+})
+
 /* ── what the shell needs to describe itself ─────────────── */
 
 perfoxRouter.get('/config', requireAuth, async (req, res) => {

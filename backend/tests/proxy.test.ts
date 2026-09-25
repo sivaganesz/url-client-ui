@@ -248,3 +248,111 @@ describe('credentials at rest', () => {
     }
   })
 })
+
+/**
+ * The console asking the platform whether a call it is showing is still up.
+ *
+ * The operator SDK's call state rests on single events that go missing in
+ * both directions — a line left open after the operator hung up, a panel
+ * left showing a call the customer already ended. The platform is the side
+ * that knows, and this is the route the browser asks it through, so that the
+ * site secret stays here rather than going to the browser to ask directly.
+ */
+describe('what the platform says about a live call', () => {
+  beforeEach(async () => {
+    await truncate()
+    await start()
+  })
+
+  const CID = '11111111-2222-3333-4444-555555555555'
+
+  const withOperator = (apiHost: string) =>
+    makeWorkspace({
+      name: 'A',
+      email: 'a@t.test',
+      operator: { apiHost, siteId: 'sa_site_live_A', siteSecret: 'sa_secret_live_A' },
+    })
+
+  test('a call the platform has finished reports ended', async () => {
+    const up = await fakeUpstream({ status: 'completed' })
+    try {
+      await withOperator(up.url)
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      const res = await c.get(`/api/operator/call-status?conversation_id=${CID}`)
+      assert.equal(res.status, 200)
+      const body = await res.json()
+      assert.equal(body.state, 'ended')
+      assert.equal(body.status, 'completed')
+
+      // Asked, not inferred: the answer came from the platform.
+      assert.equal(up.seen[0]?.method, 'POST')
+      assert.match(up.seen[0]?.path ?? '', /call_status/)
+    } finally {
+      await up.close()
+    }
+  })
+
+  test('a call still up reports live', async () => {
+    // The platform names a status only once a call is over; while one is
+    // running the field is simply absent.
+    const up = await fakeUpstream({})
+    try {
+      await withOperator(up.url)
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      const body = await (await c.get(`/api/operator/call-status?conversation_id=${CID}`)).json()
+      assert.equal(body.state, 'live')
+      assert.equal(body.status, null)
+    } finally {
+      await up.close()
+    }
+  })
+
+  /**
+   * The invariant the whole feature rests on.
+   *
+   * The console ends a call on the strength of this answer, so a platform it
+   * cannot reach must never come back as "ended" — otherwise a blip in our
+   * own network is what takes a live call off the operator's screen, which
+   * is a worse bug than the one this route exists to fix.
+   */
+  test('a platform it cannot reach reports unknown, never ended', async () => {
+    const up = await fakeUpstream({})
+    const url = up.url
+    await up.close()
+
+    await withOperator(url)
+    const c = new Client()
+    await c.login('a@t.test', PASSWORD)
+
+    const body = await (await c.get(`/api/operator/call-status?conversation_id=${CID}`)).json()
+    assert.equal(body.state, 'unknown')
+  })
+
+  test('a workspace without operator credentials cannot be polled', async () => {
+    await makeWorkspace({ name: 'B', email: 'b@t.test' })
+    const c = new Client()
+    await c.login('b@t.test', PASSWORD)
+
+    const body = await (await c.get(`/api/operator/call-status?conversation_id=${CID}`)).json()
+    assert.equal(body.state, 'unknown')
+  })
+
+  test('a conversation id that is not one is refused', async () => {
+    const up = await fakeUpstream({})
+    try {
+      await withOperator(up.url)
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      const res = await c.get('/api/operator/call-status?conversation_id=../../admin')
+      assert.equal(res.status, 400)
+      assert.equal(up.seen.length, 0, 'it reached the platform anyway')
+    } finally {
+      await up.close()
+    }
+  })
+})
