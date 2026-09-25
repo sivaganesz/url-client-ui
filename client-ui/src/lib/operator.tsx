@@ -125,14 +125,36 @@ export function useCall(): CallApi {
 const CONFIG_TIMEOUT_MS = 8000
 
 /**
- * How often to ask the platform whether a live call is still live.
+ * How often to ask whether the call on screen is still a call.
  *
- * The platform closes an orphaned call within a couple of seconds, so this is
- * paced to that rather than to anything the SDK does. Faster would spend the
- * workspace's rate limit to be right slightly sooner about a call that is
- * already over.
+ * The SDK decides that from single events that go missing in both
+ * directions, and nothing in it ever re-checks. This does.
  */
 const RECONCILE_MS = 2000
+
+/**
+ * Ask the server to end a call and keep at it until the platform agrees.
+ *
+ * Not the SDK's hangup, which fires its stop request and forgets it. The
+ * server retries and checks the conversation afterwards, so the work
+ * outlives whatever happens to this tab.
+ *
+ * `beacon` is for a page that is going away: sendBeacon is the one request
+ * a closing tab is allowed to finish.
+ */
+function stopOnServer(conversationId: string, sessionId: string, beacon = false): void {
+  const body = JSON.stringify({ conversationId, sessionId })
+  if (beacon && navigator.sendBeacon) {
+    navigator.sendBeacon('/api/operator/stop', new Blob([body], { type: 'application/json' }))
+    return
+  }
+  void fetch('/api/operator/stop', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+    keepalive: true,
+  }).catch(() => {})
+}
 
 /**
  * Everything the SDK needs, present and the right shape.
@@ -300,46 +322,56 @@ function CallBridge({ children }: { children: ReactNode }) {
     [dialOut, session, dismissed],
   )
 
+  /**
+   * Ending a call: tell the SDK, then make sure it happened.
+   *
+   * hangup() stops the local audio and fires a stop request it never waits
+   * for, then reports the call ended regardless. When that request fails the
+   * panel closes over a line that is still open, which is what an operator
+   * hanging up on a customer who can still hear them looks like.
+   *
+   * The ids are read first because endLocal clears the session on its way
+   * out, and the stop is addressed to the session it is about to forget.
+   */
   const end = useCallback(async () => {
+    const current = session.getState().activeCall
+    const conversationId = current?.conversationId ?? null
+    const sessionId = current?.sessionId ?? ''
+
     await hangup()
     setParty(null)
-  }, [hangup])
+
+    if (conversationId) stopOnServer(conversationId, sessionId)
+  }, [hangup, session])
 
   /**
-   * The platform, asked directly, for as long as a call is up.
+   * The conversation, asked for as long as one is on screen.
    *
-   * Both halves of the SDK's call state rest on one event that can go
-   * missing. It ends a call with a request it never waits for and never
-   * retries, so a failed one leaves the line open with the panel already
-   * closed; and it learns the customer hung up only from a room participant
-   * whose identity starts with "phone-bridge", so a rename or a dropped
-   * socket leaves the panel showing a call that finished minutes ago.
-   * Neither recovers, because nothing re-checks.
+   * A call is over when its conversation is. That is the one account both
+   * sides agree on, and the SDK consults it for neither: it learns the
+   * customer hung up only from a room participant whose identity starts with
+   * "phone-bridge", and a declined call never produces one at all.
    *
-   * This re-checks. The platform is the side that knows, and it closes an
-   * orphaned call within a couple of seconds, so asking on that cadence
-   * keeps the panel honest in both directions.
-   *
-   * Only while 'live': dialOut runs its own call_status loop to decide
-   * whether a call was answered, and a second poll on the same id races it.
+   * From the first ring, not from 'live' — a call that is rejected never
+   * reaches live, and that is one of the two ways this goes wrong.
    */
   useEffect(() => {
     const conversationId = active?.conversationId
-    if (!conversationId || active.status !== 'live') return
+    if (!conversationId || active.status === 'ended') return
 
     let watching = true
     const ask = async () => {
       try {
-        const res = await fetch(
-          `/api/operator/call-status?conversation_id=${encodeURIComponent(conversationId)}`,
-        )
+        const res = await fetch(`/api/perfox/conversations/${conversationId}`)
+        if (!res.ok) return
         const body = await res.json().catch(() => null)
-        // Only 'ended' acts. 'unknown' is what comes back when the platform
-        // could not be reached, and a blip in our own network must never be
-        // what takes a live call off the operator's screen.
-        if (watching && body?.state === 'ended') await end()
+        // Only an explicit "ended" acts. A request that failed, or a
+        // conversation the workspace has not caught up with, says nothing —
+        // and must not be what takes a live call off the screen.
+        const status = body?.data?.status ?? body?.status
+        if (watching && status === 'ended') await end()
       } catch {
-        // Same reasoning: a poll that failed says nothing about the call.
+        // Same reasoning: silence is not evidence.
       }
     }
 
@@ -349,6 +381,25 @@ function CallBridge({ children }: { children: ReactNode }) {
       clearInterval(timer)
     }
   }, [active?.conversationId, active?.status, end])
+
+  /**
+   * A tab closing mid-call.
+   *
+   * The SDK's own teardown drops the audio and the socket and never tells
+   * the platform anything, so the customer is left holding a line to a
+   * browser that no longer exists. The server is told on the way out and
+   * finishes the job without us.
+   */
+  useEffect(() => {
+    const leaving = () => {
+      const current = session.getState().activeCall
+      if (current?.conversationId && current.status !== 'ended') {
+        stopOnServer(current.conversationId, current.sessionId ?? '', true)
+      }
+    }
+    window.addEventListener('pagehide', leaving)
+    return () => window.removeEventListener('pagehide', leaving)
+  }, [session])
 
   const dismissError = useCallback(() => {
     setDismissed(session.getState().error ?? null)

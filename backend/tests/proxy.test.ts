@@ -250,107 +250,107 @@ describe('credentials at rest', () => {
 })
 
 /**
- * The console asking the platform whether a call it is showing is still up.
+ * Ending a call so that it is actually ended.
  *
- * The operator SDK's call state rests on single events that go missing in
- * both directions — a line left open after the operator hung up, a panel
- * left showing a call the customer already ended. The platform is the side
- * that knows, and this is the route the browser asks it through, so that the
- * site secret stays here rather than going to the browser to ask directly.
+ * The operator SDK fires its stop request and forgets it, and the platform
+ * answers {"ok":true} to a session id that never existed — so neither the
+ * sending nor the reply is evidence. The conversation going `ended` is, and
+ * that is what this route waits for.
  */
-describe('what the platform says about a live call', () => {
+describe('ending a call', () => {
   beforeEach(async () => {
     await truncate()
     await start()
   })
 
   const CID = '11111111-2222-3333-4444-555555555555'
+  const SID = 'sess-1'
 
-  const withOperator = (apiHost: string) =>
+  const withCalling = (url: string) =>
     makeWorkspace({
       name: 'A',
       email: 'a@t.test',
-      operator: { apiHost, siteId: 'sa_site_live_A', siteSecret: 'sa_secret_live_A' },
+      apiBase: url,
+      apiToken: 'k',
+      operator: { apiHost: url, siteId: 'sa_site_live_A', siteSecret: 'sa_secret_live_A' },
     })
 
-  test('a call the platform has finished reports ended', async () => {
-    const up = await fakeUpstream({ status: 'completed' })
+  test('stops the session and reports the conversation ended', async () => {
+    // One fake serves both: the conversation read and the operator stop.
+    const up = await fakeUpstream({ ok: true, status: 'ended' })
     try {
-      await withOperator(up.url)
+      await withCalling(up.url)
       const c = new Client()
       await c.login('a@t.test', PASSWORD)
 
-      const res = await c.get(`/api/operator/call-status?conversation_id=${CID}`)
+      const res = await c.post('/api/operator/stop', { conversationId: CID, sessionId: SID })
       assert.equal(res.status, 200)
       const body = await res.json()
-      assert.equal(body.state, 'ended')
-      assert.equal(body.status, 'completed')
+      assert.equal(body.ended, true)
+      assert.equal(body.attempts, 1)
 
-      // Asked, not inferred: the answer came from the platform.
-      assert.equal(up.seen[0]?.method, 'POST')
-      assert.match(up.seen[0]?.path ?? '', /call_status/)
-    } finally {
-      await up.close()
-    }
-  })
-
-  test('a call still up reports live', async () => {
-    // The platform names a status only once a call is over; while one is
-    // running the field is simply absent.
-    const up = await fakeUpstream({})
-    try {
-      await withOperator(up.url)
-      const c = new Client()
-      await c.login('a@t.test', PASSWORD)
-
-      const body = await (await c.get(`/api/operator/call-status?conversation_id=${CID}`)).json()
-      assert.equal(body.state, 'live')
-      assert.equal(body.status, null)
+      // It asked the platform to stop, and then asked the workspace whether
+      // anything came of it. Neither on its own would be worth much.
+      assert.ok(
+        up.seen.some((r) => r.method === 'POST' && r.path.includes('session/stop')),
+        'no stop was sent',
+      )
+      assert.ok(
+        up.seen.some((r) => r.method === 'GET' && r.path.includes(`conversations/${CID}`)),
+        'the conversation was never checked',
+      )
     } finally {
       await up.close()
     }
   })
 
   /**
-   * The invariant the whole feature rests on.
-   *
-   * The console ends a call on the strength of this answer, so a platform it
-   * cannot reach must never come back as "ended" — otherwise a blip in our
-   * own network is what takes a live call off the operator's screen, which
-   * is a worse bug than the one this route exists to fix.
+   * The case the whole route exists for. A stop that the platform accepts
+   * and does not act on must not be reported as success, or this is just the
+   * SDK with extra steps.
    */
-  test('a platform it cannot reach reports unknown, never ended', async () => {
-    const up = await fakeUpstream({})
-    const url = up.url
-    await up.close()
-
-    await withOperator(url)
-    const c = new Client()
-    await c.login('a@t.test', PASSWORD)
-
-    const body = await (await c.get(`/api/operator/call-status?conversation_id=${CID}`)).json()
-    assert.equal(body.state, 'unknown')
-  })
-
-  test('a workspace without operator credentials cannot be polled', async () => {
-    await makeWorkspace({ name: 'B', email: 'b@t.test' })
-    const c = new Client()
-    await c.login('b@t.test', PASSWORD)
-
-    const body = await (await c.get(`/api/operator/call-status?conversation_id=${CID}`)).json()
-    assert.equal(body.state, 'unknown')
-  })
-
-  test('a conversation id that is not one is refused', async () => {
-    const up = await fakeUpstream({})
+  test('keeps trying, and says so when the call outlives every attempt', async () => {
+    const up = await fakeUpstream({ ok: true, status: 'active' })
     try {
-      await withOperator(up.url)
+      await withCalling(up.url)
       const c = new Client()
       await c.login('a@t.test', PASSWORD)
 
-      const res = await c.get('/api/operator/call-status?conversation_id=../../admin')
+      const body = await (await c.post('/api/operator/stop', { conversationId: CID, sessionId: SID })).json()
+      assert.equal(body.ended, false)
+      assert.ok(body.attempts > 1, 'it gave up after one try')
+
+      const stops = up.seen.filter((r) => r.path.includes('session/stop')).length
+      assert.equal(stops, body.attempts)
+    } finally {
+      await up.close()
+    }
+  })
+
+  test('a conversation id that is not one never reaches the platform', async () => {
+    const up = await fakeUpstream({ ok: true })
+    try {
+      await withCalling(up.url)
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      const res = await c.post('/api/operator/stop', { conversationId: '../../admin', sessionId: SID })
       assert.equal(res.status, 400)
-      assert.equal(up.seen.length, 0, 'it reached the platform anyway')
+      assert.equal(up.seen.length, 0)
+    } finally {
+      await up.close()
+    }
+  })
+
+  test('one conversation is readable through the proxy, for the call panel', async () => {
+    const up = await fakeUpstream({ status: 'ended' })
+    try {
+      await withCalling(up.url)
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      const res = await c.get(`/api/perfox/conversations/${CID}`)
+      assert.equal(res.status, 200)
     } finally {
       await up.close()
     }
