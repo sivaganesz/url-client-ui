@@ -21,7 +21,34 @@ export default function CallScreen() {
   const { call, error, end, hold, mute, dismissError } = useCall()
   const seconds = useCallSeconds(call)
 
-  if (!call) return null
+  /**
+   * A dial that failed leaves no call to draw, only the reason.
+   *
+   * The dialog used to hold itself open to report this, which is what put
+   * two windows on screen for one call. It closes on the click now, so the
+   * reason has to live here — otherwise a number that never answered would
+   * take the panel away and say nothing at all.
+   */
+  if (!call) {
+    if (!error) return null
+    return (
+      <div
+        role="alert"
+        className="fixed right-4 bottom-4 left-4 z-40 flex items-start gap-2 overflow-hidden rounded-card border border-danger/25 bg-danger-bg px-4 py-3 shadow-raised sm:right-6 sm:bottom-6 sm:left-auto sm:w-[17.5rem]"
+      >
+        <IconAlert size={13} className="mt-0.5 shrink-0 text-danger" />
+        <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-ink-2">{error}</p>
+        <button
+          type="button"
+          onClick={dismissError}
+          aria-label="Dismiss"
+          className="shrink-0 text-ink-3 hover:text-ink"
+        >
+          <IconX size={12} />
+        </button>
+      </div>
+    )
+  }
 
   const live = call.status === 'live'
   // Status goes live before the audio room connects, so the controls wait for
