@@ -147,7 +147,7 @@ describe('creating a customer', () => {
       workspaceName: 'Northwind',
       name: 'Nora',
       email: 'nora@northwind.test',
-      mobile: '+916374160200',
+      mobile: '+910000000000',
       password: 'northwind-long-password',
       perfoxApiBase: 'https://northwind-api.perfox.ai/api/v1',
       perfoxApiToken: 'sk_northwind_key',
@@ -162,7 +162,7 @@ describe('creating a customer', () => {
     const body = await login.json()
     assert.equal(body.workspace.name, 'Northwind')
     assert.equal(body.workspace.configured, true)
-    assert.equal(body.user.mobile, '+916374160200')
+    assert.equal(body.user.mobile, '+910000000000')
   })
 
   test('never echoes a credential back', async () => {

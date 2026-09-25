@@ -33,6 +33,9 @@ const EMAIL = process.env.TEST_EMAIL ?? 'siva@example.com'
 const PASSWORD = process.env.TEST_PASSWORD ?? 'correct-horse-battery'
 const ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL ?? 'admin@example.com'
 const ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD ?? 'admin-correct-horse'
+// A placeholder on purpose: this repository is public, and a real number in it
+// is a real phone that strangers can read. Set TEST_MOBILE to seed your own.
+const MOBILE = process.env.TEST_MOBILE ?? '+910000000000'
 
 const KEYS = [
   'PERFOX_API_BASE',
@@ -108,7 +111,7 @@ try {
     await query(
       `INSERT INTO users (workspace_id, name, email, mobile, password_hash, role)
        VALUES ($1,$2,$3,$4,$5,'owner')`,
-      [ws[0]!.id, 'Siva', EMAIL, '+916374160200', await hashPassword(PASSWORD)],
+      [ws[0]!.id, 'Siva', EMAIL, MOBILE, await hashPassword(PASSWORD)],
     )
 
     console.log(`  workspace ${ws[0]!.id}`)
