@@ -128,10 +128,22 @@ export default function NewConversationDialog({
     try {
       const to = contact.trim()
 
-      // A call is placed from here, not handed over. The shell's panel takes
-      // it from the moment it connects, so the dialog just closes.
+      /**
+       * A call is placed from here, not handed over.
+       *
+       * The corner panel owns it from the click — it is already showing this
+       * number while dialOut is still working — so waiting for that to
+       * resolve before closing left two windows open on one call, the dialog
+       * spinning "Calling…" for as long as thirty seconds on a number that
+       * never answers, telling you "You are already on a call" about the call
+       * it had just placed itself.
+       *
+       * So it hands over and closes. The failure is not swallowed with it:
+       * dialOut reports into the session state either way, and the panel is
+       * where a call that did not connect now says so.
+       */
       if (isCall) {
-        await operator.dial({ name: to, phone: to })
+        void operator.dial({ name: to, phone: to }).catch(() => {})
         onClose?.()
         return
       }
