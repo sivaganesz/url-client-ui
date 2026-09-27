@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import express, { Router } from 'express'
 import { createHmac } from 'node:crypto'
 import { requireAuth } from '../auth/session.ts'
 import { credentialsFor, publicWorkspace, redact, type Credentials } from '../workspace.ts'
@@ -15,6 +15,14 @@ export const perfoxRouter: Router = Router()
  */
 
 const ID = '[0-9a-f-]{20,40}'
+
+/**
+ * The knowledge base names its own ids, and the platform does not document
+ * their shape — only "Resource id." So this is wider than ID on purpose,
+ * and narrow where it counts: no slash and no dot, so nothing matched here
+ * can climb out of the resource it names.
+ */
+const KB_ID = '[A-Za-z0-9_-]{8,64}'
 
 /**
  * Exactly what the frontend asks for, and nothing else.
@@ -41,6 +49,16 @@ const READS = [
   /^billing\/credits$/,
 
   /**
+   * The knowledge base, for the Documents page.
+   *
+   * A file's own row is readable because an upload comes back `pending` and
+   * has to be polled until it is `indexed` — the platform says so itself.
+   */
+  /^kb\/files$/,
+  new RegExp(`^kb/files/${KB_ID}$`),
+  /^kb\/folders$/,
+
+  /**
    * Connected numbers and addresses, for the Phone Numbers page.
    *
    * `credentials` being on an allowlist is worth justifying, because the name
@@ -62,7 +80,74 @@ const WRITES = [
   { method: 'POST', re: new RegExp(`^agents/${ID}/publish$`) },
   { method: 'PATCH', re: new RegExp(`^agents/${ID}$`) },
   { method: 'POST', re: /^outbound$/ },
+
+  // Documents. The upload itself is not here: it carries a file rather than
+  // JSON, and has a route of its own below.
+  { method: 'DELETE', re: new RegExp(`^kb/files/${KB_ID}$`) },
+  { method: 'POST', re: new RegExp(`^kb/files/${KB_ID}/move$`) },
+  { method: 'POST', re: /^kb\/folders$/ },
+  { method: 'PATCH', re: new RegExp(`^kb/folders/${KB_ID}$`) },
+  { method: 'DELETE', re: new RegExp(`^kb/folders/${KB_ID}$`) },
 ]
+
+/**
+ * Uploading a document.
+ *
+ * Its own route because the proxy below re-encodes what it forwards as
+ * JSON, and a multipart body cannot survive that: the boundary in the
+ * content-type has to match the bytes, so both are passed through as they
+ * arrived.
+ *
+ * express.json ignores multipart, so nothing has consumed the body by the
+ * time this runs. The limit is this route's own — the 1mb the rest of the
+ * app uses would refuse most documents worth indexing.
+ */
+const UPLOAD_LIMIT = '25mb'
+
+perfoxRouter.post(
+  '/perfox/kb/files',
+  requireAuth,
+  express.raw({ type: 'multipart/form-data', limit: UPLOAD_LIMIT }),
+  async (req, res) => {
+    const creds = await credentialsFor(req.user!)
+    if (!creds?.apiBase || !creds.apiToken) {
+      res.status(503).json({ error: 'This workspace has no Perfox connection configured yet.' })
+      return
+    }
+
+    const contentType = req.get('content-type')
+    if (!contentType?.startsWith('multipart/form-data')) {
+      res.status(415).json({ error: 'A document upload must be multipart/form-data.' })
+      return
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      res.status(400).json({ error: 'No document was received.' })
+      return
+    }
+
+    try {
+      const upstream = await fetch(`${creds.apiBase}/kb/files`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${creds.apiToken}`,
+          // The boundary lives in here. Rewriting it would make the body
+          // unreadable at the other end.
+          'content-type': contentType,
+        },
+        body: req.body,
+      })
+      const text = await upstream.text()
+      res
+        .status(upstream.status)
+        .set('content-type', upstream.headers.get('content-type') ?? 'application/json')
+        .set('cache-control', 'no-store')
+        .send(redact(text, creds))
+    } catch (err) {
+      console.error('[perfox] upload', redact((err as Error).message, creds))
+      res.status(502).json({ error: 'Could not reach the workspace.' })
+    }
+  },
+)
 
 perfoxRouter.use('/perfox', requireAuth)
 

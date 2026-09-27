@@ -62,8 +62,14 @@ export async function dropTestDatabase(): Promise<void> {
  */
 export interface FakeUpstream {
   url: string
-  /** Every request this upstream received, in order. */
-  seen: { path: string; auth: string | null; method: string }[]
+  /**
+   * Every request this upstream received, in order.
+   *
+   * content-type is here because an upload is only forwarded correctly if
+   * the boundary in that header still matches the body's — and a proxy
+   * that re-encodes what it forwards breaks exactly that.
+   */
+  seen: { path: string; auth: string | null; method: string; contentType: string | null }[]
   close: () => Promise<void>
 }
 
@@ -74,6 +80,7 @@ export async function fakeUpstream(body: unknown = { data: [] }): Promise<FakeUp
       path: req.url ?? '',
       auth: req.headers.authorization ?? null,
       method: req.method ?? '',
+      contentType: req.headers['content-type'] ?? null,
     })
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify(body))

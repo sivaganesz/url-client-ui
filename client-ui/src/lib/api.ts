@@ -1062,3 +1062,125 @@ function toCase(c: ApiCase): Case {
     updatedAt: c.updated_at,
   }
 }
+
+/* ── the knowledge base ──────────────────────────────────── */
+
+/**
+ * A document the workspace has been given.
+ *
+ * `status` is the platform's: `pending` while it is being indexed, then
+ * `indexed`, or `failed`. An upload answers with a pending row and the
+ * platform asks to be polled until that changes, which is why a single
+ * file's row is readable on its own.
+ */
+export interface KbFile {
+  id: string
+  name: string
+  status: string
+  mime_type: string
+  file_size: number
+  folder_id: string | null
+  chunk_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** A folder. `path` is the full one, which is what a breadcrumb needs. */
+export interface KbFolder {
+  id: string
+  name: string
+  parent_id: string | null
+  path: string
+  created_at: string
+  updated_at: string
+}
+
+/** Folders, optionally only those directly inside one. */
+export function getKbFolders(parentId?: string | null, signal?: AbortSignal): Promise<KbFolder[]> {
+  return restAll<KbFolder>('kb/folders', parentId ? { parent_id: parentId } : undefined, signal)
+}
+
+/**
+ * Every document in a folder, or in the root.
+ *
+ * Follows the cursor to the end rather than showing one page of it: the
+ * count beside the pager would otherwise be the size of the first response
+ * rather than of the folder.
+ */
+export function getKbFiles(folderId?: string | null, signal?: AbortSignal): Promise<KbFile[]> {
+  return restAll<KbFile>('kb/files', folderId ? { folder_id: folderId } : undefined, signal)
+}
+
+/** One row, for watching a pending upload become indexed. */
+export function getKbFile(id: string, signal?: AbortSignal): Promise<KbFile> {
+  return rest<KbFile>(`kb/files/${id}`, undefined, signal)
+}
+
+/**
+ * Upload one document.
+ *
+ * Sent as multipart, and deliberately without a content-type: the browser
+ * writes one that carries the boundary it generated, and anything we set
+ * here would replace it with a header that does not match the body.
+ */
+export function uploadKbFile(
+  file: File,
+  folderId?: string | null,
+  signal?: AbortSignal,
+): Promise<KbFile> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('name', file.name)
+  if (folderId) form.append('folder_id', folderId)
+
+  return request<KbFile>('/api/perfox/kb/files', {
+    method: 'POST',
+    body: form,
+    headers: {},
+    signal,
+  })
+}
+
+/** Remove a document, and everything the workspace indexed from it. */
+export function deleteKbFile(id: string): Promise<{ success: true }> {
+  return write<{ success: true }>(`kb/files/${id}`, 'DELETE')
+}
+
+/** Move a document. `null` puts it back in the root. */
+export function moveKbFile(id: string, folderId: string | null): Promise<{ success: true }> {
+  return write<{ success: true }>(`kb/files/${id}/move`, 'POST', { folder_id: folderId })
+}
+
+export function createKbFolder(name: string, parentId?: string | null): Promise<KbFolder> {
+  return write<KbFolder>('kb/folders', 'POST', {
+    name,
+    ...(parentId ? { parent_id: parentId } : null),
+  })
+}
+
+export function renameKbFolder(id: string, name: string): Promise<KbFolder> {
+  return write<KbFolder>(`kb/folders/${id}`, 'PATCH', { name })
+}
+
+/**
+ * Delete a folder, which the platform allows only while it is empty.
+ *
+ * It answers with the agents that were using it. Worth showing: a folder
+ * disappearing out from under a live agent is not a small thing.
+ */
+export function deleteKbFolder(id: string): Promise<{ success: true; affected_agents?: Agent[] }> {
+  return write<{ success: true; affected_agents?: Agent[] }>(`kb/folders/${id}`, 'DELETE')
+}
+
+/** Bytes, said the way a person reads them. */
+export function fileSize(bytes: number | null | undefined): string {
+  if (!bytes || bytes < 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let n = bytes
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i += 1
+  }
+  return `${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`
+}

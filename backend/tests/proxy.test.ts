@@ -248,3 +248,126 @@ describe('credentials at rest', () => {
     }
   })
 })
+
+/**
+ * The knowledge base, which the Documents page is built on.
+ *
+ * An upload is the one request in this app that does not carry JSON, and the
+ * proxy re-encodes everything it forwards — so it has a route of its own, and
+ * what is worth proving is that the bytes and the boundary survive it.
+ */
+describe('the knowledge base', () => {
+  beforeEach(async () => {
+    await truncate()
+    await start()
+  })
+
+  const FILE_ID = 'kbf_01HQ8Z3M4N5P6Q7R8S9T'
+  const FOLDER_ID = 'kbd_01HQ8Z3M4N5P6Q7R8S9T'
+
+  const signedIn = async (url: string) => {
+    await makeWorkspace({ name: 'A', email: 'a@t.test', apiBase: url, apiToken: 'k' })
+    const c = new Client()
+    await c.login('a@t.test', PASSWORD)
+    return c
+  }
+
+  test('reads what the Documents page asks for, and nothing more', async () => {
+    const up = await fakeUpstream({ data: [] })
+    try {
+      const c = await signedIn(up.url)
+
+      for (const path of ['kb/files', 'kb/folders', `kb/files/${FILE_ID}`]) {
+        assert.equal((await c.get(`/api/perfox/${path}`)).status, 200, `${path} was refused`)
+      }
+
+      /**
+       * Semantic search is a knowledge base endpoint this console has no use
+       * for, and the allowlist is a list of what the app needs rather than of
+       * what the platform offers.
+       */
+      assert.equal((await c.post('/api/perfox/kb/search', { query: 'x' })).status, 403)
+    } finally {
+      await up.close()
+    }
+  })
+
+  test('allows the writes the page makes, on files and on folders', async () => {
+    const up = await fakeUpstream({ success: true })
+    try {
+      const c = await signedIn(up.url)
+
+      assert.equal((await c.post('/api/perfox/kb/folders', { name: 'Handbook' })).status, 200)
+      assert.equal(
+        (await c.patch(`/api/perfox/kb/folders/${FOLDER_ID}`, { name: 'HR' })).status,
+        200,
+      )
+      assert.equal((await c.delete(`/api/perfox/kb/folders/${FOLDER_ID}`)).status, 200)
+      assert.equal((await c.delete(`/api/perfox/kb/files/${FILE_ID}`)).status, 200)
+      assert.equal(
+        (await c.post(`/api/perfox/kb/files/${FILE_ID}/move`, { folder_id: null })).status,
+        200,
+      )
+    } finally {
+      await up.close()
+    }
+  })
+
+  /**
+   * The reason the upload is not part of the proxy.
+   *
+   * The generic route JSON-stringifies what it forwards, which would turn a
+   * multipart body into a quoted string the platform cannot read, and rewrite
+   * away the boundary that says where each part begins.
+   */
+  test('forwards an upload as multipart, boundary and all', async () => {
+    const up = await fakeUpstream({ id: 'kbf_1', status: 'pending' })
+    try {
+      const c = await signedIn(up.url)
+
+      const boundary = '----testboundary9c2f'
+      const body = [
+        `--${boundary}`,
+        `Content-Disposition: form-data; name="file"; filename="handbook.txt"`,
+        'Content-Type: text/plain',
+        '',
+        'the quick brown fox',
+        `--${boundary}--`,
+        '',
+      ].join('\r\n')
+
+      const res = await c.request('/api/perfox/kb/files', {
+        method: 'POST',
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      })
+      assert.equal(res.status, 200)
+
+      const sent = up.seen.at(-1)
+      assert.equal(sent?.method, 'POST')
+      assert.match(sent?.path ?? '', /kb\/files/)
+      assert.equal(
+        sent?.contentType,
+        `multipart/form-data; boundary=${boundary}`,
+        'the boundary did not survive the proxy',
+      )
+      // The key is used here and nowhere the browser can see it.
+      assert.equal(sent?.auth, 'Bearer k')
+    } finally {
+      await up.close()
+    }
+  })
+
+  test('refuses an upload that is not multipart', async () => {
+    const up = await fakeUpstream({})
+    try {
+      const c = await signedIn(up.url)
+
+      const res = await c.post('/api/perfox/kb/files', { file: 'not a file' })
+      assert.equal(res.status, 415)
+      assert.equal(up.seen.length, 0, 'it reached the platform anyway')
+    } finally {
+      await up.close()
+    }
+  })
+})
