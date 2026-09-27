@@ -181,6 +181,16 @@ export default function Documents() {
     {
       key: 'name',
       header: 'Name',
+      /**
+       * A width of its own, and pinned.
+       *
+       * table-fixed shares out what the sized columns leave, and on a phone
+       * they leave nothing — the name collapsed to a sliver and the table
+       * opened on the Status column, showing a list of documents with no
+       * document names in it.
+       */
+      width: 220,
+      sticky: true,
       render: (row) =>
         row.kind === 'folder' ? (
           <button
