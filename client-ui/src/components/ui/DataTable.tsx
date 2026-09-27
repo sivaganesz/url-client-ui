@@ -17,6 +17,14 @@ export interface Column<T> {
   /** Drives a <colgroup>, so a wide table scrolls rather than squashing. */
   width?: number
   align?: 'left' | 'right'
+  /**
+   * Hold this column against the left edge while the rest scrolls under it.
+   *
+   * For the one column that says which row you are looking at. On a phone a
+   * table of any width scrolls, and scrolling the name away leaves a screen
+   * of attributes belonging to nothing.
+   */
+  sticky?: boolean
   mono?: boolean
   muted?: boolean
   className?: string
@@ -71,6 +79,8 @@ export default function DataTable<T>({
                     'text-[9.5px] leading-tight font-semibold tracking-[0.05em] text-ink-3 uppercase',
                     'first:pl-4 last:pr-4',
                     c.align === 'right' && 'text-right',
+                    // Above its own row and above the scrolling columns.
+                    c.sticky && 'left-0 z-20',
                   )}
                 >
                   {c.header}
@@ -84,7 +94,13 @@ export default function DataTable<T>({
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-b border-line/60">
                   {columns.map((c) => (
-                    <td key={c.key} className="h-[38px] px-1.5 first:pl-4 last:pr-4">
+                    <td
+                      key={c.key}
+                      className={cn(
+                        'h-[38px] px-1.5 first:pl-4 last:pr-4',
+                        c.sticky && 'sticky left-0 z-10 bg-surface',
+                      )}
+                    >
                       <Skeleton className="h-3" />
                     </td>
                   ))}
@@ -110,7 +126,7 @@ export default function DataTable<T>({
               rows.map((row, i) => (
                 <tr
                   key={rowKey(row, i)}
-                  className="border-b border-line/60 transition-colors last:border-b-0 hover:bg-sunken"
+                  className="group/row border-b border-line/60 transition-colors last:border-b-0 hover:bg-sunken"
                 >
                   {columns.map((c) => (
                     <td
@@ -123,6 +139,8 @@ export default function DataTable<T>({
                         c.mono && 'font-mono tabular-nums',
                         c.muted && 'text-ink-2',
                         c.align === 'right' && 'text-right',
+                        // Opaque, or the columns sliding under it show through.
+                        c.sticky && 'sticky left-0 z-10 bg-surface group-hover/row:bg-sunken',
                         c.className,
                       )}
                     >
