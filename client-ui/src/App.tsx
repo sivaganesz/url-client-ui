@@ -34,6 +34,7 @@ const Conversations = lazy(() => import('./pages/Conversations'))
 const CallLogs = lazy(() => import('./pages/CallLogs'))
 const Agents = lazy(() => import('./pages/Agents'))
 const PhoneNumbers = lazy(() => import('./pages/PhoneNumbers'))
+const Documents = lazy(() => import('./pages/Documents'))
 
 /**
  * Nothing behind this renders for a signed-out visitor.
@@ -103,6 +104,7 @@ export default function App() {
         <Route path="call-logs" element={<CallLogs />} />
         <Route path="agents" element={<Agents />} />
         <Route path="phone-numbers" element={<PhoneNumbers />} />
+        <Route path="documents" element={<Documents />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
