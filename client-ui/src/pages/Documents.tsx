@@ -42,7 +42,7 @@ import {
 import type { Column } from '../components/ui/DataTable'
 import type { ShellContext } from '../lib/types'
 
-const PAGE_SIZES = [12, 24, 48]
+const PAGE_SIZES = [20, 40, 80]
 
 /** While anything is still being indexed, ask again on this beat. */
 const INDEXING_POLL_MS = 4000
@@ -627,9 +627,21 @@ function ViewToggle({
 }
 
 /** `pending` is the one worth watching; the platform indexes after it answers. */
+/**
+ * Whether a document is usable yet.
+ *
+ * The platform's documentation says a file is `pending` and then `indexed`.
+ * A live workspace says `active`. Both are the same thing to whoever is
+ * reading this page — the document is in and answers can come from it — so
+ * both get one word, and it is the plain one rather than either of theirs.
+ *
+ * Anything unrecognised is shown as it arrived rather than hidden: a status
+ * this does not know about is worth seeing, not worth swallowing.
+ */
 function StatusChip({ status }: { status: string }) {
-  if (status === 'indexed') return <Badge tone="ok">Indexed</Badge>
+  if (status === 'indexed' || status === 'active') return <Badge tone="ok">Ready</Badge>
   if (status === 'failed') return <Badge tone="danger">Failed</Badge>
+  if (status === 'deleted') return <Badge>Deleted</Badge>
   if (status === 'pending')
     return (
       <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3">
@@ -637,7 +649,7 @@ function StatusChip({ status }: { status: string }) {
         Indexing
       </span>
     )
-  return <Badge>{status}</Badge>
+  return <Badge>{status ? status[0]!.toUpperCase() + status.slice(1) : 'Unknown'}</Badge>
 }
 
 /**
