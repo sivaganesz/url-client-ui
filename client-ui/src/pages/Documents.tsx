@@ -202,7 +202,9 @@ export default function Documents() {
       key: 'status',
       header: 'Status',
       width: 110,
-      render: (row) => (row.kind === 'file' ? <StatusChip status={row.file!.status} /> : null),
+      // A folder has no indexing state of its own; the dash says so, where an
+      // empty cell reads as data that failed to arrive.
+      render: (row) => (row.kind === 'file' ? <StatusChip status={row.file!.status} /> : '—'),
     },
     {
       key: 'size',
@@ -223,7 +225,7 @@ export default function Documents() {
     },
     {
       key: 'actions',
-      header: '',
+      header: 'Action',
       width: 150,
       align: 'right',
       render: (row) =>
