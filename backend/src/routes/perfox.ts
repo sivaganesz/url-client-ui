@@ -313,9 +313,9 @@ perfoxRouter.post('/operator/stop', requireAuth, async (req, res) => {
   // beacon from a closing tab sends it too.
   const origin = req.headers.origin ?? `${req.protocol}://${req.get('host')}`
 
-  const stop = async (): Promise<void> => {
-    if (!sessionId) return
-    await fetch(`${creds.operator.apiHost}/api/public/operator/session/stop`, {
+  /** One operator-API call, signed and with the origin the site allows. */
+  const operatorPost = (route: string, extra: Record<string, unknown>): Promise<Response> =>
+    fetch(`${creds.operator.apiHost}/api/public/operator/${route}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -328,10 +328,31 @@ perfoxRouter.post('/operator/stop', requireAuth, async (req, res) => {
           name: user.name,
           user_hash: sign(creds, externalId),
         },
-        session_id: sessionId,
+        ...extra,
       }),
       signal: AbortSignal.timeout(4000),
     })
+
+  /**
+   * Two different ways a call ends, and only one of them works per case.
+   *
+   * `session/stop` ends the operator’s session, which is what an answered
+   * call needs. It does nothing at all to a call that is still ringing: there
+   * is no audio room yet, so nothing of it ever reaches the carrier, and the
+   * customer’s phone rings on for its full thirty seconds and connects them
+   * to an empty conversation if they pick up.
+   *
+   * `cancel_call` is the route for that window, added to the platform on
+   * 27 September. It takes the conversation rather than the session, because
+   * before pickup there is no session to name — and it handles a call that
+   * was answered in the meantime, so it is safe to try first either way.
+   *
+   * Both are attempted, because between reading the state and acting on it
+   * the call may have moved from one case to the other.
+   */
+  const stop = async (): Promise<void> => {
+    await operatorPost('cancel_call', { conversation_id: conversationId }).catch(() => null)
+    if (sessionId) await operatorPost('session/stop', { session_id: sessionId }).catch(() => null)
   }
 
   const isOver = async (): Promise<boolean> => {

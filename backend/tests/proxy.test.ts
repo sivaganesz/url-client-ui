@@ -465,6 +465,58 @@ describe('ending a call', () => {
       operator: { apiHost: url, siteId: 'sa_site_live_A', siteSecret: 'sa_secret_live_A' },
     })
 
+  /**
+   * The call nobody has answered yet.
+   *
+   * session/stop cannot end one: there is no audio room before pickup, so it
+   * never reaches the carrier and the phone rings on for its full thirty
+   * seconds — then connects whoever answers to an empty conversation.
+   * cancel_call is the route for that window, and it has to be asked for by
+   * conversation, because there is no session to name yet.
+   */
+  test('cancels the call as well as stopping the session', async () => {
+    const up = await fakeUpstream({ ok: true, status: 'ended' })
+    try {
+      await withCalling(up.url)
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      await c.post('/api/operator/stop', { conversationId: CID, sessionId: SID })
+
+      assert.ok(
+        up.seen.some((r) => r.path.includes('cancel_call')),
+        'a ringing call was never cancelled, only its session stopped',
+      )
+      assert.ok(
+        up.seen.some((r) => r.path.includes('session/stop')),
+        'the session was never stopped',
+      )
+    } finally {
+      await up.close()
+    }
+  })
+
+  /**
+   * Before pickup there is no session id to send. The cancel must still go.
+   */
+  test('cancels even when there is no session yet', async () => {
+    const up = await fakeUpstream({ ok: true, status: 'ended' })
+    try {
+      await withCalling(up.url)
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      await c.post('/api/operator/stop', { conversationId: CID, sessionId: '' })
+
+      assert.ok(
+        up.seen.some((r) => r.path.includes('cancel_call')),
+        'nothing was sent for a call with no session',
+      )
+    } finally {
+      await up.close()
+    }
+  })
+
   test('stops the session and reports the conversation ended', async () => {
     // One fake serves both: the conversation read and the operator stop.
     const up = await fakeUpstream({ ok: true, status: 'ended' })
