@@ -35,8 +35,8 @@ const SECTIONS = [
     label: 'Configure',
     items: [
       { to: '/agents', label: 'AI Agents', icon: IconAgent },
-      { to: '/phone-numbers', label: 'Phone Numbers', icon: IconHash },
       { to: '/documents', label: 'Documents', icon: IconFile },
+      { to: '/phone-numbers', label: 'Phone Numbers', icon: IconHash },
     ],
   },
 ]
