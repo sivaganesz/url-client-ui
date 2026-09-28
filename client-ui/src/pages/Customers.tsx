@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import Avatar from '../components/ui/Avatar'
 import Badge, { StatusBadge } from '../components/ui/Badge'
@@ -443,7 +443,6 @@ function ConversationPages({
   )
   const [fetching, setFetching] = useState(false)
   const [tailError, setTailError] = useState<Error | null>(null)
-  const edge = useRef<HTMLDivElement>(null)
 
   const rows = tail ? [...firstPage.rows, ...tail.rows] : firstPage.rows
   const cursor = tail ? tail.cursor : firstPage.cursor
@@ -463,24 +462,6 @@ function ConversationPages({
       .finally(() => setFetching(false))
   }, [customerId, status, cursor, fetching])
 
-  /**
-   * The next page arrives before the end of this one does.
-   *
-   * 240px of margin, so the fetch starts while there is still a screen left
-   * to read and the join is not a stall.
-   */
-  useEffect(() => {
-    const node = edge.current
-    if (!node || !cursor) return
-    const watcher = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) more()
-      },
-      { rootMargin: '240px' },
-    )
-    watcher.observe(node)
-    return () => watcher.disconnect()
-  }, [cursor, more])
 
   if (state === 'loading') {
     return (
@@ -541,7 +522,7 @@ function ConversationPages({
         ))}
       </div>
 
-      <div ref={edge} className="pt-3">
+      <div className="pt-3">
         {cursor ? (
           <button
             type="button"
