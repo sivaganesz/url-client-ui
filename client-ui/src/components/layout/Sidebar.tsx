@@ -53,7 +53,11 @@ export default function Sidebar({
   return (
     <nav
       aria-label="Main"
-      className="flex h-full w-58 shrink-0 flex-col border-r border-line bg-sunken py-4"
+      /* Scrolls rather than clips. A short viewport — a laptop with the
+         devtools open, a zoomed page — used to cut the rail off below Engage,
+         and the sections under it could not be reached at all. overscroll
+         keeps that scrolling here instead of passing it to the page behind. */
+      className="flex h-full w-58 shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-line bg-sunken py-4"
     >
       <div className="flex items-center gap-2.5 px-4 pb-4">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand text-white">
