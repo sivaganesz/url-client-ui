@@ -298,6 +298,13 @@ perfoxRouter.post('/operator/stop', requireAuth, async (req, res) => {
   const { callingConfigured } = publicWorkspace(creds)
   const conversationId = String(req.body?.conversationId ?? '')
   const sessionId = String(req.body?.sessionId ?? '')
+  /**
+   * Had the customer picked up?
+   *
+   * Absent counts as answered, which is the older behaviour: a caller that
+   * does not say is not one this should be cancelling calls on.
+   */
+  const answered = req.body?.answered !== false
 
   if (!creds || !callingConfigured) {
     res.status(409).json({ ended: false, reason: 'Operator calling is not set up.' })
@@ -351,7 +358,12 @@ perfoxRouter.post('/operator/stop', requireAuth, async (req, res) => {
    * the call may have moved from one case to the other.
    */
   const stop = async (): Promise<void> => {
-    await operatorPost('cancel_call', { conversation_id: conversationId }).catch(() => null)
+    // Only what nobody answered. cancel_call ends an answered call too, and
+    // would have it recorded as cancelled by the operator — which is a poor
+    // description of a conversation that happened and then finished.
+    if (!answered) {
+      await operatorPost('cancel_call', { conversation_id: conversationId }).catch(() => null)
+    }
     if (sessionId) await operatorPost('session/stop', { session_id: sessionId }).catch(() => null)
   }
 

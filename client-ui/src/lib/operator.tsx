@@ -142,8 +142,21 @@ const RECONCILE_MS = 2000
  * `beacon` is for a page that is going away: sendBeacon is the one request
  * a closing tab is allowed to finish.
  */
-function stopOnServer(conversationId: string, sessionId: string, beacon = false): void {
-  const body = JSON.stringify({ conversationId, sessionId })
+function stopOnServer(
+  conversationId: string,
+  sessionId: string,
+  /**
+   * Whether the customer had picked up.
+   *
+   * A call still ringing is cancelled outright; one that was answered is
+   * only stopped. The platform records a cancel as "cancelled by operator",
+   * so cancelling a conversation somebody actually had would file it as
+   * something that never happened.
+   */
+  answered: boolean,
+  beacon = false,
+): void {
+  const body = JSON.stringify({ conversationId, sessionId, answered })
   if (beacon && navigator.sendBeacon) {
     navigator.sendBeacon('/api/operator/stop', new Blob([body], { type: 'application/json' }))
     return
@@ -337,11 +350,12 @@ function CallBridge({ children }: { children: ReactNode }) {
     const current = session.getState().activeCall
     const conversationId = current?.conversationId ?? null
     const sessionId = current?.sessionId ?? ''
+    const answered = current?.status === 'live'
 
     await hangup()
     setParty(null)
 
-    if (conversationId) stopOnServer(conversationId, sessionId)
+    if (conversationId) stopOnServer(conversationId, sessionId, answered)
   }, [hangup, session])
 
   /**
@@ -394,7 +408,12 @@ function CallBridge({ children }: { children: ReactNode }) {
     const leaving = () => {
       const current = session.getState().activeCall
       if (current?.conversationId && current.status !== 'ended') {
-        stopOnServer(current.conversationId, current.sessionId ?? '', true)
+        stopOnServer(
+          current.conversationId,
+          current.sessionId ?? '',
+          current.status === 'live',
+          true,
+        )
       }
     }
     window.addEventListener('pagehide', leaving)

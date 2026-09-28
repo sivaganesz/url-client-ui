@@ -481,7 +481,7 @@ describe('ending a call', () => {
       const c = new Client()
       await c.login('a@t.test', PASSWORD)
 
-      await c.post('/api/operator/stop', { conversationId: CID, sessionId: SID })
+      await c.post('/api/operator/stop', { conversationId: CID, sessionId: SID, answered: false })
 
       assert.ok(
         up.seen.some((r) => r.path.includes('cancel_call')),
@@ -506,12 +506,62 @@ describe('ending a call', () => {
       const c = new Client()
       await c.login('a@t.test', PASSWORD)
 
-      await c.post('/api/operator/stop', { conversationId: CID, sessionId: '' })
+      await c.post('/api/operator/stop', { conversationId: CID, sessionId: '', answered: false })
 
       assert.ok(
         up.seen.some((r) => r.path.includes('cancel_call')),
         'nothing was sent for a call with no session',
       )
+    } finally {
+      await up.close()
+    }
+  })
+
+  /**
+   * The conversation that actually happened.
+   *
+   * cancel_call would end this one too, and have it recorded as cancelled by
+   * the operator — which is a poor description of a call somebody had and
+   * then finished. Ending an answered call is what session/stop is for, and
+   * it is all this should send.
+   */
+  test('does not cancel a call the customer answered', async () => {
+    const up = await fakeUpstream({ ok: true, status: 'ended' })
+    try {
+      await withCalling(up.url)
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      await c.post('/api/operator/stop', { conversationId: CID, sessionId: SID, answered: true })
+
+      assert.ok(
+        !up.seen.some((r) => r.path.includes('cancel_call')),
+        'a conversation that happened was cancelled rather than stopped',
+      )
+      assert.ok(
+        up.seen.some((r) => r.path.includes('session/stop')),
+        'the session was never stopped',
+      )
+    } finally {
+      await up.close()
+    }
+  })
+
+  /**
+   * A caller that says nothing is treated as answered, because the cost of
+   * guessing wrong that way is a call that rings on, and the other way is a
+   * conversation misfiled as one that never took place.
+   */
+  test('says nothing, and nothing is cancelled', async () => {
+    const up = await fakeUpstream({ ok: true, status: 'ended' })
+    try {
+      await withCalling(up.url)
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      await c.post('/api/operator/stop', { conversationId: CID, sessionId: SID })
+
+      assert.ok(!up.seen.some((r) => r.path.includes('cancel_call')))
     } finally {
       await up.close()
     }
