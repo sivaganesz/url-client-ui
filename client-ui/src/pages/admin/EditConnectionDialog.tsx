@@ -77,7 +77,44 @@ export default function EditConnectionDialog({
   }, [revealed, editing.workspace_id])
 
   const loading = status === 'loading'
-  const ready = !loading && !busy && valueOf('workspaceName', saved?.workspaceName).trim() !== ''
+
+  /**
+   * What is on file for a field, so an edit can be compared against it.
+   *
+   * The two secrets have no entry: there is no plaintext to compare with,
+   * so anything typed into them counts as a change and an untouched one —
+   * which stays empty — does not.
+   */
+  const storedFor: Partial<Record<keyof NewCustomer, string | null | undefined>> = {
+    workspaceName: saved?.workspaceName,
+    name: saved?.ownerName,
+    mobile: saved?.ownerMobile,
+    perfoxApiBase: saved?.perfoxApiBase,
+    operatorApiHost: saved?.operatorApiHost,
+    operatorSiteId: saved?.operatorSiteId,
+    operatorWorkflowId: saved?.operatorWorkflowId,
+  }
+
+  /**
+   * Whether there is anything to save, across all three tabs.
+   *
+   * Compared against what is stored rather than counting keystrokes, so
+   * typing into a field and undoing it leaves the button where it was.
+   * Revealing a secret is not an edit either — that writes to `revealed`,
+   * which nothing here reads.
+   */
+  const dirty = Object.entries(changes).some(([key, value]) => {
+    const now = String(value ?? '').trim()
+    const before = String(storedFor[key as keyof NewCustomer] ?? '').trim()
+    return now !== before
+  })
+
+  const ready =
+    !loading &&
+    !busy &&
+    dirty &&
+    valueOf('workspaceName', saved?.workspaceName).trim() !== '' &&
+    valueOf('name', saved?.ownerName).trim() !== ''
 
   async function submit() {
     if (!ready) return
@@ -173,7 +210,11 @@ export default function EditConnectionDialog({
         <div className="h-60 overflow-y-auto pr-1">
           <div className="flex flex-col gap-4">
             {tab === 'profile' ? (
-              <CustomerProfile saved={saved} workspaceId={editing.workspace_id} />
+              <CustomerProfile
+                saved={saved}
+                workspaceId={editing.workspace_id}
+                field={field}
+              />
             ) : tab === 'perfox' ? (
               <>
                 <PerfoxHelp collapsible />
@@ -328,9 +369,16 @@ function Secret({
 function CustomerProfile({
   saved,
   workspaceId,
+  field,
 }: {
   saved: CustomerDetail | null
   workspaceId: string
+  field: (
+    key: keyof NewCustomer,
+    label: string,
+    stored: string | null | undefined,
+    opts?: { placeholder?: string; hint?: string },
+  ) => React.ReactNode
 }) {
   const [issued, setIssued] = useState<{ email: string; password: string } | null>(null)
   const [asking, setAsking] = useState(false)
@@ -368,11 +416,21 @@ function CustomerProfile({
 
   return (
     <div className="flex flex-col gap-4">
-      <dl className="divide-y divide-line rounded-card border border-line">
-        <Detail label="Name" value={saved?.ownerName} />
+      {field('name', 'Name', saved?.ownerName, { placeholder: 'Nora Patel' })}
+
+      {/*
+        Not a field. The email is what they sign in with, so changing it
+        here would change who can reach the account — a decision of its own,
+        not something to tab past.
+      */}
+      <dl className="rounded-card border border-line">
         <Detail label="Email" value={saved?.ownerEmail} mono />
-        <Detail label="Phone" value={saved?.ownerMobile} mono />
       </dl>
+
+      {field('mobile', 'Phone', saved?.ownerMobile, {
+        placeholder: '+91…',
+        hint: 'The number an outbound call goes to.',
+      })}
 
       <div className="rounded-card border border-line p-3">
         <p className="text-[12px] font-medium">Password</p>

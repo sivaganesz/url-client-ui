@@ -296,8 +296,61 @@ adminRouter.patch('/admin/customers/:workspaceId', requireAdmin, async (req, res
   if (given(b.operatorSiteSecret)) put('operator_site_secret_enc', secret(b.operatorSiteSecret))
   if (given(b.operatorWorkflowId)) put('operator_workflow_id', plain(b.operatorWorkflowId))
 
-  if (sets.length === 0) {
+  /**
+   * The person, who lives in another table.
+   *
+   * Name and phone only. The email is what they sign in with, so changing
+   * it here would change who can reach the account — a different decision,
+   * and one nobody should make by tabbing through a form.
+   *
+   * The phone is not decoration either: it is the number an outbound call
+   * goes to. Hence the shape check, so a bad one fails here rather than at
+   * dial time, and hence its name in the audit trail.
+   */
+  const person: string[] = []
+  const personValues: unknown[] = []
+  const putPerson = (column: string, value: unknown) => {
+    person.push(`${column} = $${person.length + 1}`)
+    personValues.push(value)
+  }
+
+  if (given(b.name)) putPerson('name', text(b.name))
+  if (b.mobile !== undefined) {
+    const mobile = b.mobile === null ? null : text(b.mobile) || null
+    if (mobile !== null && !/^\+?[0-9][0-9 ()-]{6,19}$/.test(mobile)) {
+      res.status(400).json({ error: 'That does not look like a phone number.' })
+      return
+    }
+    putPerson('mobile', mobile)
+  }
+
+  if (sets.length === 0 && person.length === 0) {
     res.status(400).json({ error: 'Nothing to change.' })
+    return
+  }
+
+  if (person.length > 0) {
+    personValues.push(req.params.workspaceId)
+    const personSet = person.join(', ')
+    await query(
+      `UPDATE users SET ${personSet}, updated_at = now()
+        WHERE id = (SELECT id FROM users WHERE workspace_id = $${personValues.length}
+                     ORDER BY (role = 'owner') DESC, created_at LIMIT 1)`,
+      personValues,
+    )
+  }
+
+  if (sets.length === 0) {
+    const only = await one<{ name: string }>(
+      'SELECT name FROM workspaces WHERE id = $1',
+      [req.params.workspaceId],
+    )
+    await record(req, 'customer.update', {
+      type: 'customer',
+      id: String(req.params.workspaceId),
+      label: only?.name,
+    })
+    res.json({ ok: true })
     return
   }
 

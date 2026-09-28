@@ -421,3 +421,99 @@ describe('resetting a password for a customer', () => {
     assert.notEqual(first.password, second.password)
   })
 })
+
+/**
+ * Correcting the person on the account.
+ *
+ * Until now nothing could: the save route only ever touched the workspace,
+ * so a name or number typed wrongly at creation stayed wrong for good.
+ */
+describe('editing the details of a customer', () => {
+  let admin: Client
+  beforeEach(async () => {
+    admin = await reset()
+  })
+
+  const makeCustomer = async () => {
+    const res = await admin.post('/api/admin/customers', {
+      workspaceName: 'Northwind',
+      name: 'Nora',
+      email: 'nora@northwind.test',
+      mobile: '+910000000000',
+      password: PASSWORD,
+      perfoxApiBase: 'https://northwind-api.perfox.ai/api/v1',
+      perfoxApiToken: 'sk_northwind',
+    })
+    return String((await res.json()).customer.workspaceId)
+  }
+
+  const ownerOf = async (workspaceId: string) =>
+    (
+      await query<{ name: string; email: string; mobile: string | null }>(
+        'SELECT name, email, mobile FROM users WHERE workspace_id = $1',
+        [workspaceId],
+      )
+    )[0]!
+
+  test('a name and a number can be corrected', async () => {
+    const workspaceId = await makeCustomer()
+
+    const res = await admin.patch(`/api/admin/customers/${workspaceId}`, {
+      name: 'Nora Patel',
+      mobile: '+919876543210',
+    })
+    assert.equal(res.status, 200)
+
+    const owner = await ownerOf(workspaceId)
+    assert.equal(owner.name, 'Nora Patel')
+    assert.equal(owner.mobile, '+919876543210')
+  })
+
+  /**
+   * The email is the login. Nothing in this route may move it, whatever the
+   * form sends — a changed address is a changed account.
+   */
+  test('the email is not editable', async () => {
+    const workspaceId = await makeCustomer()
+
+    await admin.patch(`/api/admin/customers/${workspaceId}`, {
+      email: 'someone.else@northwind.test',
+      name: 'Nora Patel',
+    })
+
+    const owner = await ownerOf(workspaceId)
+    assert.equal(owner.email, 'nora@northwind.test', 'the login address was changed')
+
+    // And the old address still signs in.
+    const c = new Client()
+    assert.equal((await c.login('nora@northwind.test', PASSWORD)).status, 200)
+  })
+
+  test('a number that is not one is refused', async () => {
+    const workspaceId = await makeCustomer()
+
+    const res = await admin.patch(`/api/admin/customers/${workspaceId}`, {
+      mobile: 'ring me on tuesday',
+    })
+    assert.equal(res.status, 400)
+
+    const owner = await ownerOf(workspaceId)
+    assert.equal(owner.mobile, '+910000000000', 'a bad number was written anyway')
+  })
+
+  test('the workspace and the person move in one call', async () => {
+    const workspaceId = await makeCustomer()
+
+    const res = await admin.patch(`/api/admin/customers/${workspaceId}`, {
+      workspaceName: 'Northwind Trading',
+      name: 'Nora Patel',
+    })
+    assert.equal(res.status, 200)
+
+    assert.equal((await ownerOf(workspaceId)).name, 'Nora Patel')
+    const workspace = (
+      await query<{ name: string }>('SELECT name FROM workspaces WHERE id = $1', [workspaceId])
+    )[0]!
+    assert.equal(workspace.name, 'Northwind Trading')
+  })
+})
