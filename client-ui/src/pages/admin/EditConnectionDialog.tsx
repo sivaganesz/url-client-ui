@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Modal from '../../components/ui/Modal'
 import Button from '../../components/ui/Button'
 import Spinner from '../../components/ui/Spinner'
 import { FormField, Tabs, controlClass } from '../../components/ui/Field'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { IconAlert, IconEye, IconEyeOff } from '../../components/icons'
 import { cn } from '../../lib/cn'
 import { useResource } from '../../lib/useResource'
@@ -10,6 +11,7 @@ import { adminApi, type CustomerDetail, type CustomerRow, type NewCustomer } fro
 import { OperatorHelp, PerfoxHelp } from './CredentialHelp'
 
 const TABS = [
+  { id: 'profile', label: 'Customer profile' },
   { id: 'perfox', label: 'Perfox connection' },
   { id: 'operator', label: 'Operation details' },
 ] as const
@@ -56,7 +58,7 @@ export default function EditConnectionDialog({
     editing.workspace_id,
   ])
 
-  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('perfox')
+  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('profile')
   const [changes, setChanges] = useState<Partial<NewCustomer>>({})
   const [revealed, setRevealed] = useState<Revealed | null>(null)
   const [busy, setBusy] = useState(false)
@@ -170,7 +172,9 @@ export default function EditConnectionDialog({
          */}
         <div className="h-60 overflow-y-auto pr-1">
           <div className="flex flex-col gap-4">
-            {tab === 'perfox' ? (
+            {tab === 'profile' ? (
+              <CustomerProfile saved={saved} workspaceId={editing.workspace_id} />
+            ) : tab === 'perfox' ? (
               <>
                 <PerfoxHelp collapsible />
                 {field('perfoxApiBase', 'API base', saved?.perfoxApiBase, {
@@ -311,5 +315,152 @@ function Secret({
         </div>
       )}
     </FormField>
+  )
+}
+
+/**
+ * Who the account belongs to, and a way back in for them.
+ *
+ * Read-only on purpose. The email is the login, so editing it here would
+ * change who can sign in — a different decision from this one, and one that
+ * deserves its own thought.
+ */
+function CustomerProfile({
+  saved,
+  workspaceId,
+}: {
+  saved: CustomerDetail | null
+  workspaceId: string
+}) {
+  const [issued, setIssued] = useState<{ email: string; password: string } | null>(null)
+  const [asking, setAsking] = useState(false)
+  const [working, setWorking] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  /**
+   * The panel is a fixed 240px and this tab is taller, so a password
+   * generated at the bottom of it appears off-screen — you press the button
+   * and nothing seems to happen. It scrolls to what it just made.
+   */
+  const issuedAt = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (issued) issuedAt.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [issued])
+
+  const handover = issued
+    ? `email : ${issued.email}\npassword : ${issued.password}`
+    : ''
+
+  async function generate() {
+    setAsking(false)
+    setFailed(null)
+    setWorking(true)
+    try {
+      setIssued(await adminApi.resetPassword(workspaceId))
+      setCopied(false)
+    } catch (err) {
+      setFailed((err as Error).message)
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <dl className="divide-y divide-line rounded-card border border-line">
+        <Detail label="Name" value={saved?.ownerName} />
+        <Detail label="Email" value={saved?.ownerEmail} mono />
+        <Detail label="Phone" value={saved?.ownerMobile} mono />
+      </dl>
+
+      <div className="rounded-card border border-line p-3">
+        <p className="text-[12px] font-medium">Password</p>
+        <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+          There is no reset email in this product. Generate one here and send it to the
+          customer; they can change it themselves once they are in. Generating also signs
+          them out everywhere.
+        </p>
+
+        {issued ? (
+          <div ref={issuedAt} className="mt-3">
+            {/* One block, the way it gets pasted into a message. */}
+            <pre className="rounded-lg bg-sunken px-3 py-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
+              {handover}
+            </pre>
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(handover)
+                    .then(() => setCopied(true))
+                    .catch(() => setCopied(false))
+                }}
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </Button>
+              <p role="alert" className="text-[11px] text-warn">
+                Shown once. Close this and it cannot be read again.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="mt-3"
+            disabled={working}
+            onClick={() => setAsking(true)}
+          >
+            {working ? 'Generating…' : 'Generate a new password'}
+          </Button>
+        )}
+
+        {failed && (
+          <p role="alert" className="mt-2 text-[11px] text-danger">
+            {failed}
+          </p>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={asking}
+        title="Generate a new password?"
+        body={
+          "The password they have now stops working, and anywhere they are signed in is" +
+          " signed out. You will see the new one once."
+        }
+        confirmLabel="Generate"
+        tone="danger"
+        onConfirm={() => void generate()}
+        onCancel={() => setAsking(false)}
+      />
+    </div>
+  )
+}
+
+function Detail({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string
+  value?: string | null
+  mono?: boolean
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 px-3 py-2">
+      <dt className="shrink-0 text-[11.5px] text-ink-3">{label}</dt>
+      <dd
+        className={
+          'min-w-0 truncate text-[12.5px]' + (mono ? ' font-mono text-[11.5px]' : '')
+        }
+      >
+        {value || '—'}
+      </dd>
+    </div>
   )
 }
