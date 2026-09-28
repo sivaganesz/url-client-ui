@@ -307,13 +307,10 @@ export async function getAgentReach(agentId?: string, signal?: AbortSignal): Pro
   const nodes = a?.nodes ?? []
   return {
     published: a?.status === 'published',
-    channels: [
-      ...new Set(
-        nodes
-          .filter((n) => n.type === 'trigger' && n.config?.channel)
-          .map((n) => channelLabel(n.config?.channel)),
-      ),
-    ],
+    // As the workspace reports them, one per trigger node on the canvas.
+    // Reading the nodes to work the same thing out again would only be a
+    // second opinion about the graph they came from.
+    channels: [...new Set((a?.channels ?? []).map(channelLabel))],
     senders: [
       ...new Set(
         nodes
@@ -399,53 +396,6 @@ const mapAgent = (a: ApiAgent): Agent => ({
 
 export async function getAgents(signal?: AbortSignal): Promise<Agent[]> {
   return rows<ApiAgent>(await rest('agents', undefined, signal)).map(mapAgent)
-}
-
-/**
- * Agents with the channels they can actually be reached on.
- *
- * The list endpoint reports `channels: ["web"]` for every agent, so it can't
- * be used to decide what an agent handles. The truth is in the graph: a
- * trigger node's `config.channel` names the channel that starts a
- * conversation, and an agent without one for a channel cannot be reached on it.
- *
- * That costs one detail request per agent, which is why this is separate from
- * getAgents() — only the callers that need it pay for it.
- */
-export async function getAgentsWithChannels(): Promise<Agent[]> {
-  const list = rows<ApiAgent>(await rest('agents'))
-  const graphs = await Promise.all(
-    list.map((a) =>
-      rest<ApiAgent | { data: ApiAgent }>(`agents/${a.id}`)
-        .then((r) => ('data' in r ? r.data : r))
-        .catch(() => null),
-    ),
-  )
-
-  return list.map((a, i): Agent => {
-    const nodes = graphs[i]?.nodes ?? []
-    return {
-      ...mapAgent(a),
-      channels: [
-        ...new Set(
-          nodes
-            .filter((n) => n.type === 'trigger' && n.config?.channel)
-            .map((n) => channelLabel(n.config?.channel)),
-        ),
-      ],
-      // Sender actions — "whatsapp_sender" and friends. A text channel with a
-      // trigger but no sender starts a conversation that can never reply, and
-      // the API only reports that after the fact, via send_authorized.
-      senders: [
-        ...new Set(
-          nodes
-            .map((n) => /^(.+)_sender$/.exec(n.type)?.[1])
-            .filter((x): x is string => Boolean(x))
-            .map(channelLabel),
-        ),
-      ],
-    }
-  })
 }
 
 /**
@@ -1209,32 +1159,34 @@ export function getCustomerDetails(
 }
 
 /**
- * Everything a customer has said, newest first.
+ * One page of a customer’s conversations, newest first.
  *
- * Follows the cursor to the end. A customer with eighty conversations has
- * eighty here, not the first page of them — the count beside them comes
- * from the workspace, and a list that disagreed with it would be worse than
- * no list.
+ * A page rather than all of them: a customer with ninety is not unusual and
+ * nobody reads ninety, so the list asks for fifty and goes back for more
+ * when somebody scrolls that far.
+ *
+ * The platform takes a limit of 1 to 200. Ask for 201 and it answers with an
+ * empty list rather than an error or a clamp, so the number is kept here
+ * rather than passed in from a caller that might not know that.
  */
+export const CONVERSATION_PAGE = 50
+
 export async function getCustomerConversations(
   customerId: string,
+  options: { status?: string; cursor?: string | null } = {},
   signal?: AbortSignal,
-  max = 10,
-): Promise<ApiConversation[]> {
-  const out: ApiConversation[] = []
-  let cursor: string | null = null
+): Promise<{ rows: ApiConversation[]; cursor: string | null }> {
+  const params: Record<string, string | number> = { limit: CONVERSATION_PAGE }
+  // Filtered by the workspace rather than here: the endpoint takes the
+  // parameter precisely so a page of results is a page of what was asked
+  // for, instead of fifty rows that might contain none of it.
+  if (options.status) params.status = options.status
+  if (options.cursor) params.cursor = options.cursor
 
-  for (let page = 0; page < max; page++) {
-    const params: Record<string, string | number> = { limit: 100, ...(cursor ? { cursor } : null) }
-    const body: { conversations?: ApiConversation[]; next_cursor?: string | null } = await rest(
-      `customers/${customerId}/conversations`,
-      params,
-      signal,
-    )
-    out.push(...(body?.conversations ?? []))
-    cursor = body?.next_cursor ?? null
-    if (!cursor) break
-  }
-
-  return out
+  const body: { conversations?: ApiConversation[]; next_cursor?: string | null } = await rest(
+    `customers/${customerId}/conversations`,
+    params,
+    signal,
+  )
+  return { rows: body?.conversations ?? [], cursor: body?.next_cursor ?? null }
 }

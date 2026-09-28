@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import Avatar from '../components/ui/Avatar'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import DataBanner from '../components/ui/DataBanner'
-import { SearchInput, Tabs } from '../components/ui/Field'
+import { ChipGroup, SearchInput, Tabs } from '../components/ui/Field'
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States'
 import { IconChat, IconChevronLeft, IconChevronRight, channelIcon } from '../components/icons'
 import { cn } from '../lib/cn'
@@ -125,8 +125,16 @@ export default function Customers() {
                   <span className="block truncate text-[12.5px] font-medium">
                     {c.name || 'Anonymous'}
                   </span>
-                  <span className="block truncate font-mono text-[11px] text-ink-3">
-                    {c.phone || c.email || c.id}
+                  {/* An id is not a way of reaching anybody, and a customer with
+                      neither number nor address is better described than labelled with
+                      one. */}
+                  <span
+                    className={cn(
+                      'block truncate text-[11px] text-ink-3',
+                      (c.phone || c.email) && 'font-mono',
+                    )}
+                  >
+                    {c.phone || c.email || 'No contact details'}
                   </span>
                 </span>
               </Link>
@@ -229,7 +237,7 @@ function CustomerDetail({ customerId, onBack }: { customerId: string; onBack: ()
         ) : tab === 'profile' ? (
           <Profile details={details} loading={status === 'loading'} />
         ) : (
-          <Communication customerId={customerId} />
+          <Communication customerId={customerId} details={details} />
         )}
       </div>
     </div>
@@ -326,20 +334,136 @@ function Profile({
   )
 }
 
+/**
+ * What the platform will filter a conversation list by.
+ *
+ * `ended` is one of its statuses too and is deliberately not offered: it
+ * says a conversation stopped, not how it went, and it covers most of them
+ * — a chip that selects nearly everything is not a filter.
+ */
+const STATUSES = ['All', 'Active', 'Resolved', 'Escalated', 'Abandoned'] as const
+type Status = (typeof STATUSES)[number]
+
+/**
+ * How many conversations this filter should eventually reach.
+ *
+ * From the same insights the Profile tab shows, so the two halves of this
+ * page cannot disagree about a number they both have. The list itself only
+ * knows how many it has fetched.
+ */
+function totalFor(details: ApiCustomerDetails | null, filter: Status): number | null {
+  const r = details?.insights.resolution
+  if (!r) return null
+  return {
+    All: r.total,
+    Active: r.active,
+    Resolved: r.resolved,
+    Escalated: r.escalated,
+    Abandoned: r.abandoned,
+  }[filter]
+}
+
 /** Every conversation this customer has had, newest first. */
-function Communication({ customerId }: { customerId: string }) {
+function Communication({
+  customerId,
+  details,
+}: {
+  customerId: string
+  details: ApiCustomerDetails | null
+}) {
+  const [filter, setFilter] = useState<Status>('All')
+
+  return (
+    <>
+      <ChipGroup
+        label="Filter conversations by status"
+        options={STATUSES}
+        value={filter}
+        onChange={setFilter}
+        className="mb-3"
+      />
+      {/*
+        Keyed, so changing the filter starts a fresh list rather than
+        emptying the old one from inside an effect. The chips stay put,
+        because a filter that removes the way back to itself is a trap.
+      */}
+      <ConversationPages
+        key={`${customerId}|${filter}`}
+        customerId={customerId}
+        filter={filter}
+        total={totalFor(details, filter)}
+      />
+    </>
+  )
+}
+
+/**
+ * The list, fifty at a time.
+ *
+ * Scrolling to the end fetches the next page; the button underneath does the
+ * same thing and says how far along the list is, for anyone who would rather
+ * press something than trust a scroll, and for when the observer cannot run.
+ */
+function ConversationPages({
+  customerId,
+  filter,
+  total,
+}: {
+  customerId: string
+  filter: Status
+  total: number | null
+}) {
+  const status = filter === 'All' ? undefined : filter.toLowerCase()
+
+  /**
+   * The first page through useResource, the rest by hand.
+   *
+   * Not by hand as well: sharedGet counts who is waiting on a request and
+   * aborts it when the last of them leaves, so a component that mounts,
+   * unmounts and mounts again — which is every component in development —
+   * can attach to a promise the first mount has already aborted. useResource
+   * knows that dance. Fetching the first page here instead produced an empty
+   * list and "This customer has not been in touch" for a customer with ninety
+   * conversations.
+   */
   const {
-    data: conversations,
-    status,
+    data: firstPage,
+    status: state,
     error,
     reload,
-  } = useResource<ApiConversation[]>(
-    (signal) => getCustomerConversations(customerId, signal),
-    [],
-    [customerId],
+  } = useResource(
+    (signal) => getCustomerConversations(customerId, { status }, signal),
+    { rows: [] as ApiConversation[], cursor: null as string | null },
+    [customerId, status],
   )
 
-  if (status === 'loading') {
+  /** Pages after the first, and where they left off. Null until one is asked for. */
+  const [tail, setTail] = useState<{ rows: ApiConversation[]; cursor: string | null } | null>(
+    null,
+  )
+  const [fetching, setFetching] = useState(false)
+  const [tailError, setTailError] = useState<Error | null>(null)
+
+  const rows = tail ? [...firstPage.rows, ...tail.rows] : firstPage.rows
+  const cursor = tail ? tail.cursor : firstPage.cursor
+
+  const more = useCallback(() => {
+    if (!cursor || fetching) return
+    setFetching(true)
+    setTailError(null)
+    getCustomerConversations(customerId, { status, cursor })
+      .then((page) => {
+        setTail((had) => ({
+          rows: [...(had?.rows ?? []), ...page.rows],
+          cursor: page.cursor,
+        }))
+      })
+      .catch((err: Error) => setTailError(err))
+      .finally(() => setFetching(false))
+  }, [customerId, status, cursor, fetching])
+
+
+  if (state === 'loading') {
     return (
       <div className="flex flex-col gap-2">
         {Array.from({ length: 6 }).map((_, i) => (
@@ -348,44 +472,81 @@ function Communication({ customerId }: { customerId: string }) {
       </div>
     )
   }
-  if (status === 'error') return <DataBanner status={status} error={error} onRetry={reload} />
-  if (conversations.length === 0) {
+
+  if (state === 'error') {
+    return <ErrorState error={error} onRetry={reload} />
+  }
+
+  if (rows.length === 0) {
     return (
       <EmptyState
         icon={IconChat}
-        title="Nothing yet"
-        note="This customer has not been in touch."
+        title={filter === 'All' ? 'Nothing yet' : `No ${filter.toLowerCase()} conversations`}
+        note={
+          filter === 'All'
+            ? 'This customer has not been in touch.'
+            : 'They have been in touch, just not on this status. Try All.'
+        }
       />
     )
   }
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-card border border-line bg-surface shadow-card">
-      {conversations.map((c) => (
-        <Link
-          key={c.id}
-          to={`/conversations/${c.id}`}
-          className="flex items-center gap-3 border-b border-line/60 px-4 py-3 transition-colors last:border-b-0 hover:bg-sunken"
-        >
-          <span className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="flex flex-wrap items-center gap-1.5">
-              {(c.channels?.length ? c.channels : [c.channel_started]).filter(Boolean).map((ch) => (
-                <ChannelChip key={String(ch)} channel={String(ch)} />
-              ))}
-              {c.status && <StatusBadge label={label(c.status)} />}
+    <>
+      <div className="flex flex-col overflow-hidden rounded-card border border-line bg-surface shadow-card">
+        {rows.map((c) => (
+          <Link
+            key={c.id}
+            to={`/conversations/${c.id}`}
+            className="flex items-center gap-3 border-b border-line/60 px-4 py-3 transition-colors last:border-b-0 hover:bg-sunken"
+          >
+            <span className="flex min-w-0 flex-1 flex-col gap-1">
+              <span className="flex flex-wrap items-center gap-1.5">
+                {(c.channels?.length ? c.channels : [c.channel_started])
+                  .filter(Boolean)
+                  .map((ch) => (
+                    <ChannelChip key={String(ch)} channel={String(ch)} />
+                  ))}
+                {c.status && <StatusBadge label={label(c.status)} />}
+              </span>
+              {c.summary && (
+                <span className="line-clamp-1 text-[11.5px] text-ink-2">{c.summary}</span>
+              )}
+              <span className="text-[11px] text-ink-3" title={dateTime(c.created_at)}>
+                Started {timeAgo(c.created_at)}
+                {c.updated_at ? ` · last activity ${timeAgo(c.updated_at)}` : ''}
+              </span>
             </span>
-            {c.summary && (
-              <span className="line-clamp-1 text-[11.5px] text-ink-2">{c.summary}</span>
-            )}
-            <span className="text-[11px] text-ink-3" title={dateTime(c.created_at)}>
-              Started {timeAgo(c.created_at)}
-              {c.updated_at ? ` · last activity ${timeAgo(c.updated_at)}` : ''}
-            </span>
-          </span>
-          <IconChevronRight size={14} className="shrink-0 text-ink-4" />
-        </Link>
-      ))}
-    </div>
+            <IconChevronRight size={14} className="shrink-0 text-ink-4" />
+          </Link>
+        ))}
+      </div>
+
+      <div className="pt-3">
+        {cursor ? (
+          <button
+            type="button"
+            onClick={more}
+            disabled={fetching}
+            className="w-full rounded-lg border border-line-strong bg-surface py-2 text-[11.5px] font-medium text-ink-2 transition-colors hover:border-brand-line hover:bg-brand-soft hover:text-brand disabled:cursor-default disabled:opacity-60"
+          >
+            {fetching
+              ? 'Loading…'
+              : `Load more (${num(rows.length)}${total ? ` of ${num(total)}` : ''})`}
+          </button>
+        ) : (
+          <p className="text-center text-[11px] text-ink-3">
+            {num(rows.length)} conversation{rows.length === 1 ? '' : 's'}
+          </p>
+        )}
+
+        {tailError && (
+          <p role="alert" className="mt-2 text-center text-[11px] text-danger">
+            Could not load any more. {tailError.message}
+          </p>
+        )}
+      </div>
+    </>
   )
 }
 

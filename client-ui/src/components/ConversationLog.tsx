@@ -52,7 +52,15 @@ const SENTIMENT: Record<string, { tone: string; mood: 'positive' | 'neutral' | '
 function Agent({ agent }: { agent: Attribution }) {
   if (agent.kind === 'agent') {
     return (
-      <span className="truncate text-[12px] font-medium text-brand" title={agent.name}>
+      /*
+        block, because truncate does nothing to an inline span: ellipsis needs
+        something with a width to overflow. Without it a long agent name drew
+        straight across the Summary column beside it.
+      */
+      <span
+        className="block truncate text-[12px] font-medium text-brand"
+        title={agent.name}
+      >
         {agent.name}
       </span>
     )
