@@ -371,3 +371,70 @@ describe('the knowledge base', () => {
     }
   })
 })
+
+/**
+ * A customer's own page.
+ *
+ * Two reads the console did not have: what the workspace makes of a
+ * customer, and everything they have ever said. Both are counted over all of
+ * a customer’s conversations rather than over a page of them, which is the
+ * reason for asking the server instead of adding up rows in the browser.
+ */
+describe('a customer', () => {
+  beforeEach(async () => {
+    await truncate()
+    await start()
+  })
+
+  const CUSTOMER = '01a0e681-7d72-76a3-b9fa-966f1a651faf'
+
+  test('their details and their conversations are readable', async () => {
+    const up = await fakeUpstream({ customer: { id: CUSTOMER }, conversations: [] })
+    try {
+      await makeWorkspace({ name: 'A', email: 'a@t.test', apiBase: up.url, apiToken: 'k' })
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      for (const path of [
+        `customers/${CUSTOMER}/details`,
+        `customers/${CUSTOMER}/conversations`,
+      ]) {
+        const res = await c.get(`/api/perfox/${path}`)
+        assert.equal(res.status, 200, `${path} was refused`)
+      }
+
+      // A status filter and a cursor are query parameters, which the
+      // allowlist does not inspect — it decides which resource may be
+      // reached, not how it is asked for.
+      assert.equal(
+        (await c.get(`/api/perfox/customers/${CUSTOMER}/conversations?status=resolved&limit=50`)).status,
+        200,
+      )
+    } finally {
+      await up.close()
+    }
+  })
+
+  test('writing to a customer is still refused', async () => {
+    const up = await fakeUpstream({})
+    try {
+      await makeWorkspace({ name: 'A', email: 'a@t.test', apiBase: up.url, apiToken: 'k' })
+      const c = new Client()
+      await c.login('a@t.test', PASSWORD)
+
+      /**
+       * The platform lets a customer be created and edited. This console
+       * only ever reads them, and the allowlist is a list of what the app
+       * needs rather than of what the workspace offers.
+       */
+      assert.equal((await c.post('/api/perfox/customers', { name: 'X' })).status, 403)
+      assert.equal(
+        (await c.patch(`/api/perfox/customers/${CUSTOMER}`, { name: 'X' })).status,
+        403,
+      )
+      assert.equal(up.seen.length, 0)
+    } finally {
+      await up.close()
+    }
+  })
+})

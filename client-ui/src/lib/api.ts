@@ -36,6 +36,7 @@ import type {
   ApiConversation,
   ApiCredits,
   ApiCustomer,
+  ApiCustomerDetails,
   ApiList,
   ApiOutboundResult,
   ApiOverTimePoint,
@@ -1183,4 +1184,57 @@ export function fileSize(bytes: number | null | undefined): string {
     i += 1
   }
   return `${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`
+}
+
+/* ── customers ───────────────────────────────────────────── */
+
+/** Everyone the workspace has ever spoken to. Identity only. */
+export function getCustomers(signal?: AbortSignal): Promise<ApiCustomer[]> {
+  return restAll<ApiCustomer>('customers', undefined, signal)
+}
+
+/**
+ * One customer, as the workspace counts them.
+ *
+ * Asked for rather than worked out here: the figures cover every
+ * conversation the customer has had, and this console can only ever hold a
+ * page of those. A total derived from one page is wrong in a way nobody can
+ * see — it looks like a total.
+ */
+export function getCustomerDetails(
+  customerId: string,
+  signal?: AbortSignal,
+): Promise<ApiCustomerDetails> {
+  return rest<ApiCustomerDetails>(`customers/${customerId}/details`, undefined, signal)
+}
+
+/**
+ * Everything a customer has said, newest first.
+ *
+ * Follows the cursor to the end. A customer with eighty conversations has
+ * eighty here, not the first page of them — the count beside them comes
+ * from the workspace, and a list that disagreed with it would be worse than
+ * no list.
+ */
+export async function getCustomerConversations(
+  customerId: string,
+  signal?: AbortSignal,
+  max = 10,
+): Promise<ApiConversation[]> {
+  const out: ApiConversation[] = []
+  let cursor: string | null = null
+
+  for (let page = 0; page < max; page++) {
+    const params: Record<string, string | number> = { limit: 100, ...(cursor ? { cursor } : null) }
+    const body: { conversations?: ApiConversation[]; next_cursor?: string | null } = await rest(
+      `customers/${customerId}/conversations`,
+      params,
+      signal,
+    )
+    out.push(...(body?.conversations ?? []))
+    cursor = body?.next_cursor ?? null
+    if (!cursor) break
+  }
+
+  return out
 }

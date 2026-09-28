@@ -9,6 +9,7 @@ import {
   IconFile,
   IconHash,
   IconPhone,
+  IconUsers,
 } from '../icons'
 import { useSession } from '../../lib/session'
 import Avatar from '../ui/Avatar'
@@ -26,6 +27,7 @@ const SECTIONS = [
     label: 'Engage',
     items: [
       { to: '/conversations', label: 'Conversations', icon: IconChat },
+      { to: '/customers', label: 'Customers', icon: IconUsers },
       { to: '/call-logs', label: 'Call Log Analytics', icon: IconPhone },
     ],
   },
