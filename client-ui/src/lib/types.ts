@@ -70,7 +70,11 @@ export interface ApiCustomer {
   name?: string
   phone?: string
   email?: string
+  external_id?: string
+  tags?: string[]
+  preferred_language?: string
   created_at?: string
+  updated_at?: string
   [key: string]: unknown
 }
 
@@ -513,4 +517,35 @@ export interface CasePage {
   pageSize: number
   total: number
   totalPages: number
+}
+
+/**
+ * What the workspace makes of one customer.
+ *
+ * Counted server-side over every conversation they have ever had. The
+ * console used to work the same figures out in the browser from whichever
+ * page of conversations it happened to be holding, which gives a smaller
+ * number that reads exactly like the real one.
+ */
+export interface ApiCustomerDetails {
+  customer: ApiCustomer
+  stats: {
+    conversation_count: number
+    channels: string[]
+    first_active_at?: string
+    last_active_at?: string
+  }
+  insights: {
+    channel_mix: { channel: string; count: number }[]
+    resolution: {
+      resolved: number
+      escalated: number
+      abandoned: number
+      active: number
+      ended: number
+      total: number
+      /** A percentage the workspace has already worked out: 3.49 means 3.49%. */
+      resolution_rate: number
+    }
+  }
 }

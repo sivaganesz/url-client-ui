@@ -39,6 +39,18 @@ const READS = [
   new RegExp(`^conversations/${ID}/recordings$`),
   /^customers$/,
   new RegExp(`^customers/${ID}$`),
+
+  /**
+   * A customer's own page.
+   *
+   * `details` is the workspace counting for us — conversations, channels,
+   * first and last seen, and how those conversations ended. The console
+   * used to work some of that out in the browser from whatever page of
+   * conversations it happened to hold, which is a smaller number than the
+   * truth and reads exactly like the truth.
+   */
+  new RegExp(`^customers/${ID}/details$`),
+  new RegExp(`^customers/${ID}/conversations$`),
   /^calls$/,
   // The conversation log. Filters and paging are query parameters, which the
   // allowlist does not inspect — it decides which resource may be reached, not

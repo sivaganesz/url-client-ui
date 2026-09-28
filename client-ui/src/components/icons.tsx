@@ -349,6 +349,15 @@ export const IconPhoneDown = (p: IconProps) => (
   </Svg>
 )
 
+export const IconUsers = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M16 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20" />
+    <circle cx="9" cy="7" r="3.2" />
+    <path d="M17 11a3 3 0 1 0-1.6-5.5" />
+    <path d="M22 20v-1.5a4 4 0 0 0-3-3.87" />
+  </Svg>
+)
+
 export const IconFolder = (p: IconProps) => (
   <Svg {...p}>
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
