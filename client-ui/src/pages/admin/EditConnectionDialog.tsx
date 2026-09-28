@@ -213,7 +213,8 @@ export default function EditConnectionDialog({
               <CustomerProfile
                 saved={saved}
                 workspaceId={editing.workspace_id}
-                field={field}
+                valueOf={valueOf}
+                set={set}
               />
             ) : tab === 'perfox' ? (
               <>
@@ -369,16 +370,13 @@ function Secret({
 function CustomerProfile({
   saved,
   workspaceId,
-  field,
+  valueOf,
+  set,
 }: {
   saved: CustomerDetail | null
   workspaceId: string
-  field: (
-    key: keyof NewCustomer,
-    label: string,
-    stored: string | null | undefined,
-    opts?: { placeholder?: string; hint?: string },
-  ) => React.ReactNode
+  valueOf: (key: keyof NewCustomer, stored: string | null | undefined) => string
+  set: (key: keyof NewCustomer) => (value: string) => void
 }) {
   const [issued, setIssued] = useState<{ email: string; password: string } | null>(null)
   const [asking, setAsking] = useState(false)
@@ -416,21 +414,47 @@ function CustomerProfile({
 
   return (
     <div className="flex flex-col gap-4">
-      {field('name', 'Name', saved?.ownerName, { placeholder: 'Nora Patel' })}
-
       {/*
-        Not a field. The email is what they sign in with, so changing it
-        here would change who can reach the account — a decision of its own,
-        not something to tab past.
+        Label and box on one line, so the three read as one block rather
+        than three stacked forms. The email sits among them and is the one
+        that cannot be typed into: it is what they sign in with, so changing
+        it changes who can reach the account. Its shading says so without a
+        sentence explaining it.
       */}
-      <dl className="rounded-card border border-line">
-        <Detail label="Email" value={saved?.ownerEmail} mono />
-      </dl>
+      <div className="rounded-card border border-line">
+        <Row label="Name">
+          <input
+            type="text"
+            value={valueOf('name', saved?.ownerName)}
+            onChange={(e) => set('name')(e.target.value)}
+            placeholder="Nora Patel"
+            className={cn(rowInput, 'bg-surface')}
+          />
+        </Row>
 
-      {field('mobile', 'Phone', saved?.ownerMobile, {
-        placeholder: '+91…',
-        hint: 'The number an outbound call goes to.',
-      })}
+        <Row label="Email">
+          <input
+            type="text"
+            value={saved?.ownerEmail ?? ''}
+            readOnly
+            aria-describedby="email-fixed"
+            className={cn(rowInput, 'cursor-default bg-sunken text-ink-3')}
+          />
+        </Row>
+
+        <Row label="Phone">
+          <input
+            type="text"
+            value={valueOf('mobile', saved?.ownerMobile)}
+            onChange={(e) => set('mobile')(e.target.value)}
+            placeholder="+91…"
+            className={cn(rowInput, 'bg-surface')}
+          />
+        </Row>
+      </div>
+      <p id="email-fixed" className="-mt-2 text-[11px] text-ink-3">
+        The email is the sign-in address and cannot be changed here.
+      </p>
 
       <div className="rounded-card border border-line p-3">
         <p className="text-[12px] font-medium">Password</p>
@@ -500,25 +524,15 @@ function CustomerProfile({
   )
 }
 
-function Detail({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string
-  value?: string | null
-  mono?: boolean
-}) {
+/** One line: what it is on the left, the box on the right. */
+const rowInput =
+  'min-w-0 flex-1 rounded-md border border-line px-2.5 py-1.5 text-[12.5px] outline-none focus:border-brand'
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 px-3 py-2">
-      <dt className="shrink-0 text-[11.5px] text-ink-3">{label}</dt>
-      <dd
-        className={
-          'min-w-0 truncate text-[12.5px]' + (mono ? ' font-mono text-[11.5px]' : '')
-        }
-      >
-        {value || '—'}
-      </dd>
-    </div>
+    <label className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0">
+      <span className="w-16 shrink-0 text-[11.5px] text-ink-3">{label}</span>
+      {children}
+    </label>
   )
 }
