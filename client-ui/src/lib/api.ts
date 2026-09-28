@@ -1159,41 +1159,34 @@ export function getCustomerDetails(
 }
 
 /**
- * Everything a customer has said, newest first.
+ * One page of a customer’s conversations, newest first.
  *
- * Follows the cursor to the end. A customer with eighty conversations has
- * eighty here, not the first page of them — the count beside them comes
- * from the workspace, and a list that disagreed with it would be worse than
- * no list.
+ * A page rather than all of them: a customer with ninety is not unusual and
+ * nobody reads ninety, so the list asks for fifty and goes back for more
+ * when somebody scrolls that far.
+ *
+ * The platform takes a limit of 1 to 200. Ask for 201 and it answers with an
+ * empty list rather than an error or a clamp, so the number is kept here
+ * rather than passed in from a caller that might not know that.
  */
+export const CONVERSATION_PAGE = 50
+
 export async function getCustomerConversations(
   customerId: string,
-  /** One of the platform\u2019s own statuses, or undefined for all of them. */
-  status?: string,
+  options: { status?: string; cursor?: string | null } = {},
   signal?: AbortSignal,
-  max = 10,
-): Promise<ApiConversation[]> {
-  const out: ApiConversation[] = []
-  let cursor: string | null = null
+): Promise<{ rows: ApiConversation[]; cursor: string | null }> {
+  const params: Record<string, string | number> = { limit: CONVERSATION_PAGE }
+  // Filtered by the workspace rather than here: the endpoint takes the
+  // parameter precisely so a page of results is a page of what was asked
+  // for, instead of fifty rows that might contain none of it.
+  if (options.status) params.status = options.status
+  if (options.cursor) params.cursor = options.cursor
 
-  for (let page = 0; page < max; page++) {
-    // Filtered by the workspace rather than here: a status the browser
-    // filtered out would still have been paged through to reach, and the
-    // endpoint takes the parameter precisely so it does not have to be.
-    const params: Record<string, string | number> = {
-      limit: 100,
-      ...(status ? { status } : null),
-      ...(cursor ? { cursor } : null),
-    }
-    const body: { conversations?: ApiConversation[]; next_cursor?: string | null } = await rest(
-      `customers/${customerId}/conversations`,
-      params,
-      signal,
-    )
-    out.push(...(body?.conversations ?? []))
-    cursor = body?.next_cursor ?? null
-    if (!cursor) break
-  }
-
-  return out
+  const body: { conversations?: ApiConversation[]; next_cursor?: string | null } = await rest(
+    `customers/${customerId}/conversations`,
+    params,
+    signal,
+  )
+  return { rows: body?.conversations ?? [], cursor: body?.next_cursor ?? null }
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import Avatar from '../components/ui/Avatar'
 import Badge, { StatusBadge } from '../components/ui/Badge'
@@ -237,7 +237,7 @@ function CustomerDetail({ customerId, onBack }: { customerId: string; onBack: ()
         ) : tab === 'profile' ? (
           <Profile details={details} loading={status === 'loading'} />
         ) : (
-          <Communication customerId={customerId} />
+          <Communication customerId={customerId} details={details} />
         )}
       </div>
     </div>
@@ -342,75 +342,178 @@ function Profile({
  * — a chip that selects nearly everything is not a filter.
  */
 const STATUSES = ['All', 'Active', 'Resolved', 'Escalated', 'Abandoned'] as const
+type Status = (typeof STATUSES)[number]
+
+/**
+ * How many conversations this filter should eventually reach.
+ *
+ * From the same insights the Profile tab shows, so the two halves of this
+ * page cannot disagree about a number they both have. The list itself only
+ * knows how many it has fetched.
+ */
+function totalFor(details: ApiCustomerDetails | null, filter: Status): number | null {
+  const r = details?.insights.resolution
+  if (!r) return null
+  return {
+    All: r.total,
+    Active: r.active,
+    Resolved: r.resolved,
+    Escalated: r.escalated,
+    Abandoned: r.abandoned,
+  }[filter]
+}
 
 /** Every conversation this customer has had, newest first. */
-function Communication({ customerId }: { customerId: string }) {
-  const [filter, setFilter] = useState<(typeof STATUSES)[number]>('All')
+function Communication({
+  customerId,
+  details,
+}: {
+  customerId: string
+  details: ApiCustomerDetails | null
+}) {
+  const [filter, setFilter] = useState<Status>('All')
 
+  return (
+    <>
+      <ChipGroup
+        label="Filter conversations by status"
+        options={STATUSES}
+        value={filter}
+        onChange={setFilter}
+        className="mb-3"
+      />
+      {/*
+        Keyed, so changing the filter starts a fresh list rather than
+        emptying the old one from inside an effect. The chips stay put,
+        because a filter that removes the way back to itself is a trap.
+      */}
+      <ConversationPages
+        key={`${customerId}|${filter}`}
+        customerId={customerId}
+        filter={filter}
+        total={totalFor(details, filter)}
+      />
+    </>
+  )
+}
+
+/**
+ * The list, fifty at a time.
+ *
+ * Scrolling to the end fetches the next page; the button underneath does the
+ * same thing and says how far along the list is, for anyone who would rather
+ * press something than trust a scroll, and for when the observer cannot run.
+ */
+function ConversationPages({
+  customerId,
+  filter,
+  total,
+}: {
+  customerId: string
+  filter: Status
+  total: number | null
+}) {
+  const status = filter === 'All' ? undefined : filter.toLowerCase()
+
+  /**
+   * The first page through useResource, the rest by hand.
+   *
+   * Not by hand as well: sharedGet counts who is waiting on a request and
+   * aborts it when the last of them leaves, so a component that mounts,
+   * unmounts and mounts again — which is every component in development —
+   * can attach to a promise the first mount has already aborted. useResource
+   * knows that dance. Fetching the first page here instead produced an empty
+   * list and "This customer has not been in touch" for a customer with ninety
+   * conversations.
+   */
   const {
-    data: conversations,
-    status,
+    data: firstPage,
+    status: state,
     error,
     reload,
-  } = useResource<ApiConversation[]>(
-    (signal) =>
-      getCustomerConversations(customerId, filter === 'All' ? undefined : filter.toLowerCase(), signal),
-    [],
-    [customerId, filter],
+  } = useResource(
+    (signal) => getCustomerConversations(customerId, { status }, signal),
+    { rows: [] as ApiConversation[], cursor: null as string | null },
+    [customerId, status],
   )
 
-  const chips = (
-    <ChipGroup
-      label="Filter conversations by status"
-      options={STATUSES}
-      value={filter}
-      onChange={setFilter}
-      className="mb-3"
-    />
+  /** Pages after the first, and where they left off. Null until one is asked for. */
+  const [tail, setTail] = useState<{ rows: ApiConversation[]; cursor: string | null } | null>(
+    null,
   )
+  const [fetching, setFetching] = useState(false)
+  const [tailError, setTailError] = useState<Error | null>(null)
+  const edge = useRef<HTMLDivElement>(null)
 
-  if (status === 'loading') {
+  const rows = tail ? [...firstPage.rows, ...tail.rows] : firstPage.rows
+  const cursor = tail ? tail.cursor : firstPage.cursor
+
+  const more = useCallback(() => {
+    if (!cursor || fetching) return
+    setFetching(true)
+    setTailError(null)
+    getCustomerConversations(customerId, { status, cursor })
+      .then((page) => {
+        setTail((had) => ({
+          rows: [...(had?.rows ?? []), ...page.rows],
+          cursor: page.cursor,
+        }))
+      })
+      .catch((err: Error) => setTailError(err))
+      .finally(() => setFetching(false))
+  }, [customerId, status, cursor, fetching])
+
+  /**
+   * The next page arrives before the end of this one does.
+   *
+   * 240px of margin, so the fetch starts while there is still a screen left
+   * to read and the join is not a stall.
+   */
+  useEffect(() => {
+    const node = edge.current
+    if (!node || !cursor) return
+    const watcher = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) more()
+      },
+      { rootMargin: '240px' },
+    )
+    watcher.observe(node)
+    return () => watcher.disconnect()
+  }, [cursor, more])
+
+  if (state === 'loading') {
     return (
-      <>
-        {chips}
-        <div className="flex flex-col gap-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-14" />
-          ))}
-        </div>
-      </>
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-14" />
+        ))}
+      </div>
     )
   }
-  if (status === 'error') {
-    return (
-      <>
-        {chips}
-        <DataBanner status={status} error={error} onRetry={reload} />
-      </>
-    )
+
+  if (state === 'error') {
+    return <ErrorState error={error} onRetry={reload} />
   }
-  if (conversations.length === 0) {
+
+  if (rows.length === 0) {
     return (
-      <>
-        {chips}
-        <EmptyState
-          icon={IconChat}
-          title={filter === 'All' ? 'Nothing yet' : `No ${filter.toLowerCase()} conversations`}
-          note={
-            filter === 'All'
-              ? 'This customer has not been in touch.'
-              : 'They have been in touch, just not on this status. Try All.'
-          }
-        />
-      </>
+      <EmptyState
+        icon={IconChat}
+        title={filter === 'All' ? 'Nothing yet' : `No ${filter.toLowerCase()} conversations`}
+        note={
+          filter === 'All'
+            ? 'This customer has not been in touch.'
+            : 'They have been in touch, just not on this status. Try All.'
+        }
+      />
     )
   }
 
   return (
     <>
-      {chips}
       <div className="flex flex-col overflow-hidden rounded-card border border-line bg-surface shadow-card">
-        {conversations.map((c) => (
+        {rows.map((c) => (
           <Link
             key={c.id}
             to={`/conversations/${c.id}`}
@@ -436,6 +539,31 @@ function Communication({ customerId }: { customerId: string }) {
             <IconChevronRight size={14} className="shrink-0 text-ink-4" />
           </Link>
         ))}
+      </div>
+
+      <div ref={edge} className="pt-3">
+        {cursor ? (
+          <button
+            type="button"
+            onClick={more}
+            disabled={fetching}
+            className="w-full rounded-lg border border-line-strong bg-surface py-2 text-[11.5px] font-medium text-ink-2 transition-colors hover:border-brand-line hover:bg-brand-soft hover:text-brand disabled:cursor-default disabled:opacity-60"
+          >
+            {fetching
+              ? 'Loading…'
+              : `Load more (${num(rows.length)}${total ? ` of ${num(total)}` : ''})`}
+          </button>
+        ) : (
+          <p className="text-center text-[11px] text-ink-3">
+            {num(rows.length)} conversation{rows.length === 1 ? '' : 's'}
+          </p>
+        )}
+
+        {tailError && (
+          <p role="alert" className="mt-2 text-center text-[11px] text-danger">
+            Could not load any more. {tailError.message}
+          </p>
+        )}
       </div>
     </>
   )
