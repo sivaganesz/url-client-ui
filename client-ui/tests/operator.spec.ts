@@ -92,6 +92,14 @@ test.describe('the call surface', () => {
 
     // The shell mounts it, so it must not render itself into view unprompted.
     await expect(page.getByRole('dialog', { name: /^Call with/ })).toBeHidden()
+
+    /**
+     * Nor the notice that replaces it when a dial fails. It shares the
+     * corner and it reports whatever error the session is carrying, so a
+     * stale one would sit there over an idle console saying a call failed
+     * that nobody placed.
+     */
+    await expect(page.locator('[role="alert"].fixed')).toBeHidden()
   })
 })
 

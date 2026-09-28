@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { randomBytes } from 'node:crypto'
 import { one, query, type UserRow } from '../db/index.ts'
 import { decrypt, encrypt } from '../crypto.ts'
 import { hashPassword, passwordProblem, verifyPassword, wasteTime } from '../auth/password.ts'
@@ -295,8 +296,61 @@ adminRouter.patch('/admin/customers/:workspaceId', requireAdmin, async (req, res
   if (given(b.operatorSiteSecret)) put('operator_site_secret_enc', secret(b.operatorSiteSecret))
   if (given(b.operatorWorkflowId)) put('operator_workflow_id', plain(b.operatorWorkflowId))
 
-  if (sets.length === 0) {
+  /**
+   * The person, who lives in another table.
+   *
+   * Name and phone only. The email is what they sign in with, so changing
+   * it here would change who can reach the account — a different decision,
+   * and one nobody should make by tabbing through a form.
+   *
+   * The phone is not decoration either: it is the number an outbound call
+   * goes to. Hence the shape check, so a bad one fails here rather than at
+   * dial time, and hence its name in the audit trail.
+   */
+  const person: string[] = []
+  const personValues: unknown[] = []
+  const putPerson = (column: string, value: unknown) => {
+    person.push(`${column} = $${person.length + 1}`)
+    personValues.push(value)
+  }
+
+  if (given(b.name)) putPerson('name', text(b.name))
+  if (b.mobile !== undefined) {
+    const mobile = b.mobile === null ? null : text(b.mobile) || null
+    if (mobile !== null && !/^\+?[0-9][0-9 ()-]{6,19}$/.test(mobile)) {
+      res.status(400).json({ error: 'That does not look like a phone number.' })
+      return
+    }
+    putPerson('mobile', mobile)
+  }
+
+  if (sets.length === 0 && person.length === 0) {
     res.status(400).json({ error: 'Nothing to change.' })
+    return
+  }
+
+  if (person.length > 0) {
+    personValues.push(req.params.workspaceId)
+    const personSet = person.join(', ')
+    await query(
+      `UPDATE users SET ${personSet}, updated_at = now()
+        WHERE id = (SELECT id FROM users WHERE workspace_id = $${personValues.length}
+                     ORDER BY (role = 'owner') DESC, created_at LIMIT 1)`,
+      personValues,
+    )
+  }
+
+  if (sets.length === 0) {
+    const only = await one<{ name: string }>(
+      'SELECT name FROM workspaces WHERE id = $1',
+      [req.params.workspaceId],
+    )
+    await record(req, 'customer.update', {
+      type: 'customer',
+      id: String(req.params.workspaceId),
+      label: only?.name,
+    })
+    res.json({ ok: true })
     return
   }
 
@@ -583,6 +637,20 @@ adminRouter.get('/admin/events', requireAdmin, async (req, res) => {
  * are configuration, not credentials, and hiding them bought nothing.
  */
 adminRouter.get('/admin/customers/:workspaceId', requireAdmin, async (req, res) => {
+  /**
+   * The person as well as the workspace.
+   *
+   * The Customer Profile tab shows who the account belongs to, and the
+   * reset acts on them. One owner per workspace today, but the row is
+   * chosen by role rather than assumed, so a second user later does not
+   * quietly become the one whose password gets replaced.
+   */
+  const owner = await one<{ name: string; email: string; mobile: string | null }>(
+    `SELECT name, email, mobile FROM users
+       WHERE workspace_id = $1 ORDER BY (role = 'owner') DESC, created_at LIMIT 1`,
+    [req.params.workspaceId],
+  )
+
   const w = await one<{
     name: string
     perfox_api_base: string | null
@@ -606,6 +674,9 @@ adminRouter.get('/admin/customers/:workspaceId', requireAdmin, async (req, res) 
   res.json({
     customer: {
       workspaceName: w.name,
+      ownerName: owner?.name ?? null,
+      ownerEmail: owner?.email ?? null,
+      ownerMobile: owner?.mobile ?? null,
       perfoxApiBase: w.perfox_api_base,
       operatorApiHost: w.operator_api_host,
       operatorSiteId: w.operator_site_id,
@@ -682,6 +753,78 @@ adminRouter.get('/admin/customers/:workspaceId/credentials', requireAdmin, async
  * The audit entry survives the row. `target_id` is plain text with no foreign
  * key precisely so that "who deleted Northwind, and when?" outlives Northwind.
  */
+/**
+ * A password a person can read down a phone line.
+ *
+ * Four groups of four from an alphabet with no 0/O and no 1/l/I, because
+ * this gets dictated and typed by hand at least once. Twenty characters of
+ * it, well past the twelve the rule asks for, and drawn from the same source
+ * the session tokens use rather than Math.random.
+ */
+function generatedPassword(): string {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+  const bytes = randomBytes(16)
+  const chars = [...bytes].map((b) => alphabet[b % alphabet.length]).join('')
+  return [0, 4, 8, 12].map((i) => chars.slice(i, i + 4)).join('-')
+}
+
+/**
+ * Giving a locked-out customer a way back in.
+ *
+ * There is no email anywhere in this product, so there is no link to send
+ * and no self-service route: an admin sets a new password and hands it over,
+ * which is exactly how the account was created in the first place. The
+ * customer can change it themselves once they are in.
+ *
+ * Generated here rather than typed. A support person choosing passwords for
+ * forty customers chooses the same one for forty customers.
+ *
+ * Every session that customer has is ended. A reset is asked for when
+ * somebody has lost the password or somebody else has found it, and in the
+ * second case a session still open is the whole problem.
+ */
+adminRouter.post('/admin/customers/:workspaceId/password', requireAdmin, async (req, res) => {
+  const owner = await one<{ id: string; email: string }>(
+    `SELECT id, email FROM users
+       WHERE workspace_id = $1 ORDER BY (role = 'owner') DESC, created_at LIMIT 1`,
+    [req.params.workspaceId],
+  )
+
+  if (!owner) {
+    res.status(404).json({ error: 'That workspace has no user to reset.' })
+    return
+  }
+
+  const password = generatedPassword()
+  // The generator is fixed, so this can only fail if someone changes it.
+  const problem = passwordProblem(password)
+  if (problem) {
+    console.error('[admin] generated password rejected:', problem)
+    res.status(500).json({ error: 'Could not generate a password.' })
+    return
+  }
+
+  await query('UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2', [
+    await hashPassword(password),
+    owner.id,
+  ])
+  await query('DELETE FROM sessions WHERE user_id = $1', [owner.id])
+
+  const workspace = await one<{ name: string }>(
+    'SELECT name FROM workspaces WHERE id = $1',
+    [req.params.workspaceId],
+  )
+  await record(req, 'customer.password_reset', {
+    type: 'customer',
+    id: String(req.params.workspaceId),
+    label: workspace?.name ?? owner.email,
+  })
+
+  // Said once. Only the hash is kept, so closing the dialog loses it and the
+  // only way back is another reset — which the page has to make plain.
+  res.json({ email: owner.email, password })
+})
+
 adminRouter.delete('/admin/customers/:workspaceId', requireAdmin, async (req, res) => {
   const w = await one<{ name: string }>('SELECT name FROM workspaces WHERE id = $1', [
     req.params.workspaceId,

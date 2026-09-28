@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Modal from '../../components/ui/Modal'
 import Button from '../../components/ui/Button'
 import Spinner from '../../components/ui/Spinner'
 import { FormField, Tabs, controlClass } from '../../components/ui/Field'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { IconAlert, IconEye, IconEyeOff } from '../../components/icons'
 import { cn } from '../../lib/cn'
 import { useResource } from '../../lib/useResource'
@@ -10,6 +11,7 @@ import { adminApi, type CustomerDetail, type CustomerRow, type NewCustomer } fro
 import { OperatorHelp, PerfoxHelp } from './CredentialHelp'
 
 const TABS = [
+  { id: 'profile', label: 'Customer profile' },
   { id: 'perfox', label: 'Perfox connection' },
   { id: 'operator', label: 'Operation details' },
 ] as const
@@ -56,7 +58,7 @@ export default function EditConnectionDialog({
     editing.workspace_id,
   ])
 
-  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('perfox')
+  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('profile')
   const [changes, setChanges] = useState<Partial<NewCustomer>>({})
   const [revealed, setRevealed] = useState<Revealed | null>(null)
   const [busy, setBusy] = useState(false)
@@ -75,7 +77,44 @@ export default function EditConnectionDialog({
   }, [revealed, editing.workspace_id])
 
   const loading = status === 'loading'
-  const ready = !loading && !busy && valueOf('workspaceName', saved?.workspaceName).trim() !== ''
+
+  /**
+   * What is on file for a field, so an edit can be compared against it.
+   *
+   * The two secrets have no entry: there is no plaintext to compare with,
+   * so anything typed into them counts as a change and an untouched one —
+   * which stays empty — does not.
+   */
+  const storedFor: Partial<Record<keyof NewCustomer, string | null | undefined>> = {
+    workspaceName: saved?.workspaceName,
+    name: saved?.ownerName,
+    mobile: saved?.ownerMobile,
+    perfoxApiBase: saved?.perfoxApiBase,
+    operatorApiHost: saved?.operatorApiHost,
+    operatorSiteId: saved?.operatorSiteId,
+    operatorWorkflowId: saved?.operatorWorkflowId,
+  }
+
+  /**
+   * Whether there is anything to save, across all three tabs.
+   *
+   * Compared against what is stored rather than counting keystrokes, so
+   * typing into a field and undoing it leaves the button where it was.
+   * Revealing a secret is not an edit either — that writes to `revealed`,
+   * which nothing here reads.
+   */
+  const dirty = Object.entries(changes).some(([key, value]) => {
+    const now = String(value ?? '').trim()
+    const before = String(storedFor[key as keyof NewCustomer] ?? '').trim()
+    return now !== before
+  })
+
+  const ready =
+    !loading &&
+    !busy &&
+    dirty &&
+    valueOf('workspaceName', saved?.workspaceName).trim() !== '' &&
+    valueOf('name', saved?.ownerName).trim() !== ''
 
   async function submit() {
     if (!ready) return
@@ -170,7 +209,14 @@ export default function EditConnectionDialog({
          */}
         <div className="h-60 overflow-y-auto pr-1">
           <div className="flex flex-col gap-4">
-            {tab === 'perfox' ? (
+            {tab === 'profile' ? (
+              <CustomerProfile
+                saved={saved}
+                workspaceId={editing.workspace_id}
+                valueOf={valueOf}
+                set={set}
+              />
+            ) : tab === 'perfox' ? (
               <>
                 <PerfoxHelp collapsible />
                 {field('perfoxApiBase', 'API base', saved?.perfoxApiBase, {
@@ -311,5 +357,182 @@ function Secret({
         </div>
       )}
     </FormField>
+  )
+}
+
+/**
+ * Who the account belongs to, and a way back in for them.
+ *
+ * Read-only on purpose. The email is the login, so editing it here would
+ * change who can sign in — a different decision from this one, and one that
+ * deserves its own thought.
+ */
+function CustomerProfile({
+  saved,
+  workspaceId,
+  valueOf,
+  set,
+}: {
+  saved: CustomerDetail | null
+  workspaceId: string
+  valueOf: (key: keyof NewCustomer, stored: string | null | undefined) => string
+  set: (key: keyof NewCustomer) => (value: string) => void
+}) {
+  const [issued, setIssued] = useState<{ email: string; password: string } | null>(null)
+  const [asking, setAsking] = useState(false)
+  const [working, setWorking] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  /**
+   * The panel is a fixed 240px and this tab is taller, so a password
+   * generated at the bottom of it appears off-screen — you press the button
+   * and nothing seems to happen. It scrolls to what it just made.
+   */
+  const issuedAt = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (issued) issuedAt.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [issued])
+
+  const handover = issued
+    ? `email : ${issued.email}\npassword : ${issued.password}`
+    : ''
+
+  async function generate() {
+    setAsking(false)
+    setFailed(null)
+    setWorking(true)
+    try {
+      setIssued(await adminApi.resetPassword(workspaceId))
+      setCopied(false)
+    } catch (err) {
+      setFailed((err as Error).message)
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/*
+        Label and box on one line, so the three read as one block rather
+        than three stacked forms. The email sits among them and is the one
+        that cannot be typed into: it is what they sign in with, so changing
+        it changes who can reach the account. Its shading says so without a
+        sentence explaining it.
+      */}
+      <div className="rounded-card border border-line">
+        <Row label="Name">
+          <input
+            type="text"
+            value={valueOf('name', saved?.ownerName)}
+            onChange={(e) => set('name')(e.target.value)}
+            placeholder="Nora Patel"
+            className={cn(rowInput, 'bg-surface')}
+          />
+        </Row>
+
+        <Row label="Email">
+          <input
+            type="text"
+            value={saved?.ownerEmail ?? ''}
+            readOnly
+            aria-describedby="email-fixed"
+            className={cn(rowInput, 'cursor-default bg-sunken text-ink-3')}
+          />
+        </Row>
+
+        <Row label="Phone">
+          <input
+            type="text"
+            value={valueOf('mobile', saved?.ownerMobile)}
+            onChange={(e) => set('mobile')(e.target.value)}
+            placeholder="+91…"
+            className={cn(rowInput, 'bg-surface')}
+          />
+        </Row>
+      </div>
+      <p id="email-fixed" className="-mt-2 text-[11px] text-ink-3">
+        The email is the sign-in address and cannot be changed here.
+      </p>
+
+      <div className="rounded-card border border-line p-3">
+        <p className="text-[12px] font-medium">Password</p>
+        <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
+          There is no reset email in this product. Generate one here and send it to the
+          customer; they can change it themselves once they are in. Generating also signs
+          them out everywhere.
+        </p>
+
+        {issued ? (
+          <div ref={issuedAt} className="mt-3">
+            {/* One block, the way it gets pasted into a message. */}
+            <pre className="rounded-lg bg-sunken px-3 py-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
+              {handover}
+            </pre>
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(handover)
+                    .then(() => setCopied(true))
+                    .catch(() => setCopied(false))
+                }}
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </Button>
+              <p role="alert" className="text-[11px] text-warn">
+                Shown once. Close this and it cannot be read again.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="mt-3"
+            disabled={working}
+            onClick={() => setAsking(true)}
+          >
+            {working ? 'Generating…' : 'Generate a new password'}
+          </Button>
+        )}
+
+        {failed && (
+          <p role="alert" className="mt-2 text-[11px] text-danger">
+            {failed}
+          </p>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={asking}
+        title="Generate a new password?"
+        body={
+          "The password they have now stops working, and anywhere they are signed in is" +
+          " signed out. You will see the new one once."
+        }
+        confirmLabel="Generate"
+        tone="danger"
+        onConfirm={() => void generate()}
+        onCancel={() => setAsking(false)}
+      />
+    </div>
+  )
+}
+
+/** One line: what it is on the left, the box on the right. */
+const rowInput =
+  'min-w-0 flex-1 rounded-md border border-line px-2.5 py-1.5 text-[12.5px] outline-none focus:border-brand'
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0">
+      <span className="w-16 shrink-0 text-[11.5px] text-ink-3">{label}</span>
+      {children}
+    </label>
   )
 }
