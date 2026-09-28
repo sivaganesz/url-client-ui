@@ -125,8 +125,16 @@ export default function Customers() {
                   <span className="block truncate text-[12.5px] font-medium">
                     {c.name || 'Anonymous'}
                   </span>
-                  <span className="block truncate font-mono text-[11px] text-ink-3">
-                    {c.phone || c.email || c.id}
+                  {/* An id is not a way of reaching anybody, and a customer with
+                      neither number nor address is better described than labelled with
+                      one. */}
+                  <span
+                    className={cn(
+                      'block truncate text-[11px] text-ink-3',
+                      (c.phone || c.email) && 'font-mono',
+                    )}
+                  >
+                    {c.phone || c.email || 'No contact details'}
                   </span>
                 </span>
               </Link>
