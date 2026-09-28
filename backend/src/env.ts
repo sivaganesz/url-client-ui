@@ -44,6 +44,22 @@ export const ENCRYPTION_KEY = required('ENCRYPTION_KEY')
 export const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? 7)
 
 /**
+ * Numbers an agent is allowed to ring, while this is set.
+ *
+ * Empty in production, and deliberately so: a console whose whole purpose
+ * is phoning customers cannot have a list of permitted customers.
+ *
+ * It is for the other situation — a workspace connected to a real carrier
+ * with somebody testing against it. Set it to the numbers that belong to
+ * the team and a wrong digit rings nobody. Comma-separated; spaces, dashes
+ * and brackets are ignored on both sides of the comparison.
+ */
+export const OUTBOUND_ALLOWLIST = (process.env.OUTBOUND_ALLOWLIST ?? '')
+  .split(',')
+  .map((n) => n.replace(/[^0-9]/g, ''))
+  .filter(Boolean)
+
+/**
  * Where the built frontend lives, if this process is serving it.
  *
  * Same-origin by design: the app and the API answer on one host, so the
