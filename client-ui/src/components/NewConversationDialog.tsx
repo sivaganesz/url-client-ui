@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useResource } from '../lib/useResource'
-import { getAgentsWithChannels, startOutbound } from '../lib/api'
+import { getAgentReach, getAgents, startOutbound } from '../lib/api'
+import { EMPTY_REACH } from '../lib/shapes'
 import Modal from './ui/Modal'
 import Button from './ui/Button'
 import Spinner from './ui/Spinner'
@@ -84,9 +85,9 @@ export default function NewConversationDialog({
   /** Held back on `send_authorized: false` so the dialog can say so. */
   const [started, setStarted] = useState<StartedConversation | null>(null)
 
-  // Loaded here rather than by the page: it costs a request per agent, and
-  // nothing needs it until this dialog is on screen.
-  const { data: agents, status } = useResource(getAgentsWithChannels, [], [])
+  // Loaded here rather than by the page: nothing needs it until this dialog
+  // is on screen.
+  const { data: agents, status } = useResource(getAgents, [], [])
   const loading = status === 'loading'
 
   // Only a published agent can take a conversation, and only on a channel its
@@ -103,11 +104,26 @@ export default function NewConversationDialog({
     ? operator.ready && !operator.call && contact.trim() !== ''
     : !none && Boolean(agentId) && contact.trim() !== ''
 
-  // A call delivers over the voice stream, so it needs no sender action. On the
-  // text channels, a trigger without one starts a conversation that can never
-  // reply — worth saying before the send, not only after.
   const picked = eligible.find((a) => a.id === agentId)
-  const willNotSend = Boolean(picked) && !isCall && !picked?.senders?.includes(channel.id)
+
+  /**
+   * Whether the chosen agent can actually reply on this channel.
+   *
+   * A call delivers over the voice stream and needs no Sender action. On
+   * the text channels a trigger without one starts a conversation that can
+   * never answer, which is worth saying before the send rather than after.
+   *
+   * Sender actions are nodes, and nothing but the graph knows about them —
+   * the agent list reports channels now, but not these. So it is fetched
+   * for the one agent that was picked, rather than for all fourteen on the
+   * chance that one of them might be.
+   */
+  const { data: reach } = useResource(
+    (signal) => getAgentReach(picked?.id, signal),
+    EMPTY_REACH,
+    [picked?.id],
+  )
+  const willNotSend = Boolean(picked) && !isCall && !reach.senders.includes(channel.id)
 
   /** Why a call cannot be placed, or null. Only consulted on the Phone tab. */
   const cannotCall = !operator.ready

@@ -6,8 +6,10 @@ import {
   IconAnalytics,
   IconChat,
   IconDashboard,
+  IconFile,
   IconHash,
   IconPhone,
+  IconUsers,
 } from '../icons'
 import { useSession } from '../../lib/session'
 import Avatar from '../ui/Avatar'
@@ -25,6 +27,7 @@ const SECTIONS = [
     label: 'Engage',
     items: [
       { to: '/conversations', label: 'Conversations', icon: IconChat },
+      { to: '/customers', label: 'Customers', icon: IconUsers },
       { to: '/call-logs', label: 'Call Log Analytics', icon: IconPhone },
     ],
   },
@@ -32,6 +35,7 @@ const SECTIONS = [
     label: 'Configure',
     items: [
       { to: '/agents', label: 'AI Agents', icon: IconAgent },
+      { to: '/documents', label: 'Documents', icon: IconFile },
       { to: '/phone-numbers', label: 'Phone Numbers', icon: IconHash },
     ],
   },
@@ -49,7 +53,11 @@ export default function Sidebar({
   return (
     <nav
       aria-label="Main"
-      className="flex h-full w-58 shrink-0 flex-col border-r border-line bg-sunken py-4"
+      /* Scrolls rather than clips. A short viewport — a laptop with the
+         devtools open, a zoomed page — used to cut the rail off below Engage,
+         and the sections under it could not be reached at all. overscroll
+         keeps that scrolling here instead of passing it to the page behind. */
+      className="flex h-full w-58 shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-line bg-sunken pt-4 pb-2"
     >
       <div className="flex items-center gap-2.5 px-4 pb-4">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand text-white">
@@ -113,7 +121,7 @@ export default function Sidebar({
           two buttons and an email address share 200px and the address loses —
           it read "siva@e…", which is no use for telling two accounts apart. */}
       {user && (
-        <div className="mx-2.5 mb-2 flex flex-col gap-1.5 rounded-lg px-2 py-2">
+        <div className="mx-2.5 flex flex-col gap-1.5 rounded-lg px-2 py-2">
           <span className="flex items-center gap-2.5">
             <Avatar name={user.name} size="sm" />
             <span className="flex min-w-0 flex-col">

@@ -36,6 +36,7 @@ import type {
   ApiConversation,
   ApiCredits,
   ApiCustomer,
+  ApiCustomerDetails,
   ApiList,
   ApiOutboundResult,
   ApiOverTimePoint,
@@ -306,13 +307,10 @@ export async function getAgentReach(agentId?: string, signal?: AbortSignal): Pro
   const nodes = a?.nodes ?? []
   return {
     published: a?.status === 'published',
-    channels: [
-      ...new Set(
-        nodes
-          .filter((n) => n.type === 'trigger' && n.config?.channel)
-          .map((n) => channelLabel(n.config?.channel)),
-      ),
-    ],
+    // As the workspace reports them, one per trigger node on the canvas.
+    // Reading the nodes to work the same thing out again would only be a
+    // second opinion about the graph they came from.
+    channels: [...new Set((a?.channels ?? []).map(channelLabel))],
     senders: [
       ...new Set(
         nodes
@@ -398,53 +396,6 @@ const mapAgent = (a: ApiAgent): Agent => ({
 
 export async function getAgents(signal?: AbortSignal): Promise<Agent[]> {
   return rows<ApiAgent>(await rest('agents', undefined, signal)).map(mapAgent)
-}
-
-/**
- * Agents with the channels they can actually be reached on.
- *
- * The list endpoint reports `channels: ["web"]` for every agent, so it can't
- * be used to decide what an agent handles. The truth is in the graph: a
- * trigger node's `config.channel` names the channel that starts a
- * conversation, and an agent without one for a channel cannot be reached on it.
- *
- * That costs one detail request per agent, which is why this is separate from
- * getAgents() — only the callers that need it pay for it.
- */
-export async function getAgentsWithChannels(): Promise<Agent[]> {
-  const list = rows<ApiAgent>(await rest('agents'))
-  const graphs = await Promise.all(
-    list.map((a) =>
-      rest<ApiAgent | { data: ApiAgent }>(`agents/${a.id}`)
-        .then((r) => ('data' in r ? r.data : r))
-        .catch(() => null),
-    ),
-  )
-
-  return list.map((a, i): Agent => {
-    const nodes = graphs[i]?.nodes ?? []
-    return {
-      ...mapAgent(a),
-      channels: [
-        ...new Set(
-          nodes
-            .filter((n) => n.type === 'trigger' && n.config?.channel)
-            .map((n) => channelLabel(n.config?.channel)),
-        ),
-      ],
-      // Sender actions — "whatsapp_sender" and friends. A text channel with a
-      // trigger but no sender starts a conversation that can never reply, and
-      // the API only reports that after the fact, via send_authorized.
-      senders: [
-        ...new Set(
-          nodes
-            .map((n) => /^(.+)_sender$/.exec(n.type)?.[1])
-            .filter((x): x is string => Boolean(x))
-            .map(channelLabel),
-        ),
-      ],
-    }
-  })
 }
 
 /**
@@ -1061,4 +1012,181 @@ function toCase(c: ApiCase): Case {
     createdAt: c.created_at,
     updatedAt: c.updated_at,
   }
+}
+
+/* ── the knowledge base ──────────────────────────────────── */
+
+/**
+ * A document the workspace has been given.
+ *
+ * `status` is the platform's: `pending` while it is being indexed, then
+ * `indexed`, or `failed`. An upload answers with a pending row and the
+ * platform asks to be polled until that changes, which is why a single
+ * file's row is readable on its own.
+ */
+export interface KbFile {
+  id: string
+  name: string
+  status: string
+  mime_type: string
+  file_size: number
+  folder_id: string | null
+  chunk_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** A folder. `path` is the full one, which is what a breadcrumb needs. */
+export interface KbFolder {
+  id: string
+  name: string
+  parent_id: string | null
+  path: string
+  created_at: string
+  updated_at: string
+}
+
+/** Folders, optionally only those directly inside one. */
+export function getKbFolders(parentId?: string | null, signal?: AbortSignal): Promise<KbFolder[]> {
+  return restAll<KbFolder>('kb/folders', parentId ? { parent_id: parentId } : undefined, signal)
+}
+
+/**
+ * Every document in a folder, or in the root.
+ *
+ * Follows the cursor to the end rather than showing one page of it: the
+ * count beside the pager would otherwise be the size of the first response
+ * rather than of the folder.
+ */
+export function getKbFiles(folderId?: string | null, signal?: AbortSignal): Promise<KbFile[]> {
+  return restAll<KbFile>('kb/files', folderId ? { folder_id: folderId } : undefined, signal)
+}
+
+/** One row, for watching a pending upload become indexed. */
+export function getKbFile(id: string, signal?: AbortSignal): Promise<KbFile> {
+  return rest<KbFile>(`kb/files/${id}`, undefined, signal)
+}
+
+/**
+ * Upload one document.
+ *
+ * Sent as multipart, and deliberately without a content-type: the browser
+ * writes one that carries the boundary it generated, and anything we set
+ * here would replace it with a header that does not match the body.
+ */
+export function uploadKbFile(
+  file: File,
+  folderId?: string | null,
+  signal?: AbortSignal,
+): Promise<KbFile> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('name', file.name)
+  if (folderId) form.append('folder_id', folderId)
+
+  return request<KbFile>('/api/perfox/kb/files', {
+    method: 'POST',
+    body: form,
+    headers: {},
+    signal,
+  })
+}
+
+/** Remove a document, and everything the workspace indexed from it. */
+export function deleteKbFile(id: string): Promise<{ success: true }> {
+  return write<{ success: true }>(`kb/files/${id}`, 'DELETE')
+}
+
+/** Move a document. `null` puts it back in the root. */
+export function moveKbFile(id: string, folderId: string | null): Promise<{ success: true }> {
+  return write<{ success: true }>(`kb/files/${id}/move`, 'POST', { folder_id: folderId })
+}
+
+export function createKbFolder(name: string, parentId?: string | null): Promise<KbFolder> {
+  return write<KbFolder>('kb/folders', 'POST', {
+    name,
+    ...(parentId ? { parent_id: parentId } : null),
+  })
+}
+
+export function renameKbFolder(id: string, name: string): Promise<KbFolder> {
+  return write<KbFolder>(`kb/folders/${id}`, 'PATCH', { name })
+}
+
+/**
+ * Delete a folder, which the platform allows only while it is empty.
+ *
+ * It answers with the agents that were using it. Worth showing: a folder
+ * disappearing out from under a live agent is not a small thing.
+ */
+export function deleteKbFolder(id: string): Promise<{ success: true; affected_agents?: Agent[] }> {
+  return write<{ success: true; affected_agents?: Agent[] }>(`kb/folders/${id}`, 'DELETE')
+}
+
+/** Bytes, said the way a person reads them. */
+export function fileSize(bytes: number | null | undefined): string {
+  if (!bytes || bytes < 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let n = bytes
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i += 1
+  }
+  return `${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`
+}
+
+/* ── customers ───────────────────────────────────────────── */
+
+/** Everyone the workspace has ever spoken to. Identity only. */
+export function getCustomers(signal?: AbortSignal): Promise<ApiCustomer[]> {
+  return restAll<ApiCustomer>('customers', undefined, signal)
+}
+
+/**
+ * One customer, as the workspace counts them.
+ *
+ * Asked for rather than worked out here: the figures cover every
+ * conversation the customer has had, and this console can only ever hold a
+ * page of those. A total derived from one page is wrong in a way nobody can
+ * see — it looks like a total.
+ */
+export function getCustomerDetails(
+  customerId: string,
+  signal?: AbortSignal,
+): Promise<ApiCustomerDetails> {
+  return rest<ApiCustomerDetails>(`customers/${customerId}/details`, undefined, signal)
+}
+
+/**
+ * One page of a customer’s conversations, newest first.
+ *
+ * A page rather than all of them: a customer with ninety is not unusual and
+ * nobody reads ninety, so the list asks for fifty and goes back for more
+ * when somebody scrolls that far.
+ *
+ * The platform takes a limit of 1 to 200. Ask for 201 and it answers with an
+ * empty list rather than an error or a clamp, so the number is kept here
+ * rather than passed in from a caller that might not know that.
+ */
+export const CONVERSATION_PAGE = 50
+
+export async function getCustomerConversations(
+  customerId: string,
+  options: { status?: string; cursor?: string | null } = {},
+  signal?: AbortSignal,
+): Promise<{ rows: ApiConversation[]; cursor: string | null }> {
+  const params: Record<string, string | number> = { limit: CONVERSATION_PAGE }
+  // Filtered by the workspace rather than here: the endpoint takes the
+  // parameter precisely so a page of results is a page of what was asked
+  // for, instead of fifty rows that might contain none of it.
+  if (options.status) params.status = options.status
+  if (options.cursor) params.cursor = options.cursor
+
+  const body: { conversations?: ApiConversation[]; next_cursor?: string | null } = await rest(
+    `customers/${customerId}/conversations`,
+    params,
+    signal,
+  )
+  return { rows: body?.conversations ?? [], cursor: body?.next_cursor ?? null }
 }

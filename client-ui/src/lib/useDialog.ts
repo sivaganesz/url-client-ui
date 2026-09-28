@@ -27,6 +27,22 @@ export function useDialog(
   const panel = useRef<HTMLDivElement>(null)
   const restoreTo = useRef<Element | null>(null)
 
+  /**
+   * The handler, held rather than depended on.
+   *
+   * Callers write `onClose={() => setThing(false)}`, which is a new
+   * function on every render. Depending on it meant the effect below tore
+   * itself down and set itself up again after every render of the caller —
+   * and its first act is to focus the panel. A dialog whose own state
+   * changes as you type therefore took the focus off the input on every
+   * keystroke: one character, then nothing. Only `open` decides whether
+   * any of this should be running.
+   */
+  const close = useRef(onClose)
+  useEffect(() => {
+    close.current = onClose
+  })
+
   useEffect(() => {
     if (!open) return
 
@@ -40,7 +56,7 @@ export function useDialog(
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose?.()
+        close.current?.()
         return
       }
       if (e.key !== 'Tab' || !node) return
@@ -68,7 +84,7 @@ export function useDialog(
       const back = restoreTo.current
       if (back instanceof HTMLElement && document.contains(back)) back.focus()
     }
-  }, [open, onClose])
+  }, [open])
 
   return panel
 }

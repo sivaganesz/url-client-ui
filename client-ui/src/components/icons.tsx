@@ -349,6 +349,43 @@ export const IconPhoneDown = (p: IconProps) => (
   </Svg>
 )
 
+export const IconUsers = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M16 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20" />
+    <circle cx="9" cy="7" r="3.2" />
+    <path d="M17 11a3 3 0 1 0-1.6-5.5" />
+    <path d="M22 20v-1.5a4 4 0 0 0-3-3.87" />
+  </Svg>
+)
+
+export const IconFolder = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </Svg>
+)
+
+export const IconFolderPlus = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    <path d="M12 11v5M9.5 13.5h5" />
+  </Svg>
+)
+
+export const IconFile = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 3h8l4 4v14H6z" />
+    <path d="M14 3v4h4" />
+  </Svg>
+)
+
+export const IconUpload = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 16V4" />
+    <path d="M7.5 8.5 12 4l4.5 4.5" />
+    <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+  </Svg>
+)
+
 /** Channel name -> icon, so every surface labels a channel the same way. */
 export const channelIcon: Record<string, React.ComponentType<IconProps>> = {
   WhatsApp: IconChat,

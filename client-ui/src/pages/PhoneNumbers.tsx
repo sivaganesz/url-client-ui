@@ -173,7 +173,7 @@ export default function PhoneNumbers() {
           <div className="flex flex-wrap items-center gap-2.5">
             <SearchInput
               label="Search numbers and addresses"
-              placeholder="Search number, label or connection"
+              placeholder="Search number"
               value={query}
               onChange={setQuery}
               className="w-full sm:w-72"

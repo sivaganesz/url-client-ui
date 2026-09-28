@@ -6,7 +6,7 @@ import AdminLogin from './pages/admin/AdminLogin'
 import AdminShell from './pages/admin/AdminShell'
 import Activity from './pages/admin/Activity'
 import Admins from './pages/admin/Admins'
-import Customers from './pages/admin/Customers'
+import AdminCustomers from './pages/admin/Customers'
 import NewCustomer from './pages/admin/NewCustomer'
 import { PageSkeleton } from './components/ui/States'
 import { useSession } from './lib/session'
@@ -32,8 +32,10 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Analytics = lazy(() => import('./pages/Analytics'))
 const Conversations = lazy(() => import('./pages/Conversations'))
 const CallLogs = lazy(() => import('./pages/CallLogs'))
+const Customers = lazy(() => import('./pages/Customers'))
 const Agents = lazy(() => import('./pages/Agents'))
 const PhoneNumbers = lazy(() => import('./pages/PhoneNumbers'))
+const Documents = lazy(() => import('./pages/Documents'))
 
 /**
  * Nothing behind this renders for a signed-out visitor.
@@ -76,7 +78,7 @@ function AdminRoutes() {
       <Routes>
         <Route path="login" element={<AdminLogin />} />
         <Route element={<RequireAdmin />}>
-          <Route index element={<Customers />} />
+          <Route index element={<AdminCustomers />} />
           <Route path="customers/new" element={<NewCustomer />} />
           <Route path="admins" element={<Admins />} />
           <Route path="activity" element={<Activity />} />
@@ -101,8 +103,11 @@ export default function App() {
         <Route path="conversations" element={<Conversations />} />
         <Route path="conversations/:id" element={<Conversations />} />
         <Route path="call-logs" element={<CallLogs />} />
+        <Route path="customers" element={<Customers />} />
+        <Route path="customers/:id" element={<Customers />} />
         <Route path="agents" element={<Agents />} />
         <Route path="phone-numbers" element={<PhoneNumbers />} />
+        <Route path="documents" element={<Documents />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
