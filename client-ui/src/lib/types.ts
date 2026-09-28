@@ -157,8 +157,6 @@ export interface Agent {
   conversations: number | null
   resolution: number | null
   updatedAt?: string
-  /** Only from getAgentsWithChannels — the Sender actions on the canvas. */
-  senders?: ChannelLabel[]
 }
 
 export interface Conversation {

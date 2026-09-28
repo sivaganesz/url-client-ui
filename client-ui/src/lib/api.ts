@@ -307,13 +307,10 @@ export async function getAgentReach(agentId?: string, signal?: AbortSignal): Pro
   const nodes = a?.nodes ?? []
   return {
     published: a?.status === 'published',
-    channels: [
-      ...new Set(
-        nodes
-          .filter((n) => n.type === 'trigger' && n.config?.channel)
-          .map((n) => channelLabel(n.config?.channel)),
-      ),
-    ],
+    // As the workspace reports them, one per trigger node on the canvas.
+    // Reading the nodes to work the same thing out again would only be a
+    // second opinion about the graph they came from.
+    channels: [...new Set((a?.channels ?? []).map(channelLabel))],
     senders: [
       ...new Set(
         nodes
@@ -399,53 +396,6 @@ const mapAgent = (a: ApiAgent): Agent => ({
 
 export async function getAgents(signal?: AbortSignal): Promise<Agent[]> {
   return rows<ApiAgent>(await rest('agents', undefined, signal)).map(mapAgent)
-}
-
-/**
- * Agents with the channels they can actually be reached on.
- *
- * The list endpoint reports `channels: ["web"]` for every agent, so it can't
- * be used to decide what an agent handles. The truth is in the graph: a
- * trigger node's `config.channel` names the channel that starts a
- * conversation, and an agent without one for a channel cannot be reached on it.
- *
- * That costs one detail request per agent, which is why this is separate from
- * getAgents() — only the callers that need it pay for it.
- */
-export async function getAgentsWithChannels(): Promise<Agent[]> {
-  const list = rows<ApiAgent>(await rest('agents'))
-  const graphs = await Promise.all(
-    list.map((a) =>
-      rest<ApiAgent | { data: ApiAgent }>(`agents/${a.id}`)
-        .then((r) => ('data' in r ? r.data : r))
-        .catch(() => null),
-    ),
-  )
-
-  return list.map((a, i): Agent => {
-    const nodes = graphs[i]?.nodes ?? []
-    return {
-      ...mapAgent(a),
-      channels: [
-        ...new Set(
-          nodes
-            .filter((n) => n.type === 'trigger' && n.config?.channel)
-            .map((n) => channelLabel(n.config?.channel)),
-        ),
-      ],
-      // Sender actions — "whatsapp_sender" and friends. A text channel with a
-      // trigger but no sender starts a conversation that can never reply, and
-      // the API only reports that after the fact, via send_authorized.
-      senders: [
-        ...new Set(
-          nodes
-            .map((n) => /^(.+)_sender$/.exec(n.type)?.[1])
-            .filter((x): x is string => Boolean(x))
-            .map(channelLabel),
-        ),
-      ],
-    }
-  })
 }
 
 /**
