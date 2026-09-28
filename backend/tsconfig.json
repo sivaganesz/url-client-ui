@@ -1,0 +1,34 @@
+{
+  // Node runs the TypeScript directly (--experimental-strip-types), so this
+  // config only ever type-checks. Nothing is emitted; there is no build step
+  // and no dist/ to keep in sync with the source.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+
+    // Same bar as the frontend. Strictness is cheaper to keep than to add.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+
+    // Type stripping erases types and does not transform. Anything needing a
+    // real transform — enums, namespaces, decorators, parameter properties —
+    // would not survive, so the compiler rejects it here rather than letting
+    // it fail at runtime.
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src"]
+}

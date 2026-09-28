@@ -1,25 +1,16 @@
 {
-  "name": "siva-workspace-client-ui",
+  "name": "url-factory",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
+  "description": "The client console and the backend that serves it, as one deployable.",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "lint": "eslint .",
-    "proxy": "node server/index.js",
-    "discover": "node server/discover.js"
-  },
-  "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-router-dom": "^7.9.1"
-  },
-  "devDependencies": {
-    "@tailwindcss/vite": "^4.1.13",
-    "@vitejs/plugin-react": "^5.0.2",
-    "tailwindcss": "^4.1.13",
-    "vite": "^7.1.5"
+    "build": "cd client-ui && npm ci --include=dev && npm run build && cd ../backend && npm ci --omit=dev",
+    "start": "cd backend && npm start",
+    "migrate": "cd backend && npm run migrate",
+    "seed:admin": "cd backend && npm run seed:admin",
+    "seed:dev": "cd backend && npm run seed:dev"
   }
 }
