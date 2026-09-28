@@ -3,7 +3,7 @@ import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom
 import Avatar from '../components/ui/Avatar'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import DataBanner from '../components/ui/DataBanner'
-import { SearchInput, Tabs } from '../components/ui/Field'
+import { ChipGroup, SearchInput, Tabs } from '../components/ui/Field'
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States'
 import { IconChat, IconChevronLeft, IconChevronRight, channelIcon } from '../components/icons'
 import { cn } from '../lib/cn'
@@ -334,66 +334,110 @@ function Profile({
   )
 }
 
+/**
+ * What the platform will filter a conversation list by.
+ *
+ * `ended` is one of its statuses too and is deliberately not offered: it
+ * says a conversation stopped, not how it went, and it covers most of them
+ * — a chip that selects nearly everything is not a filter.
+ */
+const STATUSES = ['All', 'Active', 'Resolved', 'Escalated', 'Abandoned'] as const
+
 /** Every conversation this customer has had, newest first. */
 function Communication({ customerId }: { customerId: string }) {
+  const [filter, setFilter] = useState<(typeof STATUSES)[number]>('All')
+
   const {
     data: conversations,
     status,
     error,
     reload,
   } = useResource<ApiConversation[]>(
-    (signal) => getCustomerConversations(customerId, signal),
+    (signal) =>
+      getCustomerConversations(customerId, filter === 'All' ? undefined : filter.toLowerCase(), signal),
     [],
-    [customerId],
+    [customerId, filter],
+  )
+
+  const chips = (
+    <ChipGroup
+      label="Filter conversations by status"
+      options={STATUSES}
+      value={filter}
+      onChange={setFilter}
+      className="mb-3"
+    />
   )
 
   if (status === 'loading') {
     return (
-      <div className="flex flex-col gap-2">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-14" />
-        ))}
-      </div>
+      <>
+        {chips}
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-14" />
+          ))}
+        </div>
+      </>
     )
   }
-  if (status === 'error') return <DataBanner status={status} error={error} onRetry={reload} />
+  if (status === 'error') {
+    return (
+      <>
+        {chips}
+        <DataBanner status={status} error={error} onRetry={reload} />
+      </>
+    )
+  }
   if (conversations.length === 0) {
     return (
-      <EmptyState
-        icon={IconChat}
-        title="Nothing yet"
-        note="This customer has not been in touch."
-      />
+      <>
+        {chips}
+        <EmptyState
+          icon={IconChat}
+          title={filter === 'All' ? 'Nothing yet' : `No ${filter.toLowerCase()} conversations`}
+          note={
+            filter === 'All'
+              ? 'This customer has not been in touch.'
+              : 'They have been in touch, just not on this status. Try All.'
+          }
+        />
+      </>
     )
   }
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-card border border-line bg-surface shadow-card">
-      {conversations.map((c) => (
-        <Link
-          key={c.id}
-          to={`/conversations/${c.id}`}
-          className="flex items-center gap-3 border-b border-line/60 px-4 py-3 transition-colors last:border-b-0 hover:bg-sunken"
-        >
-          <span className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="flex flex-wrap items-center gap-1.5">
-              {(c.channels?.length ? c.channels : [c.channel_started]).filter(Boolean).map((ch) => (
-                <ChannelChip key={String(ch)} channel={String(ch)} />
-              ))}
-              {c.status && <StatusBadge label={label(c.status)} />}
+    <>
+      {chips}
+      <div className="flex flex-col overflow-hidden rounded-card border border-line bg-surface shadow-card">
+        {conversations.map((c) => (
+          <Link
+            key={c.id}
+            to={`/conversations/${c.id}`}
+            className="flex items-center gap-3 border-b border-line/60 px-4 py-3 transition-colors last:border-b-0 hover:bg-sunken"
+          >
+            <span className="flex min-w-0 flex-1 flex-col gap-1">
+              <span className="flex flex-wrap items-center gap-1.5">
+                {(c.channels?.length ? c.channels : [c.channel_started])
+                  .filter(Boolean)
+                  .map((ch) => (
+                    <ChannelChip key={String(ch)} channel={String(ch)} />
+                  ))}
+                {c.status && <StatusBadge label={label(c.status)} />}
+              </span>
+              {c.summary && (
+                <span className="line-clamp-1 text-[11.5px] text-ink-2">{c.summary}</span>
+              )}
+              <span className="text-[11px] text-ink-3" title={dateTime(c.created_at)}>
+                Started {timeAgo(c.created_at)}
+                {c.updated_at ? ` · last activity ${timeAgo(c.updated_at)}` : ''}
+              </span>
             </span>
-            {c.summary && (
-              <span className="line-clamp-1 text-[11.5px] text-ink-2">{c.summary}</span>
-            )}
-            <span className="text-[11px] text-ink-3" title={dateTime(c.created_at)}>
-              Started {timeAgo(c.created_at)}
-              {c.updated_at ? ` · last activity ${timeAgo(c.updated_at)}` : ''}
-            </span>
-          </span>
-          <IconChevronRight size={14} className="shrink-0 text-ink-4" />
-        </Link>
-      ))}
-    </div>
+            <IconChevronRight size={14} className="shrink-0 text-ink-4" />
+          </Link>
+        ))}
+      </div>
+    </>
   )
 }
 

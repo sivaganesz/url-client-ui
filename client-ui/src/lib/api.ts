@@ -1168,6 +1168,8 @@ export function getCustomerDetails(
  */
 export async function getCustomerConversations(
   customerId: string,
+  /** One of the platform\u2019s own statuses, or undefined for all of them. */
+  status?: string,
   signal?: AbortSignal,
   max = 10,
 ): Promise<ApiConversation[]> {
@@ -1175,7 +1177,14 @@ export async function getCustomerConversations(
   let cursor: string | null = null
 
   for (let page = 0; page < max; page++) {
-    const params: Record<string, string | number> = { limit: 100, ...(cursor ? { cursor } : null) }
+    // Filtered by the workspace rather than here: a status the browser
+    // filtered out would still have been paged through to reach, and the
+    // endpoint takes the parameter precisely so it does not have to be.
+    const params: Record<string, string | number> = {
+      limit: 100,
+      ...(status ? { status } : null),
+      ...(cursor ? { cursor } : null),
+    }
     const body: { conversations?: ApiConversation[]; next_cursor?: string | null } = await rest(
       `customers/${customerId}/conversations`,
       params,
