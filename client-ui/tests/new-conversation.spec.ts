@@ -84,3 +84,33 @@ test('Send stays disabled until the form is complete', async ({ page }) => {
   // Nothing chosen and nothing typed, so there is nothing to send.
   await expect(dialog.getByRole('button', { name: /^(Send|Call|Start)/i }).last()).toBeDisabled()
 })
+
+/**
+ * A number that cannot be dialled.
+ *
+ * The one submission it is safe to make here, and the reason is the point of
+ * the test: the number is refused in the browser, so nothing reaches the
+ * carrier and no telephone rings.
+ *
+ * Placing a call hands over to the corner panel and closes this dialog. A
+ * number that never becomes a call has no panel to be reported in, so the
+ * refusal has to be shown here — otherwise the window simply shuts and the
+ * operator is left believing they placed a call.
+ */
+test('a number that cannot be dialled is refused here, not silently', async ({ page }) => {
+  const dialog = page.getByRole('dialog')
+
+  await dialog.getByRole('button', { name: 'Phone call', exact: true }).click()
+  await page.getByLabel('Phone number').fill('1234')
+
+  const call = page.getByRole('button', { name: 'Call', exact: true })
+  await expect(call).toBeEnabled()
+  await call.click()
+
+  // Still open, and saying why.
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText(/10-digit number|\+91/)
+
+  // And no call was placed: the corner panel never appeared.
+  await expect(page.getByRole('dialog', { name: /Call with/i })).toHaveCount(0)
+})

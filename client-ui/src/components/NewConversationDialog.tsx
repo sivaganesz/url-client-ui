@@ -8,7 +8,7 @@ import Spinner from './ui/Spinner'
 import { FormField, controlClass } from './ui/Field'
 import { IconAlert, IconChat, IconChevronRight, IconMail, IconPhone, IconPlay, IconSms } from './icons'
 import { cn } from '../lib/cn'
-import { useCall } from '../lib/operator'
+import { dialProblem, useCall } from '../lib/operator'
 import type { StartedConversation } from '../lib/types'
 import type { IconProps } from './icons'
 
@@ -159,6 +159,15 @@ export default function NewConversationDialog({
        * where a call that did not connect now says so.
        */
       if (isCall) {
+        // Checked before handing over, because handing over is what closes
+        // this dialog. A number that cannot be dialled never becomes a call,
+        // so there would be no panel left to report it in — the window would
+        // simply shut and nothing would happen.
+        const problem = dialProblem(to)
+        if (problem) {
+          setFailure(problem)
+          return
+        }
         void operator.dial({ name: to, phone: to }).catch(() => {})
         onClose?.()
         return

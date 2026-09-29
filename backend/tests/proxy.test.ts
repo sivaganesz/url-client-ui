@@ -2,6 +2,7 @@ import { beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { fakeUpstream, useTestDatabase } from './harness.ts'
+import { asDialled, destinationProblem, mayRing } from '../src/routes/perfox.ts'
 import { Client, makeWorkspace, start, truncate } from './client.ts'
 import { decrypt, encrypt } from '../src/crypto.ts'
 
@@ -468,15 +469,20 @@ describe('restricting who can be rung', () => {
    * Unset is the shipped state, and it must mean "no opinion" rather than
    * "nothing allowed" — a guard that refuses everything when it is switched
    * off would take the product down rather than protect it.
+   *
+   * Who may be rung and what shape a number takes are separate questions:
+   * the list says nothing here, and the destination is still checked. See
+   * "what may be sent to" below.
    */
-  test('with nothing set, any number goes through', async () => {
+  test('with nothing set, any customer may be reached', async () => {
     const up = await fakeUpstream({ ok: true })
     try {
       const c = await signedIn(up.url)
       const res = await c.post('/api/perfox/outbound', {
         agent_id: 'a1',
-        channel: 'phone',
-        to: '+441234567890',
+        channel: 'sms',
+        // Not on any list, and nobody this workspace has spoken to before.
+        to: '9812345678',
       })
       assert.equal(res.status, 200)
       assert.equal(up.seen.length, 1)
@@ -692,6 +698,167 @@ describe('ending a call', () => {
       assert.equal(res.status, 200)
     } finally {
       await up.close()
+    }
+  })
+})
+
+/**
+ * Which number the allowlist lets through.
+ *
+ * The guard exists so that a mistyped digit, on a workspace wired to a real
+ * carrier, rings nobody instead of a stranger. That makes the comparison the
+ * whole feature: a rule that accepts a number it was not given is not a
+ * weaker guard, it is a guard that dials somebody who never agreed to it.
+ *
+ * Whole numbers are compared, not suffixes. +91 63741 60200, 916374160200
+ * and 00916374160200 are one telephone written three ways; 16374160200 is a
+ * North American number that merely shares the last ten digits.
+ */
+describe('which numbers may be rung', () => {
+  const LIST = ['916374160200']
+
+  const allowed: [string, string][] = [
+    ['916374160200', 'the approved number'],
+    ['+91 63741 60200', 'the same, with spaces and a plus'],
+    ['00916374160200', 'the same, dialled with an international prefix'],
+    ['  +91-63741-60200  ', 'the same, punctuated and padded'],
+  ]
+  for (const [number, why] of allowed) {
+    test(`allows ${JSON.stringify(number)} — ${why}`, () => {
+      assert.equal(mayRing(number, LIST), true)
+    })
+  }
+
+  const refused: [unknown, string][] = [
+    ['16374160200', 'country code 1 — a different telephone'],
+    ['999916374160200', 'digits prefixed onto the approved number'],
+    ['6374160200', 'the national number without its country code'],
+    ['60200', 'a suffix of the approved number'],
+    ['200', 'three digits'],
+    ['0', 'a single digit'],
+    ['', 'nothing at all'],
+    [null, 'no number given'],
+    [undefined, 'the field absent'],
+    ['916374160201', 'one digit different'],
+    ['+1 555 0100', 'an unrelated number'],
+  ]
+  for (const [number, why] of refused) {
+    test(`refuses ${JSON.stringify(number)} — ${why}`, () => {
+      assert.equal(mayRing(number, LIST), false)
+    })
+  }
+
+  /**
+   * Unset is the shipped state, and it must mean "no opinion" rather than
+   * "nothing allowed".
+   */
+  test('an empty list permits everything, including nothing', () => {
+    assert.equal(mayRing('+441234567890', []), true)
+    assert.equal(mayRing('', []), true)
+  })
+
+  test('more than one number can be listed', () => {
+    const two = ['916374160200', '+44 20 7946 0958']
+    assert.equal(mayRing('442079460958', two), true)
+    assert.equal(mayRing('916374160200', two), true)
+    assert.equal(mayRing('442079460959', two), false)
+  })
+})
+
+/**
+ * What may be sent to.
+ *
+ * Not an allowlist — an operator messages whoever their customers are. This
+ * refuses what cannot be a destination at all, on the endpoint that carries
+ * SMS, WhatsApp and email alike.
+ *
+ * Phone numbers are Indian for this deployment. A number from elsewhere is
+ * refused deliberately, and widening it means changing this test with the
+ * code, which is the point of pinning it here.
+ */
+describe('what may be sent to', () => {
+  const fine: [string, string, string][] = [
+    ['6374160200', 'sms', 'the national number'],
+    ['916374160200', 'sms', 'with the country code'],
+    ['+91 63741 60200', 'whatsapp', 'spaced and punctuated'],
+    ['00916374160200', 'sms', 'dialled with an international prefix'],
+    ['9123456789', 'sms', 'ten digits that happen to begin 91'],
+    ['919123456789', 'sms', 'the same, with the country code'],
+    ['name@example.com', 'email', 'an email address'],
+    ['a.b+tag@sub.example.co.uk', 'email', 'a more awkward address'],
+  ]
+  for (const [to, channel, why] of fine) {
+    test(`allows ${JSON.stringify(to)} on ${channel} — ${why}`, () => {
+      assert.equal(destinationProblem(to, channel), null)
+    })
+  }
+
+  const refused: [unknown, string, string][] = [
+    ['', 'sms', 'nothing at all'],
+    ['   ', 'sms', 'whitespace'],
+    [null, 'sms', 'no value'],
+    ['637416020', 'sms', 'nine digits'],
+    ['63741602001', 'sms', 'eleven digits'],
+    ['16374160200', 'sms', 'country code 1 — a different country'],
+    ['+44 20 7946 0958', 'sms', 'a UK number'],
+    ['999916374160200', 'sms', 'digits prefixed onto a valid number'],
+    ['a customer name', 'sms', 'text where a number belongs'],
+    ['11111111-2222-3333-4444-555555555555', 'sms', 'a conversation id pasted in'],
+    ['not-an-email', 'email', 'text with no @'],
+    ['', 'email', 'an empty address'],
+    ['name@example.com', 'sms', 'an address on a phone channel'],
+    ['6374160200', 'email', 'a number on the email channel'],
+  ]
+  for (const [to, channel, why] of refused) {
+    test(`refuses ${JSON.stringify(to)} on ${channel} — ${why}`, () => {
+      assert.notEqual(destinationProblem(to, channel), null)
+    })
+  }
+
+  test('the reason is something an operator can act on', () => {
+    assert.match(String(destinationProblem('123', 'sms')), /10-digit/)
+    assert.match(String(destinationProblem('x', 'email')), /email address/)
+    assert.match(String(destinationProblem('', 'sms')), /required/)
+  })
+})
+
+/**
+ * What actually leaves for the carrier.
+ *
+ * Plivo refuses a bare national number, so accepting a ten-digit entry is not
+ * enough — it has to be completed to +91 before it goes out, or the send fails
+ * upstream with a message the operator cannot act on.
+ */
+describe('the number that leaves', () => {
+  const completed: [string, string][] = [
+    ['6374160200', 'a ten-digit entry gains its country code'],
+    ['916374160200', 'already carrying one, unchanged'],
+    ['+91 63741 60200', 'punctuation and spacing removed'],
+    ['00916374160200', 'an international prefix reduced'],
+    ['9123456789', 'ten digits that begin 91 are national, not prefixed'],
+    ['919123456789', 'the same number with its country code'],
+  ]
+  for (const [input, why] of completed) {
+    test(`${JSON.stringify(input)} — ${why}`, () => {
+      const out = asDialled(input)
+      assert.match(String(out), /^\+91\d{10}$/, 'not in the shape the carrier takes')
+    })
+  }
+
+  test('the same telephone, however it is written, leaves identically', () => {
+    const forms = ['6374160200', '916374160200', '+91 63741 60200', '00916374160200', '+91-63741-60200']
+    const out = forms.map((f) => asDialled(f))
+    assert.deepEqual(new Set(out), new Set(['+916374160200']))
+  })
+
+  test('9123456789 is not mistaken for a country code and eight digits', () => {
+    assert.equal(asDialled('9123456789'), '+919123456789')
+    assert.equal(asDialled('919123456789'), '+919123456789')
+  })
+
+  test('what cannot be dialled completes to nothing', () => {
+    for (const bad of ['', '   ', '637416020', '63741602001', '16374160200', '+44 20 7946 0958', 'a name', null]) {
+      assert.equal(asDialled(bad), null, `${JSON.stringify(bad)} should not complete`)
     }
   })
 })
