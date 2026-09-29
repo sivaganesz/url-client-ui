@@ -1,9 +1,8 @@
-# Running this on your own server
+# Deployment
 
-Written for whoever is deploying this for the first time. It assumes you have
-never seen the codebase.
+How this application is deployed today, and how to run it on your own server.
 
-Read **Five things that will bite you** before you deploy anything. The rest is
+Read **Five things that will bite you** before deploying anything. The rest is
 ordinary.
 
 ---
@@ -11,18 +10,40 @@ ordinary.
 ## What this is
 
 A multi-tenant console. Each customer has their own Perfox workspace, and this
-app talks to those workspaces on their behalf — conversations, documents,
-analytics, and outbound phone calls placed from the browser.
+application talks to those workspaces on their behalf — conversations,
+documents, analytics, and outbound phone calls placed from the browser.
 
 Two halves in one repository:
 
 | | |
 |---|---|
-| `backend/` | Express 5 on Node 22, Postgres. The API, and the proxy to Perfox. |
-| `client-ui/` | React 19 built by Vite. Compiles to static files. |
+| [`backend/`](backend/README.md) | Express 5 on Node 22, Postgres. The API, and the proxy to Perfox. |
+| [`client-ui/`](client-ui/README.md) | React 19 built by Vite. Compiles to static files. |
 
 **In production one process serves both.** The backend serves the built
 frontend itself. That is not a convenience — see warning 3.
+
+---
+
+## How it is deployed today
+
+The current arrangement, which a new deployment replaces:
+
+| | |
+|---|---|
+| Host | Railway |
+| Edge | Cloudflare in front of it |
+| Database | Railway-managed Postgres |
+| Trigger | Railway redeploys when the deploy branch moves |
+| Migrations | run against the production database before the new build serves traffic |
+
+CI runs on GitHub Actions on every push — lint, typecheck, the backend suite
+and the production build — and is independent of the deploy.
+
+Everything below is written so that moving off this is a matter of
+configuration rather than code: nothing in the application depends on Railway,
+and the only host-specific decision left is where TLS to the database is
+required (`DATABASE_SSL`, below).
 
 ---
 
@@ -31,20 +52,20 @@ frontend itself. That is not a convenience — see warning 3.
 ### 1. Never generate a new `ENCRYPTION_KEY` for an existing database
 
 This key encrypts every customer's Perfox API key and operator secret in the
-database. It is deliberately **not** stored in the database, so a stolen
-backup is worthless without it.
+database. It is deliberately **not** stored in the database, so a stolen backup
+is worthless without it.
 
 The consequence: **your database backups do not contain this key.** Back it up
 separately or the backups are unreadable.
 
-If you start the app against an existing database with the wrong key, it does
-not crash and it does not warn you. Decryption returns nothing, so every
-workspace simply reads as *"Operator calling is not set up"*. It looks like
-the configuration was wiped.
+If the application starts against an existing database with the wrong key, it
+does not crash and it does not warn. Decryption returns nothing, so every
+workspace reads as *"Operator calling is not set up"*. It looks like the
+configuration was wiped.
 
 **Do not re-enter the credentials when you see that.** Saving them writes new
-ciphertext over the old, and at that point the original data is gone even if
-the correct key turns up later. Stop, and find the original key.
+ciphertext over the old, and at that point the original data is unrecoverable
+even if the correct key turns up later. Stop, and find the original key.
 
 Generate one **only** for a genuinely new database:
 
@@ -62,7 +83,8 @@ real limit becomes ten times the number of instances, and an attacker spreading
 requests across them is barely limited at all. Sessions are in Postgres and are
 fine; it is only the rate limiter.
 
-Scale vertically, not horizontally, until that moves to shared storage.
+Scale vertically, not horizontally, until that moves to shared storage. See
+[AUTH.md](backend/AUTH.md).
 
 ### 3. `CLIENT_DIST` must be set
 
@@ -70,36 +92,36 @@ It points the backend at the frontend's built files, so the app and the API
 answer on **one origin**.
 
 That is what lets the session cookie stay `SameSite=Lax`, which is what makes
-the browser reject cross-site requests for us. Serve the frontend from a
-separate host or CDN and that protection is gone: you would need
-`SameSite=None` and a CSRF defence that does not currently exist.
+the browser reject cross-site requests for us. Serving the frontend from a
+separate host or CDN removes that protection: it would need `SameSite=None` and
+a CSRF defence that does not currently exist.
 
 Put a CDN in front of the whole origin if you want one. Do not split the two.
 
-### 4. Backups are yours now
+### 4. Backups are yours
 
-Postgres holds every customer's conversations, documents metadata, users and
-encrypted credentials. Nothing in this application backs itself up.
+Postgres holds every customer's conversations metadata, users and encrypted
+credentials. Nothing in this application backs itself up.
 
-Set up automated backups, and test a restore — including that the app starts
-against the restored database with the key from warning 1.
+Set up automated backups, and test a restore — including that the application
+starts against the restored database with the key from warning 1.
 
-### 5. Updating the operator SDK takes three steps, not one
+### 5. Updating the operator SDK takes three steps, not two
 
 `@perfox/operator-react` is **not** on npm. It is a tarball committed at
 `client-ui/vendor/`, handed over by the platform team.
 
 ```bash
 # 1. put the new .tgz in client-ui/vendor/ and update the path in package.json
-# 2.
-npm i
-# 3. THIS ONE. Without it a running dev server keeps serving the old copy.
+npm install
+# 2. clear Vite's pre-bundled copy, then restart the dev server
 rm -rf client-ui/node_modules/.vite
 ```
 
-Skipping step 3 costs hours. The files on disk are correct, the browser runs
-the previous version, and the app misbehaves in ways that do not match the
-code you are reading. Restart the dev server after clearing that cache.
+The second step is required. A running Vite pre-bundles dependencies at startup
+and keeps serving that copy after `npm install` replaces the files on disk — so
+the browser runs the previous version while the source on disk is the new one,
+and the two do not contradict each other anywhere you would think to look.
 
 ---
 
@@ -125,14 +147,14 @@ All of it belongs to the backend. Nothing here reaches the browser bundle.
 | `DATABASE_URL` | `postgres://user:pass@host:5432/dbname` |
 | `ENCRYPTION_KEY` | See warning 1. Back it up separately. |
 
-The app exits at startup if either is missing.
+The application exits at startup if either is missing.
 
 ### Expected in production
 
 | Variable | Set it to |
 |---|---|
-| `NODE_ENV` | `production` |
-| `PORT` | The port to listen on. Defaults to `4300`, which is also what development uses. |
+| `NODE_ENV` | `production` — sets `Secure` on the session cookies and turns on `trust proxy`, without which per-IP rate limiting counts the load balancer |
+| `PORT` | The port to listen on. Defaults to `4300`. |
 | `CLIENT_DIST` | Absolute path to `client-ui/dist`. See warning 3. |
 
 ### Optional
@@ -141,14 +163,14 @@ The app exits at startup if either is missing.
 |---|---|---|
 | `DATABASE_SSL` | `auto` | `auto`, `require` or `off`. See below. |
 | `SESSION_TTL_DAYS` | `7` | How long a session survives unused. |
-| `ALLOW_REGISTRATION` | `false` | Leave it off. Accounts are created by an admin. |
+| `ALLOW_REGISTRATION` | `false` | Leave it off. Accounts are created by an administrator. |
 | `OUTBOUND_ALLOWLIST` | empty | Comma-separated numbers an agent may ring. Empty means no restriction, which is correct in production — see below. |
 
 #### `DATABASE_SSL`
 
 Managed Postgres refuses unencrypted connections, and the driver cannot infer
-that from the URL, so the app decides by looking at the host. On `auto` it
-connects **without** TLS only for hosts that are clearly private:
+that from the URL, so the application decides by looking at the host. On `auto`
+it connects **without** TLS only for hosts that are clearly private:
 
 - `localhost`, `127.0.0.1`, `::1`
 - `10.x`, `192.168.x`, `172.16–31.x`
@@ -159,8 +181,8 @@ Everything else gets TLS. If the guess is wrong, set it explicitly — `require`
 for a managed database behind a private-looking hostname, `off` for a database
 genuinely on a private network the list does not recognise.
 
-If TLS is wrong you will see an error that reads like a bad password. Check
-this before you doubt the credentials.
+A TLS mismatch surfaces as an error that reads like a bad password. Check this
+before doubting the credentials.
 
 #### `OUTBOUND_ALLOWLIST`
 
@@ -170,7 +192,7 @@ ring those numbers, so a mistyped digit reaches nobody.
 **Leave it empty in production.** A console whose purpose is phoning customers
 cannot carry a list of permitted customers.
 
-It only guards calls placed by an *agent*. An operator dialling from the
+It guards only calls placed by an *agent*. An operator dialling from the
 browser talks to Perfox directly and never passes through this process.
 
 ---
@@ -200,10 +222,11 @@ this schema does nothing. That stops being true the day a column is dropped or
 renamed — and that is the day this needs a real migration tool rather than a
 longer file.
 
-### The first admin
+### The first administrator
 
-Nobody can sign in until an admin exists, and an admin cannot be created
-through the app — something has to exist before anything else can be made.
+Nobody can sign in until an administrator exists, and one cannot be created
+through the application — something has to exist before anything else can be
+made.
 
 ```bash
 cd backend
@@ -212,12 +235,12 @@ npm run seed:admin       # prompts for name, email, password
 
 Unattended, set `ADMIN_NAME`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` first.
 
-It **will not** reset an existing admin. Given an email that already exists it
-reports so and stops. To recover a lost admin password, change it in the
-database directly.
+It **will not** reset an existing administrator. Given an email that already
+exists it reports so and stops. To recover a lost administrator password,
+change it in the database directly.
 
 Then sign in at `/admin/login` and add customers there, entering each one's
-Perfox credentials.
+Perfox credentials. See [AUTH.md](backend/AUTH.md).
 
 ### Check it came up
 
@@ -236,15 +259,18 @@ accepted it. This endpoint is the one that answers whether it works.
 
 ## Known limits
 
-Not bugs, but things to know before you are surprised by them.
+Not defects, but things to know before being surprised by them.
 
 - **One instance only** — warning 2.
-- **No invite flow.** Customer accounts are created by an admin. Registration
-  is disabled and the endpoint refuses even if the page is reachable.
+- **No invite flow.** Customer accounts are created by an administrator.
+  Registration is disabled and the endpoint refuses even though the page is
+  reachable.
 - **No incoming calls.** The console places calls; it cannot receive them, and
   there is no answer UI. Operators are never marked available, so nothing is
-  routed to them.
-- **Admins cannot revoke their own sessions.** Another admin can.
+  routed to them. See
+  [client-ui/OPERATOR-INTEGRATION.md](client-ui/OPERATOR-INTEGRATION.md).
+- **Administrators cannot revoke their own sessions.** Another administrator
+  can.
 - **Changing `ENCRYPTION_KEY` is not supported.** There is no rotation script.
   Changing it strands every stored credential — see warning 1.
 
@@ -258,4 +284,15 @@ Not bugs, but things to know before you are surprised by them.
 | Database error that reads like a bad password | `DATABASE_SSL`, above |
 | Signed in, then signed out again immediately | `CLIENT_DIST` unset, so the app and API are on different origins |
 | Health check 503 | The process is up, Postgres is not reachable |
-| The app behaves in ways the code does not explain | A stale Vite cache — warning 5 |
+| Rate limiting never triggers behind a proxy | `NODE_ENV` is not `production`, so `trust proxy` is off and every request looks like one IP |
+| The browser behaves differently from the source on disk | A stale Vite cache — warning 5 |
+
+---
+
+## See also
+
+- [AUTH.md](backend/AUTH.md) — sessions, cookies, passwords, the attempt cap
+- [backend/README.md](backend/README.md) — the API, configuration, data model
+- [client-ui/README.md](client-ui/README.md) — the browser half
+- [client-ui/OPERATOR-INTEGRATION.md](client-ui/OPERATOR-INTEGRATION.md) —
+  operator calling
