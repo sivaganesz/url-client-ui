@@ -32,9 +32,8 @@ The current arrangement, which a new deployment replaces:
 | | |
 |---|---|
 | Host | Railway |
-| Edge | Cloudflare in front of it |
 | Database | Railway-managed Postgres |
-| Trigger | Railway redeploys when the deploy branch moves |
+| Trigger | Railway redeploys on a push to the branch set in its dashboard |
 | Migrations | run against the production database before the new build serves traffic |
 
 CI runs on GitHub Actions on every push — lint, typecheck, the backend suite
