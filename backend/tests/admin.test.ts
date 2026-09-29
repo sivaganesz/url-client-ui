@@ -769,3 +769,67 @@ describe('the audit trail is paged by the server', () => {
     assert.equal(huge.pagination.page_size, 200, 'the page size was not capped')
   })
 })
+
+/**
+ * What one administrator does to another.
+ *
+ * Creating an administrator was recorded; suspending one was not — and
+ * suspending is the heavier act, because it ends their live sessions rather
+ * than only refusing the next sign-in. An account that loses access with
+ * nothing in the trail leaves nobody to ask.
+ */
+describe('acts on administrators are recorded', () => {
+  beforeEach(async () => {
+    await truncate()
+    await query('TRUNCATE admins, admin_sessions, admin_events CASCADE')
+    await start()
+    await makeAdmin()
+  })
+
+  test('suspending and reinstating another administrator', async () => {
+    const admin = await signedInAdmin()
+    const otherId = await makeAdmin('second@t.test', 'another-long-password')
+
+    assert.equal(
+      (await admin.post(`/api/admin/admins/${otherId}/status`, { status: 'suspended' })).status,
+      200,
+    )
+    assert.equal(
+      (await admin.post(`/api/admin/admins/${otherId}/status`, { status: 'active' })).status,
+      200,
+    )
+
+    const { events } = await (await admin.get('/api/admin/events')).json()
+    const acts = events.map((e: { action: string }) => e.action)
+
+    // Newest first, and the create that made the second account is below them.
+    assert.deepEqual(acts.slice(0, 2), ['admin.reinstate', 'admin.suspend'])
+
+    const suspend = events.find((e: { action: string }) => e.action === 'admin.suspend')
+    assert.equal(suspend.target_type, 'admin')
+    assert.equal(suspend.target_label, 'second@t.test', 'the entry does not say who it was about')
+    assert.equal(suspend.admin_email, ADMIN.email, 'the entry does not say who did it')
+  })
+
+  test('an administrator changing their own password', async () => {
+    const admin = await signedInAdmin()
+
+    assert.equal(
+      (
+        await admin.post('/api/admin/password', {
+          currentPassword: ADMIN.password,
+          newPassword: 'a-brand-new-long-password',
+        })
+      ).status,
+      200,
+    )
+
+    const body = await (await admin.get('/api/admin/events')).text()
+    assert.doesNotMatch(body, /brand-new-long-password/, 'the new password was recorded')
+    assert.doesNotMatch(body, new RegExp(ADMIN.password), 'the old password was recorded')
+
+    const { events } = JSON.parse(body)
+    assert.equal(events[0].action, 'admin.password')
+    assert.equal(events[0].admin_email, ADMIN.email)
+  })
+})

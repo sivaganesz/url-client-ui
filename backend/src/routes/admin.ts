@@ -116,7 +116,6 @@ interface CustomerRow {
   workspace_name: string
   perfox_api_base: string | null
   has_api_token: boolean
-  token_hint: string | null
   has_operator: boolean
   user_id: string | null
   user_name: string | null
@@ -140,7 +139,6 @@ adminRouter.get('/admin/customers', requireAdmin, async (_req, res) => {
             w.name                            AS workspace_name,
             w.perfox_api_base,
             (w.perfox_api_token_enc IS NOT NULL)      AS has_api_token,
-            NULL::text                        AS token_hint,
             (w.operator_site_secret_enc IS NOT NULL
              AND w.operator_site_id IS NOT NULL)      AS has_operator,
             u.id AS user_id, u.name AS user_name, u.email, u.mobile,
@@ -501,6 +499,8 @@ adminRouter.post('/admin/password', requireAdmin, async (req, res) => {
   await query('DELETE FROM admin_sessions WHERE admin_id = $1', [admin.id])
   await createAdminSession(res, admin, req)
 
+  await record(req, 'admin.password', { type: 'admin', id: admin.id, label: admin.email })
+
   res.json({ ok: true })
 })
 
@@ -601,8 +601,8 @@ adminRouter.post('/admin/admins/:adminId/status', requireAdmin, validIds, async 
     }
   }
 
-  const rows = await query<{ id: string }>(
-    'UPDATE admins SET status = $1, updated_at = now() WHERE id = $2 RETURNING id',
+  const rows = await query<{ id: string; email: string }>(
+    'UPDATE admins SET status = $1, updated_at = now() WHERE id = $2 RETURNING id, email',
     [status, req.params.adminId],
   )
   if (rows.length === 0) {
@@ -614,6 +614,17 @@ adminRouter.post('/admin/admins/:adminId/status', requireAdmin, validIds, async 
     // The open tab has to stop working, not merely the next sign-in.
     await query('DELETE FROM admin_sessions WHERE admin_id = $1', [req.params.adminId])
   }
+
+  // Taking away another administrator — their sessions end mid-action —
+  // is the most consequential thing one can do to another, and the only
+  // privileged act that used to leave no trace. Creating one was already
+  // recorded; removing one now is too.
+  await record(req, status === 'suspended' ? 'admin.suspend' : 'admin.reinstate', {
+    type: 'admin',
+    id: String(req.params.adminId),
+    label: rows[0]!.email,
+  })
+
   res.json({ ok: true, status })
 })
 
