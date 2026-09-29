@@ -4,8 +4,10 @@ How to give a web app **live, two-way operator calling** using the Perfox
 operator SDK (`@perfox/operator-react`).
 
 This is written to be followed in a project that has none of it yet. It
-documents what was done in this app (`client-ui`), and the decisions worth
+documents how calling works in this app (`client-ui`), and the decisions worth
 copying or reconsidering. Code samples are complete enough to paste.
+
+Current against **SDK 0.1.1**.
 
 ---
 
@@ -28,20 +30,18 @@ different things that both look like "making a call":
 | Can Mute / Hold / Transfer do anything? | no — there is no local audio | **yes** |
 | Authorised by | the workspace API key | **a site key + a server-signed `user_hash`** |
 
-**The most common mistake** is building a call panel on top of agent outbound.
-It looks right — a call really is placed, a conversation really is created —
-but the operator was never on the line, so the panel's controls have nothing to
-control. That is exactly what this app had before the connector went in: the
-`CallScreen` component carried the comment *"Mute and Hold are UI only for
-now."* They are real now, and that is the whole difference.
+**A call panel built on agent outbound cannot work.** It looks right — a call
+really is placed, a conversation really is created — but the operator is never
+on the line, so the panel's controls have nothing to control. Mute, hold and
+transfer need a local audio stream to act on, and only the operator surface
+gives you one.
 
 ### Why use it
 
 - **Mute / hold / transfer / hang-up actually work**, because there is a local
   audio stream to act on.
 - **The status is the platform's, not a guess.** `dialing → ringing → live →
-  ended` comes from the call itself, so the UI can stop inventing state (this
-  app previously showed "Calling…" for a hardcoded three seconds).
+  ended` comes from the call itself, so the UI never has to invent state.
 - **You get the copilot surfaces for free.** The same session exposes live
   transcript, AI whispers, operator Ask-AI, compliance flags and a post-call
   summary — you choose which to render. See §10.
@@ -68,7 +68,7 @@ Browser                          Your backend                 Perfox tenant
    │  POST /api/public/operator/call_outbound                       │
    │  X-Perfox-Site: <siteId>   body: { operator:{…}, phone_number } │
    ├───────────────────────────────────────────────────────────────►│
-   │  ◄── conversation_id                                           │
+   │  ◄── conversation_id, call_id                                  │
    │  …poll answer/ until { livekit_url, token }                    │
    │  POST session/start ──► { session_id, ws_ticket }              │
    │                                                                │
@@ -94,7 +94,7 @@ Two rules:
    `externalId`, it can sign in as any operator.
 2. **`siteId` in the hash must match the `X-Perfox-Site` header.** If they
    disagree the platform answers `operator_signature_required`, which reads
-   like a bad secret but is usually a mismatched site (see §8).
+   like a bad secret but usually means a mismatched site (see §9).
 
 ---
 
@@ -104,19 +104,18 @@ Two rules:
 
 - **operator-enabled** — a normal site will not do; the toggle is separate
 - carrying your app's **origin in `allowed_origins`** — on the site **and on
-  the operator node**. Both. Missing the second one is the single most common
-  cause of a connector that "should work"
+  the operator node**. Both are required.
 
 **In the project:**
 
-- React **18 or newer** (peer dependency)
+- React **18 or newer** (peer dependency). This app is on 19.
 - A **server-side component** that can hold a secret — Node, Python, Go, a
-  serverless function, anything. It needs one endpoint (§5)
+  serverless function, anything. It needs one endpoint (§6)
 - The SDK tarball. `@perfox/operator-react` is **not on npm**; it ships as a
   file and is installed with a `file:` dependency
 - **A secure context for the microphone.** `getUserMedia` requires HTTPS.
   `localhost` is exempt, so dev works over plain HTTP, but any other host —
-  including a LAN IP like `192.168.1.5:5190` — silently fails to get a mic
+  including a LAN IP like `192.168.1.5:5180` — silently fails to get a mic
   until it is served over HTTPS
 
 **To actually hear anything**, a real phone call has to reach the workflow.
@@ -131,34 +130,28 @@ transcript and whispers do not.
 
 | Key | Example | Where it comes from | Secret? |
 |---|---|---|---|
-| `OPERATOR_API_HOST` | `https://acme-api.perfox.ai` | your tenant's API host | no |
-| `OPERATOR_SITE_ID` | `sa_site_live_xxxx…` | Studio → Sites, an **operator-enabled** site | no |
-| `OPERATOR_SITE_SECRET` | `sa_secret_live_xxxx…` | the same site | **YES — server only** |
-| `OPERATOR_WORKFLOW_ID` | `01a0c809-70dc-76b5-…` (a UUID) | the copilot workflow | no |
-| `OPERATOR_EXTERNAL_ID` | `op_console` | your app (see §6) | no |
-| `OPERATOR_NAME` | `Console Operator` | your app | no |
+| API host | `https://acme-api.perfox.ai` | your tenant's API host | no |
+| Site ID | `sa_site_live_xxxx…` | Studio → Sites, an **operator-enabled** site | no |
+| Site secret | `sa_secret_live_xxxx…` | the same site | **YES — server only** |
+| Workflow ID | `01a0c809-70dc-76b5-…` (a UUID) | the copilot workflow | no |
+
+**Who the operator is comes from the signed-in user**, not from configuration
+— see §6.
+
+In this app these four values are stored per workspace in the database,
+encrypted at rest, and entered through the admin UI. A single-tenant project
+would hold them in server-side environment variables instead.
 
 Notes:
 
 - **The site keys are a different credential from your workspace/API key.** A
   workspace key does not authorise the operator surface and the site secret
   does not authorise the REST API. Both can be present and unrelated.
-- `OPERATOR_WORKFLOW_ID` may be blank — it then falls back to the tenant's
-  default agent. Set it if you want a specific copilot.
-- `OPERATOR_SITE_SECRET` belongs in server-side env only. It must not appear in
-  a client bundle, a `VITE_`/`NEXT_PUBLIC_` variable, or a committed file. Add
-  it to whatever your logger redacts.
-
-### `.env`
-
-```bash
-OPERATOR_API_HOST=https://acme-api.perfox.ai
-OPERATOR_SITE_ID=sa_site_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-OPERATOR_WORKFLOW_ID=
-OPERATOR_SITE_SECRET=sa_secret_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-OPERATOR_EXTERNAL_ID=op_console
-OPERATOR_NAME=Console Operator
-```
+- The workflow ID may be blank — it then falls back to the tenant's default
+  agent. Set it if you want a specific copilot.
+- The site secret belongs in server-side storage only. It must not appear in a
+  client bundle, a `VITE_`/`NEXT_PUBLIC_` variable, or a committed file. Add it
+  to whatever your logger redacts.
 
 ### Origins
 
@@ -166,7 +159,7 @@ Add every origin the app is served from, exactly, to the site **and** the
 operator node:
 
 ```
-http://localhost:5190          ← dev (this project's Vite port)
+http://localhost:5180          ← dev (this project's Vite port)
 https://console.example.com    ← production
 ```
 
@@ -179,13 +172,13 @@ Scheme included, no trailing slash, and `localhost` is **not** the same as
 
 ```bash
 mkdir -p vendor
-cp /path/to/perfox-operator-react-0.1.0.tgz vendor/
+cp /path/to/perfox-operator-react-0.1.1.tgz vendor/
 ```
 
 ```jsonc
 // package.json
 "dependencies": {
-  "@perfox/operator-react": "file:vendor/perfox-operator-react-0.1.0.tgz"
+  "@perfox/operator-react": "file:vendor/perfox-operator-react-0.1.1.tgz"
 }
 ```
 
@@ -198,6 +191,19 @@ imports it **dynamically**, so a bundler splits it into its own chunk and it is
 only downloaded when a call actually starts. Do not force it into the main
 bundle.
 
+### Updating to a new tarball
+
+```bash
+# 1. new .tgz into vendor/, update the path in package.json
+npm install
+# 2. clear Vite's pre-bundled copy, then restart the dev server
+rm -rf node_modules/.vite
+```
+
+Step 2 is required. A running Vite pre-bundles dependencies at startup and
+keeps serving that copy after `npm install` replaces the files on disk, so the
+browser runs the previous version while the source on disk is the new one.
+
 ---
 
 ## 6. Step 2 — the signing endpoint
@@ -209,33 +215,32 @@ never the secret.
 // server — Node, zero dependencies beyond node:crypto
 import { createHmac } from 'node:crypto'
 
-const OPERATOR = {
-  apiHost: (process.env.OPERATOR_API_HOST ?? '').replace(/\/+$/, ''),
-  siteId: process.env.OPERATOR_SITE_ID ?? '',
-  workflowId: process.env.OPERATOR_WORKFLOW_ID ?? '',
-  secret: process.env.OPERATOR_SITE_SECRET ?? '',
-}
-
-const signOperator = (externalId) =>
-  createHmac('sha256', OPERATOR.secret)
-    .update(`${OPERATOR.siteId}.${externalId}`)
-    .digest('hex')
+const signOperator = (siteId, secret, externalId) =>
+  createHmac('sha256', secret).update(`${siteId}.${externalId}`).digest('hex')
 
 // GET /api/operator/config
 function operatorConfig(req, res) {
-  if (!OPERATOR.apiHost || !OPERATOR.siteId || !OPERATOR.secret) {
-    return res.status(503).json({ error: 'Operator SDK is not configured.' })
+  const site = configFor(req.user)          // env, or a row per tenant
+  if (!site?.apiHost || !site.siteId || !site.secret) {
+    // 200, not 503: "not configured" is a true answer to "what is the config?",
+    // and a non-2xx has the browser log an error on every page load of a
+    // workspace that simply does not have calling set up.
+    return res.json({ configured: false, reason: 'Operator calling is not set up.' })
   }
 
   // ▼ THE IMPORTANT LINE — derive identity from the session, never the request.
-  const externalId = `op_${req.session.user.id}`
-  const name = req.session.user.name
+  const externalId = `op_${req.user.id}`
 
   res.json({
-    apiHost: OPERATOR.apiHost,
-    siteId: OPERATOR.siteId,
-    workflowId: OPERATOR.workflowId || null,
-    operator: { externalId, name, userHash: signOperator(externalId) },
+    configured: true,
+    apiHost: site.apiHost,
+    siteId: site.siteId,
+    workflowId: site.workflowId || null,
+    operator: {
+      externalId,
+      name: req.user.name,
+      userHash: signOperator(site.siteId, site.secret, externalId),
+    },
   })
 }
 ```
@@ -243,14 +248,17 @@ function operatorConfig(req, res) {
 The response shape is deliberately the SDK's `config` object, so it drops
 straight into the provider with no remapping.
 
+**Every signed-in user is their own operator.** `op_<user id>` is stable for
+that account and unguessable by another, which is what keeps two people from
+contending over one presence.
+
 ### If your app has no login
 
-This one does not, so it signs a single fixed identity from env
-(`OPERATOR_EXTERNAL_ID`). Be aware of what that means: **every browser that
-opens the app is the same operator.** Two tabs are one operator and will
-contend over presence; an inbound call could ring either. That is acceptable
-for a single-seat console and is the first thing to fix if the app gets real
-users.
+Signing one fixed identity from configuration works, but be clear about what it
+means: **every browser that opens the app is the same operator.** Two tabs are
+one operator and will contend over presence; an inbound call could ring either.
+Acceptable for a single-seat console, and the first thing to fix when the app
+gets real users.
 
 A middle option is a stable per-session id backed by a cookie, which at least
 keeps two browsers distinct — though the operators remain anonymous.
@@ -297,9 +305,13 @@ export function OperatorGate({ children }) {
   useEffect(() => {
     let live = true
     fetch('/api/operator/config')
-      .then((r) => (r.ok ? r.json() : r.json().then((b) => Promise.reject(new Error(b.error)))))
-      .then((c) => live && setConfig(c))
-      .catch((err) => live && setReason(err.message))
+      .then((r) => r.json())
+      .then((c) => {
+        if (!live) return
+        if (c.configured) setConfig(c)
+        else setReason(c.reason)
+      })
+      .catch(() => live && setReason('The operator service could not be reached.'))
     return () => { live = false }
   }, [])
 
@@ -312,7 +324,11 @@ export function OperatorGate({ children }) {
     </OperatorProvider>
   )
 }
+```
 
+### Placing and ending a call
+
+```jsx
 function CallBridge({ children }) {
   const op = useOperator()
   const { dialOut, hold, hangup, setMicEnabled, session } = op
@@ -323,8 +339,6 @@ function CallBridge({ children }) {
   const [party, setParty] = useState(null)
   const [dialing, setDialing] = useState(false)
 
-  useEffect(() => { if (active?.status === 'ended') setParty(null) }, [active?.status])
-
   const dial = useCallback(async ({ name, phone }) => {
     const digits = String(phone ?? '').replace(/[^\d+]/g, '')
     if (!digits) throw new Error('No phone number to dial.')
@@ -333,41 +347,74 @@ function CallBridge({ children }) {
     try { await dialOut(digits) } finally { setDialing(false) }
 
     // dialOut REPORTS FAILURE IN STATE, NOT BY THROWING. Read the outcome back
-    // or callers will announce a call that never happened.
+    // or callers will announce a call that never happened. Checking activeCall
+    // alone is not enough: when nobody answers, the SDK sets `error` and leaves
+    // activeCall at 'dialing'. The error is the reliable signal.
     const s = session.getState()
-    if (!s.activeCall || s.activeCall.status === 'ended') {
+    if (!s.activeCall || s.activeCall.status === 'ended' || s.error) {
       setParty(null)
       throw new Error(s.error ?? 'The call could not be connected.')
     }
   }, [dialOut, session])
 
-  const end = useCallback(async () => { await hangup(); setParty(null) }, [hangup])
+  const end = useCallback(async () => {
+    // Read the ids BEFORE hanging up — hangup() clears the session on its way
+    // out, and the server call below is addressed to the session it forgets.
+    const current = session.getState().activeCall
+    const conversationId = current?.conversationId ?? null
+    const sessionId = current?.sessionId ?? ''
+    const answered = current?.status === 'live'
 
-  const value = useMemo(() => ({
-    ready: true,
-    reason: null,
-    call: party && (dialing || active) && active?.status !== 'ended'
-      ? {
-          ...party,
-          conversationId: active?.conversationId ?? null,
-          status: active?.status ?? 'dialing',
-          onHold: Boolean(active?.onHold),
-          muted: !op.micEnabled,
-        }
-      : null,
-    dialing,
-    // The SDK sets `error` but never clears it — a failed dial would otherwise
-    // stay on screen through the next good call.
-    error: active?.status === 'live' ? null : op.error,
-    dial,
-    end,
-    hold: (on) => hold(on),
-    mute: (on) => setMicEnabled(!on),
-  }), [party, dialing, active, op.micEnabled, op.error, dial, end, hold, setMicEnabled])
+    await hangup()
+    setParty(null)
 
-  return <CallContext.Provider value={value}>{children}</CallContext.Provider>
+    if (conversationId) stopOnServer(conversationId, sessionId, answered)
+  }, [hangup, session])
+
+  /* … */
 }
 ```
+
+**What `hangup()` does.** It stops the local audio, and if the call is still
+dialing or ringing it also calls `cancel_call` with Plivo's `call_id` — the
+request id, which is the only id that stops a phone ringing before pickup, and
+which exists only inside the SDK. Once the call is answered there is a room to
+leave and a session to stop instead.
+
+**Treat `end()` as destructive.** It really ends the call, at any stage. Do not
+call it speculatively from a poll, a reconciliation loop or a cleanup effect
+unless you are certain the call is over — on a ringing call it hangs up on a
+customer whose phone is still ringing.
+
+**Why there is a server call as well.** `hangup()` fires `session/stop` without
+awaiting it, without retrying, and marks the call ended locally on the next
+line. If that request fails, the operator sees a closed panel while the
+customer keeps a live line. A server route that retries, then confirms the
+conversation actually reached `ended`, is the difference between "we asked" and
+"it stopped".
+
+```js
+// Sends the same body either way. `beacon` is for a page that is going away:
+// sendBeacon is the one request a closing tab is allowed to finish, and there
+// the SDK's hangup never gets to run at all.
+function stopOnServer(conversationId, sessionId, answered, beacon = false) {
+  const body = JSON.stringify({ conversationId, sessionId, answered })
+  if (beacon && navigator.sendBeacon) {
+    navigator.sendBeacon('/api/operator/stop', new Blob([body], { type: 'application/json' }))
+    return
+  }
+  void fetch('/api/operator/stop', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+    keepalive: true,
+  }).catch(() => {})
+}
+```
+
+Call it again from a `pagehide` listener, with `beacon = true`. A tab closing
+mid-call otherwise leaves the customer holding a line to a browser that no
+longer exists.
 
 Mount the gate **above your router outlet**, not inside a page, so a call
 survives navigation:
@@ -388,15 +435,13 @@ export default function AppShell() {
 
 ---
 
-## 8. Step 4 — wire it into Call Settings
+## 8. Step 4 — wire it into the UI
 
-Two distinct jobs. Do both.
+### 8a. A settings screen — configure and verify
 
-### 8a. The Call Settings screen — configure and verify
-
-A settings screen should let someone confirm the connector is live *before*
-they are on a call with a customer. Surface the config the browser is allowed
-to see, plus a reachability check.
+Someone should be able to confirm the connector is live *before* they are on a
+call with a customer. Surface the config the browser is allowed to see, plus a
+reachability check.
 
 ```jsx
 function CallSettings() {
@@ -410,13 +455,9 @@ function CallSettings() {
   return (
     <section>
       <h2>Operator connector</h2>
-
-      <StatusRow
-        tone={ready ? 'ok' : 'warn'}
-        label={ready ? 'Connected' : 'Not connected'}
-        detail={ready ? null : reason}
-      />
-
+      <StatusRow tone={ready ? 'ok' : 'warn'}
+                 label={ready ? 'Connected' : 'Not connected'}
+                 detail={ready ? null : reason} />
       <dl>
         <dt>API host</dt>      <dd>{cfg?.apiHost ?? '—'}</dd>
         <dt>Site ID</dt>       <dd><code>{cfg?.siteId ?? '—'}</code></dd>
@@ -431,62 +472,68 @@ function CallSettings() {
 
 **Do not put the site secret on this screen, or an input that accepts one.**
 The endpoint deliberately never returns it; a settings form that posts a secret
-from the browser hands it to anyone with devtools. Secrets change in server
-env, not in the UI.
+from the browser hands it to anyone with devtools. Secrets change server-side,
+not in the UI.
 
-If you want settings to be editable at runtime rather than env-driven, store
-them server-side (a DB row) and have the endpoint read from there — the browser
-still only ever receives the non-secret fields plus the signed hash. That is
-how the sibling project `perfox-contact-center` does it, keyed per "AI agent".
+### 8b. The call trigger
 
-### 8b. The call trigger — replace agent outbound
-
-Wherever the app currently places a call, swap the outbound request for
-`dial()`:
+**Drive the button from the call, not from the `dial()` promise.** `dial()`
+settles when the SDK's dial loop stops, which is not the same moment the
+operator hangs up. The call in context disappears the instant the call ends, in
+every case — hang-up from this button, from the panel, or the call failing —
+so it is the signal that keeps the button honest.
 
 ```jsx
 function CallButton({ customer }) {
-  const { dial, call, ready, reason } = useCall()
-  const [busy, setBusy] = useState(false)
+  const { dial, end, call, ready, reason } = useCall()
+  const [calling, setCalling] = useState(false)
   const [error, setError] = useState(null)
+
+  const onThisCall = Boolean(call && digitsOf(call.phone) === digitsOf(customer.phone))
+
+  // Waiting to have SEEN a call first matters: for the tick between the click
+  // and the panel opening there is no call yet, and clearing on that would
+  // undo the click.
+  const hadCall = useRef(false)
+  useEffect(() => {
+    if (onThisCall) { hadCall.current = true; return }
+    if (!hadCall.current) return
+    hadCall.current = false
+    setCalling(false)
+  }, [onThisCall])
 
   const blocked = !customer.phone ? 'No phone number'
     : !ready ? reason
-    : call ? 'You are already on a call'
+    : call && !onThisCall ? 'You are already on a call'
     : null
 
   async function placeCall() {
-    setBusy(true); setError(null)
+    setCalling(true); setError(null)
     try {
       await dial({ name: customer.name, phone: customer.phone })
     } catch (err) {
       setError(err.message)     // works because dial() re-throws — see §7
     } finally {
-      setBusy(false)
+      setCalling(false)
     }
   }
 
   return (
-    <>
-      <button disabled={Boolean(blocked) || busy} title={blocked ?? `Call ${customer.phone}`}
-              onClick={placeCall}>
-        {busy ? 'Calling…' : 'Call'}
-      </button>
-      {error && <p role="alert">{error}</p>}
-    </>
+    <button disabled={onThisCall ? false : Boolean(blocked) || calling}
+            title={blocked ?? `Call ${customer.phone}`}
+            onClick={() => (onThisCall ? void end() : placeCall())}>
+      {onThisCall ? 'End Call' : calling ? 'Calling…' : 'Call'}
+    </button>
   )
 }
 ```
 
-**Revisit your disable conditions.** If the old button was gated on "does this
-conversation's agent have a phone trigger", that check is now meaningless — the
-operator places the call through the site, so the agent's triggers have no say.
-Gate on: a phone number exists, the connector is ready, and no call is already
-up.
+**Gate on the right things:** a phone number exists, the connector is ready,
+and no *other* call is already up. An agent's phone trigger has no say — the
+operator places the call through the site, not through the agent.
 
-**Update the wording too.** "The agent will phone them" is no longer true.
-Tell the user *they* are calling and that their microphone goes live on pickup
-— people should not be surprised by an open mic.
+**Wording matters.** Tell the user *they* are calling and that their microphone
+goes live on pickup — people should not be surprised by an open mic.
 
 ### 8c. The call panel
 
@@ -519,12 +566,18 @@ function CallPanel() {
 }
 ```
 
-Two details that matter more than they look:
+Three details that matter more than they look:
 
 - **Start the duration timer on `live`**, not when the panel appears.
   Otherwise it counts ringing time and reads as a longer call than happened.
 - **Reset it per `conversationId`**, or a second call continues the first's
   count.
+- **`micEnabled` starts false and flips true only when the room connects**,
+  while the SDK sets status `live` in `session/start`, which runs *before*
+  `joinVoice` finishes. For a second or two at pickup the panel would say the
+  operator is muted when they are not — at the one moment that matters most.
+  Latch a separate "audio ready" flag the first time `micEnabled` goes true,
+  and reset it per call.
 
 ---
 
@@ -535,15 +588,18 @@ are evaluated in this order; fixing one reveals the next.
 
 | Response | Meaning | Fix |
 |---|---|---|
-| `origin_not_allowed` | The `Origin` header is not on the site's list | Add the exact origin to **allowed_origins on the site AND on the operator node**. Both. This is the one that eats afternoons |
+| `origin_not_allowed` | The `Origin` header is not on the site's list | Add the exact origin to **allowed_origins on the site AND on the operator node**. Both |
 | `operator_not_enabled` | The site is not flagged for the operator SDK | Enable the operator SDK on the site in Studio → Sites. May be tenant/plan-gated |
-| `operator_signature_required` | The `user_hash` did not verify | Usually **not** a bad secret: check that `OPERATOR_SITE_ID` and `OPERATOR_SITE_SECRET` are from the *same* site, and that the `siteId` in the hash matches the `X-Perfox-Site` header. Easy to hit after switching sites |
+| `operator_signature_required` | The `user_hash` did not verify | Usually **not** a bad secret: check that the site id and secret are from the *same* site, and that the `siteId` in the hash matches the `X-Perfox-Site` header |
+
+A server-to-server request sends **no `Origin` header at all** and is refused
+with `origin_not_allowed`. Send the header explicitly, as below.
 
 Verify from the command line without touching the UI — `availability` with
 `status: "away"` exercises all three gates and changes nothing:
 
 ```bash
-CFG=$(curl -s http://localhost:8787/api/operator/config)
+CFG=$(curl -s --cookie "$SESSION" http://localhost:4300/api/operator/config)
 SITE=$(echo "$CFG" | sed -n 's/.*"siteId":"\([^"]*\)".*/\1/p')
 EXT=$(echo  "$CFG" | sed -n 's/.*"externalId":"\([^"]*\)".*/\1/p')
 HASH=$(echo "$CFG" | sed -n 's/.*"userHash":"\([^"]*\)".*/\1/p')
@@ -551,7 +607,7 @@ HASH=$(echo "$CFG" | sed -n 's/.*"userHash":"\([^"]*\)".*/\1/p')
 curl -s -X POST "https://acme-api.perfox.ai/api/public/operator/availability" \
   -H "Content-Type: application/json" \
   -H "X-Perfox-Site: $SITE" \
-  -H "Origin: http://localhost:5190" \
+  -H "Origin: http://localhost:5180" \
   -d "{\"operator\":{\"external_id\":\"$EXT\",\"name\":\"probe\",\"user_hash\":\"$HASH\"},\"status\":\"away\"}"
 ```
 
@@ -564,9 +620,11 @@ being tested.
 | Symptom | Cause |
 |---|---|
 | Dial resolves, no audio, no error | Not a secure context — mic blocked. HTTPS, or use `localhost` |
-| Panel shows a stale error on a good call | The SDK never clears `state.error`; suppress it while `status === 'live'` (§7) |
+| A stale error shows on a good call | The SDK clears `state.error` only in `setAvailability` and `openConversation`. If you call neither, track what you have shown and ignore it (§7) |
 | A failed call reports success | `dialOut` does not throw — read `session.getState()` back (§7) |
 | `dial: no answer` after ~30s | Nobody picked up; the SDK retries `answer` 30 × 1s |
+| A call ends moments after dialling | Something is calling `end()` or `hangup()` while the call is still ringing (§7) |
+| The browser behaves differently from the source on disk | Vite is serving its pre-bundled copy. `rm -rf node_modules/.vite` and restart (§5) |
 | Operator drops out of routing after ~60s | Presence went stale. Only happens if you use inbound; the SDK heartbeats every 20s while `available` |
 
 ---
@@ -582,7 +640,7 @@ answer(conversationId?)        accept a ringing call
 decline()
 hold(on)                       also mutes the local mic
 transfer({ externalId, name })
-hangup()
+hangup()                       ends a live call; cancels one still ringing
 setMicEnabled(enabled)
 ask(question)                  operator Ask-AI
 transcribe(blob)               push-to-talk dictation
@@ -597,7 +655,7 @@ session                        escape hatch — the underlying engine
 
 ```
 connected, availability, activeCall {conversationId, status, onHold, direction},
-incomingCall, micEnabled, error,
+incomingCall {…, directed, fromOperatorName}, micEnabled, error,
 transcript[], whispers[], answers[], kb[], compliance, summary,
 conversations[], customerPanel
 ```
@@ -614,7 +672,7 @@ conversations[], customerPanel
 | `workflowId` | no | omit → tenant default agent |
 | `mode` | no | `live_tap` (default), `dictation`, `third_actor` |
 | `autoAvailable` | no | go available on mount. Default `false` |
-| `ringPollMs` | no | default `2500` |
+| `ringPollMs` | no | default `2500`. See §11 |
 
 ### Endpoints the SDK calls
 
@@ -622,13 +680,17 @@ All `POST {apiHost}/api/public/operator/<route>`, header
 `X-Perfox-Site: <siteId>`, body `{ operator: {external_id, name, user_hash}, …}`:
 
 ```
-availability  pending  answer  decline  call_outbound  call_status
+availability  pending  answer  decline  call_outbound  call_status  cancel_call
 session/start  session/stop  hold  transfer  conversations  history
 summary  customer_profile  operator_defaults  transcribe  log_action
 ```
 
 Plus a WebSocket at `wss://…/api/public/operator/stream?…` for transcript and
 AI events, and a LiveKit room for audio.
+
+`cancel_call` is the only thing that stops a phone ringing before pickup —
+`session/stop` does nothing to a call with no audio room. It takes the
+conversation, and the `call_id` if you have it.
 
 ---
 
@@ -644,8 +706,21 @@ also build an incoming-call surface (`incomingCall`, `answer()`, `decline()`)
 and keep the tab open, because presence goes stale ~60s after the heartbeat
 stops.
 
-**Identity.** Fixed `op_console` here because there is no login. Anything with
-real users should derive `externalId` from the session. See §6.
+**Ring polling runs regardless of availability.** The SDK starts it when the
+session is constructed, so every signed-in user polls `pending` every 2.5
+seconds (`ringPollMs`). *Queue* rings are suppressed while the operator is
+unavailable or already on a call, but a **directed** ring — a warm transfer
+aimed at one operator by name — is surfaced either way. An app with no answer
+UI is therefore handed transfers it silently ignores, and the customer rings
+out.
+
+If that matters, either build the answer surface or call `decline()` on any
+incoming ring, so the transferring operator learns immediately. This app
+knowingly does neither: nothing routes to it, because no operator here is ever
+marked available.
+
+**Identity.** `op_<user id>`, derived from the session. Anything with real
+users should do the same — see §6.
 
 **Where the conversation lives.** A call opens **its own conversation** on the
 platform — it is a session with its own recording, not a continuation of

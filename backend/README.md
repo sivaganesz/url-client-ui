@@ -1,29 +1,34 @@
 # Backend
 
-Auth, workspace credentials, and the Perfox proxy for the console in
-`../client-ui`.
+The API for the console in [`../client-ui`](../client-ui): sessions, workspace
+credentials, the administration surface, and the proxy that every Perfox
+request goes through.
 
-Express + TypeScript on Node 22 (`--experimental-strip-types`, so there is no
-build step) and Postgres.
+Express 5 and TypeScript on Node 22, running under
+`--experimental-strip-types`, so there is **no build step** — the `.ts` files
+are what runs. Postgres 17 for storage.
 
-Deploying it to a server is a separate document: [../DEPLOYMENT.md](../DEPLOYMENT.md).
+---
 
 ## What it is for
 
-The console talks to a Perfox workspace, and a workspace API key authorises
-**everything** in it — read and write across customers, conversations,
-knowledge base, credentials and workflows. That key must never reach a browser.
+The console is multi-tenant: each customer has their own Perfox workspace, and
+their own API key for it. That key authorises everything in that workspace, so
+it must never reach a browser.
 
-So this process holds it. The browser holds a session cookie it cannot even
-read, and every `/api/perfox/*` request is resolved against the signed-in
-user's own workspace before it is forwarded:
+This process is what makes that possible. It holds the keys, encrypted at rest,
+and lends one — decrypted, in memory, for the length of a single request — to
+whichever customer is signed in.
 
 ```
-browser ──(session cookie)──▶ this backend ──(that user's key)──▶ Perfox
+browser ──(session cookie)──▶ backend ──(that customer's key)──▶ Perfox
 ```
 
-Two users signed in at once reach two different workspaces through identical
-URLs, and neither browser ever holds a credential.
+The browser is never told which workspace it is talking to, what the API base
+is, or what the key looks like. It sends a cookie it cannot read, and this
+process works out the rest.
+
+---
 
 ## Running it
 
@@ -32,23 +37,10 @@ docker compose up -d        # Postgres on :5433
 npm install
 cp .env.example .env        # then generate an ENCRYPTION_KEY, below
 npm run migrate             # apply the schema
-npm run seed:admin          # create the admin account
+npm run seed:admin          # create the first administrator
 
 npm run dev                 # http://localhost:4300
 ```
-
-Then sign in at `/admin/login` and add customers there. `seed:admin` is the
-only account that cannot be made through the app, because something has to
-exist before anything else can be created; it prompts, or runs unattended if
-`ADMIN_EMAIL` and `ADMIN_PASSWORD` are set.
-
-To run the browser suite instead, `npm run seed:dev` makes both accounts it
-signs in as — a customer and an admin — in one step. Workspace credentials come
-from `PERFOX_API_BASE` and `PERFOX_API_KEY` in the environment, from the file
-named by `SEED_ENV_FILE`, or from an old `../client-ui/.env` if one is still
-there. Without any of them it still creates the accounts and says the workspace
-is unconfigured, which is enough for everything except the pages that read live
-data.
 
 Generate the encryption key with:
 
@@ -56,98 +48,191 @@ Generate the encryption key with:
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-Then in another terminal, `npm run dev` in `../client-ui`. Vite serves the app
+Then sign in at `/admin/login` and add customers there.
+
+`seed:admin` is the only account that cannot be made through the app, because
+something has to exist before anything else can be created. It prompts, or runs
+unattended when `ADMIN_NAME`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set. Given
+an email that already exists it reports so and stops, so it is safe to re-run.
+
+To run the browser suite instead, `npm run seed:dev` makes both accounts it
+signs in as — a customer and an administrator — in one step, plus a workspace
+for them to look at.
+
+Then, in another terminal, `npm run dev` in `../client-ui`. Vite serves the app
 on :5180 and forwards `/api` here, so the browser sees **one origin** — which
 is what lets the session cookie stay `SameSite=Lax` and have the browser block
-CSRF for us. In production this process serves the built app itself
-(`CLIENT_DIST`), which keeps that property without a proxy.
+CSRF without the app writing anything. In production this process serves the
+built app itself (`CLIENT_DIST`), which keeps that property without a proxy.
 
-`npm run discover` prints a workspace's MCP tools, for checking whether a
-resource exists before writing against it.
+### Scripts
 
-## Admins and customers are separate
+| | |
+|---|---|
+| `npm run dev` | watch mode on :4300 |
+| `npm start` | the same, without the watcher |
+| `npm run migrate` | apply `src/db/schema.sql` |
+| `npm run seed:admin` | create an administrator |
+| `npm run seed:dev` | the browser suite's accounts and workspace |
+| `npm test` | 100 tests, against a throwaway database |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run lint` | ESLint |
+| `npm run discover` | print a workspace's MCP tools, for checking a resource exists before writing against it |
 
-Two tables, two session tables, two cookie names — not one table with a role
-column. `users.workspace_id` is NOT NULL and an admin belongs to no workspace,
-but the real reason is that an admin can create workspaces and write raw Perfox
-keys. That is a different privilege class, not a different row in the same one.
+---
 
-The separation does work a guard would otherwise have to remember:
+## Configuration
 
-- an admin session **cannot** reach `/api/perfox/*` — not "is refused", cannot,
-  because there is no `workspace_id` anywhere to resolve
-- no column exists that would turn a customer into an admin
-- with one cookie name, signing into either surface would silently sign you out
-  of the other in the same browser
+| Variable | Required | What it is |
+|---|---|---|
+| `DATABASE_URL` | **yes** | Postgres connection string |
+| `ENCRYPTION_KEY` | **yes** | encrypts workspace credentials at rest |
+| `PORT` | no | default `4300` |
+| `NODE_ENV` | no | `production` turns on `trust proxy` and Secure cookies |
+| `CLIENT_DIST` | no | path to the built frontend; serving it from here keeps one origin |
+| `DATABASE_SSL` | no | `auto`, `require` or `off` — see `src/db/index.ts` |
+| `SESSION_TTL_DAYS` | no | default `7` |
+| `ALLOW_REGISTRATION` | no | `false` unless set to `"true"` |
+| `OUTBOUND_ALLOWLIST` | no | numbers an agent may ring while set; empty means no restriction |
 
-**A credential is returned by one endpoint, and it is written down.** Nothing
-else carries a key or a secret: the customers list reports flags, creating one
-echoes nothing back, and the edit form loads its settings without them.
-`GET /admin/customers/:id/credentials` is the exception — an admin who set a
-key up is the person who has to read it back when a customer asks what was
-configured. It is arranged so it cannot happen quietly:
+The process exits at startup if either required variable is missing, rather
+than failing later on the first request that needs it.
 
-- its own request, made when the eye is pressed rather than when the form
-  loads, so a secret is in a response only because somebody asked
-- one workspace per call
-- every call writes an `admin_events` row naming the admin and the customer,
-  so "who read this key?" has an answer. The row says a credential was read,
-  never which value it was
+**`ENCRYPTION_KEY` is not stored in the database, so database backups do not
+contain it.** It needs backing up separately, and the same key must be used for
+the life of the data — see [../DEPLOYMENT.md](../DEPLOYMENT.md).
 
-A blank secret field on the edit form still means "leave it" rather than
-"clear it"; clearing is explicit, with `null`.
+---
 
-## Two more decisions worth knowing
+## Folder structure
 
-**Sessions, not JWTs.** A token in `localStorage` is readable by any injected
-script; an httpOnly cookie is not reachable from JavaScript at all. And a JWT
-stays valid until it expires — suspending a user would need a revocation list,
-at which point you are hitting the database every request anyway and have kept
-none of the statelessness that justified the JWT. This backend already reads
-the database on every proxied request to find the caller's credentials, so
-there was never any statelessness to protect. Deleting a row signs someone out.
+```
+backend/
+├── docker-compose.yml       Postgres 17 for local development, on :5433
+├── discover.js              prints a workspace's MCP tools
+└── src/
+    ├── index.ts             starts the server, schedules session sweeps
+    ├── app.ts               the Express app: middleware, /api/health, routers
+    ├── env.ts               every setting, read and validated once
+    ├── crypto.ts            AES-256-GCM for credentials, hashing for tokens
+    ├── workspace.ts         a workspace's credentials, decrypted for one request
+    ├── audit.ts             what an administrator did, and to whom
+    │
+    ├── auth/
+    │   ├── session.ts         customer sessions, in an httpOnly cookie
+    │   ├── admin-session.ts   administrator sessions — same mechanism, apart
+    │   ├── password.ts        argon2id at the library defaults
+    │   └── rate-limit.ts      a ceiling on sign-in attempts
+    │
+    ├── routes/
+    │   ├── auth.ts          sign in, sign out, change password, /auth/me
+    │   ├── admin.ts         the administration surface
+    │   └── perfox.ts        the proxy to Perfox, and operator calling
+    │
+    └── db/
+        ├── index.ts         the pool, and whether to use TLS
+        ├── schema.sql       every table, all IF NOT EXISTS
+        ├── migrate.ts       applies schema.sql
+        ├── seed-admin.ts    the first administrator
+        └── seed-dev.ts      the browser suite's accounts
+```
 
-**Credentials are encrypted at rest.** `perfox_api_token` and
-`operator_site_secret` are AES-256-GCM, keyed from `ENCRYPTION_KEY`. Stored in
-plain text, one database dump would hand over every tenant at once. The key
-belongs in a secret manager, not in a file that gets copied around — and losing
-it means every workspace has to be reconfigured.
+Tests live in `tests/`, alongside a `harness.ts` that builds a throwaway
+database and a `client.ts` that signs in and keeps cookies.
+
+---
 
 ## Data model
 
+Six tables.
+
+| Table | Holds |
+|---|---|
+| `workspaces` | one customer's Perfox connection — API base, encrypted token, encrypted operator secret, status |
+| `users` | the people who sign in to the console, each belonging to one workspace |
+| `sessions` | customer sessions, stored hashed |
+| `admins` | administrator accounts |
+| `admin_sessions` | administrator sessions, stored hashed |
+| `admin_events` | the audit trail |
+
+Credentials are encrypted at rest with `ENCRYPTION_KEY`: a database dump on its
+own reveals nothing usable. `workspace.ts` is the only place a key exists in the
+clear, and it never leaves the request that decrypted it.
+
+Session tokens are stored **hashed**, so the table cannot be used to sign in as
+anyone even with full read access to the database.
+
+---
+
+## Authentication
+
+Two separate systems, deliberately.
+
 ```
-workspaces      the Perfox connection: REST base + key, operator site + secret
-users           belongs to exactly one workspace; owner or member
-sessions        a hash of the cookie, never the cookie
-
-admins          above workspaces; no workspace_id exists for them
-admin_sessions  the same, for the admin cookie
+customers        POST /api/auth/login    → cookie  →  the console
+administrators   POST /api/admin/login   → cookie  →  customer provisioning
 ```
 
-`Workspace → many users`, so a company's whole team shares one connection.
-Invitations and magic links drop in as a fourth table without disturbing this.
+Different cookie names, different tables, different routers. **An administrator
+session cannot satisfy a customer route and a customer session cannot reach the
+admin API** — not by a role check that could be got wrong, but because the two
+look in different places entirely.
 
-## Customers cannot create their own accounts
+**Sessions, not JWTs.** A token in `localStorage` is readable by any injected
+script; an httpOnly cookie is not reachable from JavaScript at all. And a JWT
+stays valid until it expires, so suspending a user would need a revocation list
+— at which point the database is being read on every request anyway, and none
+of the statelessness that justified the JWT remains. This process already reads
+the database on every proxied request to find the caller's credentials. Deleting
+a row signs someone out.
 
-There is no sign-up form and no route to one. The console reads real customer
-conversations, so a public sign-up would be a door onto them — an admin creates
-accounts on `/admin`, and hands over the email and password.
+**Passwords are argon2id** at the library's defaults — memory-hard, so a GPU or
+ASIC farm gains far less against it than against bcrypt.
 
-`ALLOW_REGISTRATION` still gates a dormant `/api/auth/register`, kept for the
-invitation flow: when that exists the endpoint becomes "accept an invitation"
-and the workspace comes from the invite rather than from whoever filled in the
-form.
+**Sign-in attempts are capped:** ten failures in fifteen minutes, counted per
+address **and** per IP. Per IP alone lets an attacker spread across a botnet;
+per address alone lets them try one password against every account they can
+name. A success clears the address, so two typos followed by the right password
+is not a lockout. The counter is held in memory, which means **one instance** —
+see [../DEPLOYMENT.md](../DEPLOYMENT.md).
 
-## Sign-in attempts are capped
+**Customers cannot create their own accounts.** `POST /api/auth/register`
+refuses unless `ALLOW_REGISTRATION=true`, which it is not. Accounts are created
+by an administrator, who hands over the details.
 
-Ten failures in fifteen minutes, counted per address **and** per IP — per IP
-alone lets an attacker spread across a botnet, per address alone lets them try
-one password against every account they can name. A success clears the address,
-so two typos and then the right password is not a lockout.
+A fuller account is in [../AUTH.md](../AUTH.md).
 
-It is held in memory, which is fine for one process and **ineffective the
-moment there is more than one** — each instance would keep its own count. It
-moves to shared storage when the deployment does.
+---
+
+## The Perfox proxy
+
+Every workspace request goes through `routes/perfox.ts`, and the path is
+matched against an **allowlist** before anything is forwarded.
+
+```
+GET  /api/perfox/agents            →  {workspace api base}/agents
+POST /api/perfox/outbound          →  {workspace api base}/outbound
+```
+
+Reads and writes are separate lists, and a write names its method. A path that
+matches neither is refused here, before a request is made. That is what stops
+the proxy becoming a way to reach anything in a workspace that the console has
+no business touching.
+
+Allowed reads include agents, conversations and their events and recordings,
+customers and their details, calls, cases, analytics, credits, credentials and
+the knowledge base. Allowed writes are narrow: publishing an agent, patching
+one, sending an outbound message, and the knowledge-base file and folder
+operations. File upload has a route of its own, because it carries a file
+rather than JSON.
+
+**Operator calling** is also here, but works differently: the browser talks to
+Perfox directly over WebRTC, and this process only issues the signed identity
+(`GET /api/operator/config`) and ends calls reliably (`POST /api/operator/stop`).
+The detail is in
+[../client-ui/OPERATOR-INTEGRATION.md](../client-ui/OPERATOR-INTEGRATION.md).
+
+---
 
 ## Endpoints
 
@@ -155,32 +240,60 @@ moves to shared storage when the deployment does.
 |---|---|
 | `GET /api/health` | liveness, and whether the database answers |
 | `POST /api/auth/login` | sets the session cookie; returns the user and workspace **flags** |
-| `POST /api/auth/logout` | deletes the session |
-| `GET /api/auth/me` | 200 with `user: null` when signed out — not a 401, so a cold login page logs nothing |
-| `POST /api/auth/register` | 403 unless `ALLOW_REGISTRATION=true` |
-| `POST /api/auth/password` | requires the current password; ends every other session |
-| `POST /api/admin/login` | the admin's own cookie (`ufasid`), own table |
-| `POST /api/admin/logout` | |
-| `GET /api/admin/me` | 200 with `admin: null` when signed out |
-| `POST /api/admin/password` | ends every other admin session |
-| `GET /api/admin/customers` | flags, never credentials |
-| `POST /api/admin/customers` | creates a workspace and its owner, in one transaction |
-| `PATCH /api/admin/customers/:workspaceId` | changes the connection; blank means "leave it" |
-| `POST /api/admin/customers/:workspaceId/test` | does this key actually work? |
-| `POST /api/admin/customers/:userId/status` | suspend or reinstate; suspending ends their sessions |
-| `GET /api/config` | the workspace's name and what is configured |
-| `GET /api/operator/config` | the signed operator identity — never the site secret |
-| `/api/perfox/*` | the proxy, allowlisted |
+| `POST /api/auth/logout` | deletes the session row |
+| `GET /api/auth/me` | the signed-in user, or 401 |
+| `POST /api/auth/password` | change own password |
+| `POST /api/auth/register` | refuses unless registration is enabled |
+| `GET /api/config` | what the frontend may know about the workspace |
+| `ALL /api/perfox/*` | the allowlisted proxy |
+| `GET /api/operator/config` | the signed operator identity |
+| `POST /api/operator/stop` | end a call, and confirm it ended |
 
-`credentials` and `credentials/{id}/resources` are on that allowlist, which is
-worth justifying because the name sounds like the last thing a proxy should
-forward. It returns metadata only — id, name, type, status, and the *names* of
-the fields a credential has, never their values.
+Administration, all requiring an administrator session:
 
-Login deliberately returns **no** `base_url` and **no** `api_token`. The
-frontend does not need them and cannot be trusted with them.
+| | |
+|---|---|
+| `POST /api/admin/login` · `logout` · `password` | the admin session |
+| `GET /api/admin/me` | the signed-in administrator |
+| `GET /api/admin/customers` | every customer and their workspace |
+| `POST /api/admin/customers` | create a customer and attach a workspace |
+| `GET` · `PATCH` · `DELETE /api/admin/customers/:workspaceId` | read, edit, remove |
+| `GET /api/admin/customers/:workspaceId/credentials` | the connection, without the secrets |
+| `POST /api/admin/customers/:workspaceId/test` | check the credentials reach Perfox |
+| `POST /api/admin/customers/:workspaceId/password` | issue a new password |
+| `POST /api/admin/customers/:workspaceId/status` | suspend or restore |
+| `GET` · `POST /api/admin/admins` | list and create administrators |
+| `POST /api/admin/admins/:adminId/status` | suspend, which also revokes sessions |
+| `GET /api/admin/events` | the audit trail |
 
-The proxy is an allowlist, not a passthrough: this process holds a key that can
-rewrite a workspace, and a signed-in user should not be able to reach further
-through it than the app itself does. Adding a page means adding its route to
-`READS` or `WRITES` in `src/routes/perfox.ts`.
+`/api/health` returns `{"ok":true,"database":"up"}` with a 200, or a 503 when
+Postgres is unreachable. It is the check worth alerting on: it answers whether
+the process is up **and** can reach its data.
+
+---
+
+## Tests
+
+```bash
+npm test        # 100 tests, ~1 minute
+```
+
+Node's built-in test runner, no additional dependency. They run against a real
+Postgres — a throwaway `urlfactory_test` database created and dropped by
+`tests/harness.ts`, never the development one — and against an in-process fake
+Perfox, so nothing reaches the real platform and no test needs a key.
+
+The suites cover sign-in and sessions, the password rules and the attempt cap,
+credentials at rest, the proxy allowlist, the knowledge base, customer and
+admin operations, ending a call, and tenant isolation — that one customer's
+session cannot read another's workspace.
+
+---
+
+## See also
+
+- [../AUTH.md](../AUTH.md) — authentication in full
+- [../DEPLOYMENT.md](../DEPLOYMENT.md) — running this on a server
+- [../client-ui/README.md](../client-ui/README.md) — the browser half
+- [../client-ui/OPERATOR-INTEGRATION.md](../client-ui/OPERATOR-INTEGRATION.md)
+  — operator calling

@@ -51,8 +51,8 @@ number or address it reaches — not a default.
 ## These are integration tests
 
 They drive a real browser against the real workspace API. That is deliberate:
-almost everything that has broken in this project broke at the seam between
-the UI and the API, and a mocked suite would have caught none of it.
+the seam between the UI and the API is where the failures that matter live,
+and a mocked suite proves only that the mocks agree with themselves.
 
 The cost is that the data is not fixed. Assertions therefore check invariants
 rather than figures:
