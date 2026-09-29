@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Avatar from '../ui/Avatar'
 import Badge, { StatusBadge } from '../ui/Badge'
 import Spinner from '../ui/Spinner'
@@ -57,7 +57,6 @@ export default function ConversationDetail({
       conversation.phone &&
       digitsOf(operator.call.phone) === digitsOf(conversation.phone),
   )
-
   /**
    * What stops this call being placed.
    *
@@ -86,6 +85,37 @@ export default function ConversationDetail({
    * conversation a moment after the operator chose to end it.
    */
   const endedHere = useRef(false)
+
+  /**
+   * "Calling…" ends when the call does, not when dial() settles.
+   *
+   * dial() resolves only once the SDK’s dial loop stops, and hanging up does
+   * not reliably stop it: the loop can run its full thirty seconds after the
+   * operator has already put the phone down and the panel has closed. For
+   * those thirty seconds this button said "Calling…" about a call that was
+   * over, and refused to place another one. Then, when the loop finally gave
+   * up, dial() rejected and put "The call could not be connected" over the
+   * conversation — a verdict on a call the operator had ended themselves.
+   *
+   * The call on screen is the better signal, because it goes the moment the
+   * operator ends it, wherever they ended it from. Waiting to have seen one
+   * first matters: for the tick between the click and the panel opening there
+   * is no call yet, and clearing on that would undo the click.
+   *
+   * A call that ends on its own — no answer, busy, declined — gets here only
+   * after dial() has already thrown, so that message is still shown.
+   */
+  const hadCall = useRef(false)
+  useEffect(() => {
+    if (onThisCall) {
+      hadCall.current = true
+      return
+    }
+    if (!hadCall.current) return
+    hadCall.current = false
+    endedHere.current = true
+    setCalling(false)
+  }, [onThisCall])
 
   async function endCall() {
     endedHere.current = true
