@@ -1,0 +1,97 @@
+# The browser suite, kept out of the push gate on purpose.
+#
+# These 76 tests drive a real browser against the real Perfox workspace. Two
+# reasons that does not belong on every push: a full run is a few hundred reads
+# in four minutes and the workspace answers `rate_limited` to the tail of it,
+# and it needs live credentials that a fork's pull request must never see.
+#
+# Nothing here sends. No test places a call, sends a message, or publishes an
+# agent — the outbound paths are covered up to the confirmation step and no
+# further. See client-ui/playwright.config.ts and client-ui/tests/README.md.
+name: Browser tests
+
+on:
+  # 01:00 IST.
+  schedule:
+    - cron: '30 19 * * *'
+  workflow_dispatch:
+
+jobs:
+  playwright:
+    name: Playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: urlfactory
+          POSTGRES_PASSWORD: urlfactory
+          POSTGRES_DB: urlfactory
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U urlfactory"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://urlfactory:urlfactory@localhost:5433/urlfactory
+      # Playwright starts the backend itself and expects it on 4400.
+      PORT: '4400'
+      # The Perfox credentials the seed encrypts, from the repository secrets.
+      PERFOX_API_BASE: ${{ secrets.PERFOX_API_BASE }}
+      PERFOX_API_KEY: ${{ secrets.PERFOX_API_KEY }}
+      OPERATOR_API_HOST: ${{ secrets.OPERATOR_API_HOST }}
+      OPERATOR_SITE_ID: ${{ secrets.OPERATOR_SITE_ID }}
+      OPERATOR_SITE_SECRET: ${{ secrets.OPERATOR_SITE_SECRET }}
+      OPERATOR_WORKFLOW_ID: ${{ secrets.OPERATOR_WORKFLOW_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            client-ui/package-lock.json
+
+      # The database is created fresh and thrown away with the runner, so the
+      # key that encrypts this run's credentials only has to outlive the run.
+      # Generating it here is one less secret to hold and to rotate.
+      - name: An encryption key for this run only
+        run: echo "ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - run: npm ci
+        working-directory: backend
+
+      - run: npm ci
+        working-directory: client-ui
+
+      - run: npm run migrate
+        working-directory: backend
+
+      # Creates the workspace, the customer and the admin that the suite signs
+      # in as. Without it every test fails on a missing sidebar.
+      - run: npm run seed:dev
+        working-directory: backend
+
+      - run: npx playwright install --with-deps chromium
+        working-directory: client-ui
+
+      - run: npm test
+        working-directory: client-ui
+
+      # A failed run should say why without being reproduced by hand: the
+      # config keeps a trace and a screenshot for each failure.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            client-ui/playwright-report
+            client-ui/test-results
+          retention-days: 14

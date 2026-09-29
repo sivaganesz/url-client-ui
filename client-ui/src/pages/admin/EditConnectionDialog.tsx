@@ -162,7 +162,9 @@ export default function EditConnectionDialog({
     <Modal
       open
       onClose={onClose}
-      title="Change the connection"
+      // Three tabs now: who the customer is, and the two sets of credentials.
+      // "Change the connection" described only the middle one.
+      title="Edit customer"
       footer={
         <>
           <Button variant="ghost" size="md" onClick={onClose} disabled={busy}>

@@ -13,9 +13,12 @@ import { hashPassword, passwordProblem } from '../auth/password.ts'
  *   npm run seed:admin
  *
  * It prompts, so a password does not end up in a shell history. For a script —
- * CI, a container entrypoint, the development seed — set ADMIN_EMAIL,
- * ADMIN_PASSWORD and optionally ADMIN_NAME, and it runs without asking. That
- * path is what stops "create the admin" from being a step only a human can do.
+ * CI, a container entrypoint, the development seed — set ADMIN_NAME,
+ * ADMIN_EMAIL and ADMIN_PASSWORD, and it runs without asking. That path is
+ * what stops "create the admin" from being a step only a human can do.
+ *
+ * All three are needed for it: setting the email and the password is what
+ * turns the prompting off, so a missing name has nobody left to ask.
  */
 const fromEnv = Boolean(process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD)
 const rl = fromEnv ? null : createInterface({ input: stdin, output: stdout })
@@ -45,7 +48,15 @@ try {
   const email = (process.env.ADMIN_EMAIL ?? (await ask('Email:'))).toLowerCase()
   const password = process.env.ADMIN_PASSWORD ?? (await ask('Password (12+ characters):'))
 
-  if (!name || !email) throw new Error('Name and email are required.')
+  if (!name || !email) {
+    throw new Error(
+      fromEnv
+        ? 'Set ADMIN_NAME, ADMIN_EMAIL and ADMIN_PASSWORD. Supplying the email and'
+          .concat(' password is what makes this run without prompting, so the name')
+          .concat(' has to come from the environment too.')
+        : 'Name and email are required.',
+    )
+  }
   const problem = passwordProblem(password)
   if (problem) throw new Error(problem)
 

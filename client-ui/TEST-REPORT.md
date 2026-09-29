@@ -5,7 +5,7 @@
 **Method:** Automated browser testing (Playwright + Chromium) against two live workspaces, plus the production build.
 **Scope:** 21 exploratory runs covering all 6 pages, every major user flow, accessibility, responsive behaviour and error handling — since consolidated into a committed regression suite of **150 tests: 76 in the browser** (§9, §12) and **74 on the backend** (§11, §12).
 
-> Outbound actions were restricted to the single authorised number **+916374160200**. No other number was contacted.
+> Outbound actions were restricted to the single authorised number agreed with the client. No other number was contacted.
 
 ### Workspaces tested
 
@@ -485,7 +485,7 @@ config plus the signature.
 
 ### 10.2 What was tested
 
-Five calls to the authorised number **+916374160200**, two of them answered. No
+Five calls to the authorised number, two of them answered. No
 other number was contacted.
 
 | # | Scenario | Result |

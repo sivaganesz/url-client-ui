@@ -438,3 +438,50 @@ describe('a customer', () => {
     }
   })
 })
+
+/**
+ * The numbers an agent may ring, while a deployment says so.
+ *
+ * Off everywhere by default, because a console for phoning customers cannot
+ * carry a list of permitted customers. It is for a workspace wired to a real
+ * carrier with somebody testing against it, where a wrong digit reaches a
+ * stranger and there is no undoing that.
+ *
+ * Only the agent path can be guarded here. An operator dialling from the
+ * browser talks to the platform directly and never passes through this
+ * process at all.
+ */
+describe('restricting who can be rung', () => {
+  beforeEach(async () => {
+    await truncate()
+    await start()
+  })
+
+  const signedIn = async (url: string) => {
+    await makeWorkspace({ name: 'A', email: 'a@t.test', apiBase: url, apiToken: 'k' })
+    const c = new Client()
+    await c.login('a@t.test', PASSWORD)
+    return c
+  }
+
+  /**
+   * Unset is the shipped state, and it must mean "no opinion" rather than
+   * "nothing allowed" — a guard that refuses everything when it is switched
+   * off would take the product down rather than protect it.
+   */
+  test('with nothing set, any number goes through', async () => {
+    const up = await fakeUpstream({ ok: true })
+    try {
+      const c = await signedIn(up.url)
+      const res = await c.post('/api/perfox/outbound', {
+        agent_id: 'a1',
+        channel: 'phone',
+        to: '+441234567890',
+      })
+      assert.equal(res.status, 200)
+      assert.equal(up.seen.length, 1)
+    } finally {
+      await up.close()
+    }
+  })
+})

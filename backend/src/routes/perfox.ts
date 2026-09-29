@@ -2,6 +2,7 @@ import express, { Router } from 'express'
 import { createHmac } from 'node:crypto'
 import { requireAuth } from '../auth/session.ts'
 import { credentialsFor, publicWorkspace, redact, type Credentials } from '../workspace.ts'
+import { OUTBOUND_ALLOWLIST } from '../env.ts'
 
 export const perfoxRouter: Router = Router()
 
@@ -186,6 +187,25 @@ perfoxRouter.all('/perfox/*splat', async (req, res) => {
   if (!isRead && !isWrite) {
     res.status(403).json({ error: 'That operation is not available.' })
     return
+  }
+
+  /**
+   * A ring that reaches a real telephone, checked before it leaves.
+   *
+   * Only while OUTBOUND_ALLOWLIST is set, which it is not in production —
+   * see env.ts. It covers the agent placing a call; the operator dialling
+   * from the browser goes straight to the platform and never passes here,
+   * so that one is guarded in the console instead.
+   */
+  if (OUTBOUND_ALLOWLIST.length > 0 && resource === 'outbound') {
+    const to = String((req.body as { to?: unknown })?.to ?? '').replace(/[^0-9]/g, '')
+    if (!OUTBOUND_ALLOWLIST.some((n) => n === to || n.endsWith(to) || to.endsWith(n))) {
+      res.status(403).json({
+        error:
+          'Outbound is restricted to the numbers in OUTBOUND_ALLOWLIST on this deployment.',
+      })
+      return
+    }
   }
 
   const url = new URL(req.originalUrl, 'http://placeholder')
