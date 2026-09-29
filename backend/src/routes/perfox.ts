@@ -50,7 +50,7 @@ const READS = [
   new RegExp(`^customers/${ID}$`),
 
   /**
-   * A customer's own page.
+   * A customer’s own page.
    *
    * `details` is the workspace counting for us — conversations, channels,
    * first and last seen, and how those conversations ended. The console
@@ -369,10 +369,21 @@ perfoxRouter.post('/operator/stop', requireAuth, async (req, res) => {
    * customer’s phone rings on for its full thirty seconds and connects them
    * to an empty conversation if they pick up.
    *
-   * `cancel_call` is the route for that window, added to the platform on
-   * 27 September. It takes the conversation rather than the session, because
-   * before pickup there is no session to name — and it handles a call that
-   * was answered in the meantime, so it is safe to try first either way.
+   * `cancel_call` is the route for that window. It takes the conversation
+   * rather than the session, because before pickup there is no session to
+   * name.
+   *
+   * Since SDK 0.1.1 the browser cancels first, and better: its hangup() has
+   * Plivo’s `call_id`, which only exists in the reply to the outbound request
+   * and never reaches this process. So on a normal hang-up the cancel below
+   * is a second, coarser attempt at something already done.
+   *
+   * It stays because of the one case the browser cannot cover. On `pagehide`
+   * no further JavaScript is guaranteed to run, so hangup() never completes
+   * and a beacon to this route is all that is left — and then this is the
+   * only thing that stops the customer’s phone ringing. Deleting it as
+   * duplication would leave every closed tab ringing a stranger for thirty
+   * seconds.
    *
    * Both are attempted, because between reading the state and acting on it
    * the call may have moved from one case to the other.

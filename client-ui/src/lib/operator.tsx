@@ -34,7 +34,7 @@ import type { OperatorConfig } from '@perfox/operator-react'
 export type CallStatus = 'dialing' | 'ringing' | 'live' | 'ended'
 
 /**
- * The SDK's errors, said in English.
+ * The SDK’s errors, said in English.
  *
  * It reports them as terse machine strings — `call no_answer`, `dial: 403`,
  * `session: ...` — and they go straight onto the screen of whoever just tried
@@ -111,7 +111,7 @@ const NOT_MOUNTED: CallApi = {
 const CallContext = createContext<CallApi | null>(null)
 
 /**
- * Never throws, unlike the SDK's own `useOperator`.
+ * Never throws, unlike the SDK’s own `useOperator`.
  *
  * Pages call it unconditionally and read `ready`/`reason`, so a console with
  * no operator credentials explains why calling is unavailable instead of
@@ -135,12 +135,14 @@ const RECONCILE_MS = 2000
 /**
  * Ask the server to end a call and keep at it until the platform agrees.
  *
- * Not the SDK's hangup, which fires its stop request and forgets it. The
- * server retries and checks the conversation afterwards, so the work
- * outlives whatever happens to this tab.
+ * Not a replacement for the SDK’s hangup, which since 0.1.1 does cancel a
+ * ringing call and does it better than this can — it holds Plivo’s call_id.
+ * This is the half the SDK still does not do: it retries, and it checks the
+ * conversation afterwards, so the work outlives whatever happens to this tab.
  *
- * `beacon` is for a page that is going away: sendBeacon is the one request
- * a closing tab is allowed to finish.
+ * `beacon` is for a page that is going away: sendBeacon is the one request a
+ * closing tab is allowed to finish, and there the SDK’s hangup never gets to
+ * run at all.
  */
 function stopOnServer(
   conversationId: string,
@@ -248,7 +250,7 @@ export function OperatorGate({ children }: { children: ReactNode }) {
   )
 }
 
-/** Maps the SDK's surface onto the smaller one this console needs. */
+/** Maps the SDK’s surface onto the smaller one this console needs. */
 function CallBridge({ children }: { children: ReactNode }) {
   const op = useOperator()
   const { dialOut, hold, hangup, setMicEnabled, session } = op
@@ -399,7 +401,7 @@ function CallBridge({ children }: { children: ReactNode }) {
   /**
    * A tab closing mid-call.
    *
-   * The SDK's own teardown drops the audio and the socket and never tells
+   * The SDK’s own teardown drops the audio and the socket and never tells
    * the platform anything, so the customer is left holding a line to a
    * browser that no longer exists. The server is told on the way out and
    * finishes the job without us.
