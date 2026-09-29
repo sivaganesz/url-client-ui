@@ -32,7 +32,7 @@ export default function Modal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-ink/30" />
+      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/30" />
 
       <div
         ref={panel}

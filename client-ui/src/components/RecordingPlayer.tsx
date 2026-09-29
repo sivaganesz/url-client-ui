@@ -102,7 +102,7 @@ export default function RecordingPlayer({
             className={cn(
               'inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[11.5px] font-medium transition-colors',
               l.leg === current.leg
-                ? 'border-brand bg-brand text-white'
+                ? 'border-brand bg-brand text-on-accent'
                 : 'border-line-strong bg-surface text-ink-2 hover:bg-sunken',
             )}
           >

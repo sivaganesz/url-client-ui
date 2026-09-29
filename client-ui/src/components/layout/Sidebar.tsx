@@ -14,6 +14,7 @@ import {
 import { useSession } from '../../lib/session'
 import Avatar from '../ui/Avatar'
 import ChangePasswordDialog from '../ChangePasswordDialog'
+import ThemeToggle from '../ThemeToggle'
 
 const SECTIONS = [
   {
@@ -148,6 +149,11 @@ export default function Sidebar({
             >
               Sign out
             </button>
+          </span>
+          {/* Its own row, under Sign out, so neither the name nor the
+              address loses width to it. */}
+          <span className="flex items-center justify-end">
+            <ThemeToggle />
           </span>
         </div>
       )}

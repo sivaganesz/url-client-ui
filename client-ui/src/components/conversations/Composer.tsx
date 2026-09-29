@@ -55,7 +55,7 @@ function ChannelChip({
         disabled
           ? 'cursor-not-allowed border-line bg-sunken text-ink-4'
           : selected
-            ? 'border-brand bg-brand text-white'
+            ? 'border-brand bg-brand text-on-accent'
             : 'border-line-strong bg-surface text-ink-2 hover:border-brand-line hover:bg-brand-soft hover:text-brand',
       )}
     >

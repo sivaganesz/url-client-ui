@@ -39,7 +39,7 @@ export default function AppShell() {
               type="button"
               aria-label="Close navigation"
               onClick={() => setDrawerOpen(false)}
-              className="absolute inset-0 bg-ink/30"
+              className="absolute inset-0 bg-scrim/30"
             />
             <div className="absolute inset-y-0 left-0 shadow-raised">
               <Sidebar onNavigate={() => setDrawerOpen(false)} />

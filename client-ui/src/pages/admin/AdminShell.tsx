@@ -5,6 +5,7 @@ import { cn } from '../../lib/cn'
 import ChangePasswordDialog from '../../components/ChangePasswordDialog'
 import ErrorBoundary from '../../components/ErrorBoundary'
 import { IconAgent, IconChat, IconClock, IconGrid } from '../../components/icons'
+import ThemeToggle from '../../components/ThemeToggle'
 import { adminApi, useAdmin } from '../../lib/admin'
 
 const SECTIONS = [
@@ -47,7 +48,7 @@ export default function AdminShell() {
   const nav = (
     <nav
       aria-label="Admin"
-      className="flex h-full w-58 shrink-0 flex-col bg-ink py-4 text-white"
+      className="flex h-full w-58 shrink-0 flex-col bg-panel py-4 text-white"
     >
       <div className="flex items-center gap-2.5 px-4 pb-4">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/15">
@@ -115,6 +116,11 @@ export default function AdminShell() {
               Sign out
             </button>
           </span>
+          {/* Its own row, under Sign out. `onPanel` because this rail is a
+              dark surface in both themes and carries its own treatment. */}
+          <span className="flex items-center justify-end">
+            <ThemeToggle onPanel />
+          </span>
         </div>
       )}
     </nav>
@@ -130,7 +136,7 @@ export default function AdminShell() {
             type="button"
             aria-label="Close navigation"
             onClick={() => setDrawerOpen(false)}
-            className="absolute inset-0 bg-ink/40"
+            className="absolute inset-0 bg-scrim/40"
           />
           <div className="absolute inset-y-0 left-0 shadow-raised">{nav}</div>
         </div>
