@@ -200,7 +200,7 @@ see [../DEPLOYMENT.md](../DEPLOYMENT.md).
 refuses unless `ALLOW_REGISTRATION=true`, which it is not. Accounts are created
 by an administrator, who hands over the details.
 
-A fuller account is in [../AUTH.md](../AUTH.md).
+A fuller account is in [AUTH.md](AUTH.md).
 
 ---
 
@@ -292,7 +292,7 @@ session cannot read another's workspace.
 
 ## See also
 
-- [../AUTH.md](../AUTH.md) — authentication in full
+- [AUTH.md](AUTH.md) — authentication in full
 - [../DEPLOYMENT.md](../DEPLOYMENT.md) — running this on a server
 - [../client-ui/README.md](../client-ui/README.md) — the browser half
 - [../client-ui/OPERATOR-INTEGRATION.md](../client-ui/OPERATOR-INTEGRATION.md)

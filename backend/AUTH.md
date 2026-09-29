@@ -107,7 +107,7 @@ because the app and the API answer on the same host — Vite proxies in
 development, the backend serves the built frontend in production.
 
 Splitting them across hosts would force `SameSite=None` and a CSRF defence
-written by hand. See [DEPLOYMENT.md](DEPLOYMENT.md).
+written by hand. See [DEPLOYMENT.md](../DEPLOYMENT.md).
 
 ---
 
@@ -205,7 +205,7 @@ is what stops someone working steadily through a list overnight.
 **The counter is in memory.** With more than one instance each keeps its own
 count, and the effective limit becomes ten times the number of instances. Run
 one instance until this moves to shared storage — see
-[DEPLOYMENT.md](DEPLOYMENT.md).
+[DEPLOYMENT.md](../DEPLOYMENT.md).
 
 ---
 
@@ -326,25 +326,25 @@ password from the customer's row, which signs that customer out everywhere.
 ## Where it lives
 
 ```
-backend/src/auth/
+src/auth/
 ├── session.ts         customer sessions: create, destroy, currentUser, requireAuth
 ├── admin-session.ts   the same for administrators, against its own table
 ├── password.ts        argon2id, the decoy hash, the length rule
 └── rate-limit.ts      the attempt cap
 
-backend/src/routes/
+src/routes/
 ├── auth.ts            login, logout, me, password, register
 └── admin.ts           the administration surface, all behind requireAdmin
 
-backend/src/crypto.ts  hashToken, newToken, and the constant-time compare
-backend/src/db/schema.sql   users, sessions, admins, admin_sessions
+src/crypto.ts  hashToken, newToken, and the constant-time compare
+src/db/schema.sql   users, sessions, admins, admin_sessions
 
-client-ui/src/lib/
+../client-ui/src/lib/
 ├── session.tsx        the customer session and its gate
 └── admin.tsx          the administrator session and its gate
 ```
 
-Covered by `backend/tests/auth.test.ts`, `admin.test.ts` and `tenancy.test.ts`
+Covered by `tests/auth.test.ts`, `admin.test.ts` and `tenancy.test.ts`
 — the last one checks that one customer's session cannot read another's
 workspace.
 
@@ -352,6 +352,6 @@ workspace.
 
 ## See also
 
-- [backend/README.md](backend/README.md) — the API this sits inside
-- [DEPLOYMENT.md](DEPLOYMENT.md) — `NODE_ENV`, one instance, and HTTPS
-- [client-ui/README.md](client-ui/README.md) — the two sign-in surfaces as pages
+- [README.md](README.md) — the API this sits inside
+- [DEPLOYMENT.md](../DEPLOYMENT.md) — `NODE_ENV`, one instance, and HTTPS
+- [client-ui/README.md](../client-ui/README.md) — the two sign-in surfaces as pages

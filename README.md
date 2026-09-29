@@ -55,7 +55,7 @@ in `backend/`.
 
 | | |
 |---|---|
-| [AUTH.md](AUTH.md) | Sessions, cookies, passwords, the attempt cap, and the two sign-in surfaces |
+| [AUTH.md](backend/AUTH.md) | Sessions, cookies, passwords, the attempt cap, and the two sign-in surfaces |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | How it is deployed today, and how to run it on your own server |
 | [backend/README.md](backend/README.md) | The API, configuration, data model, the Perfox proxy |
 | [client-ui/README.md](client-ui/README.md) | Every page, the folder structure, how data reaches the browser |

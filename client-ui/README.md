@@ -276,6 +276,8 @@ The full procedure, including the database and the first administrator, is in
   depth: the signing endpoint, the SDK, the call panel, troubleshooting
 - [tests/README.md](tests/README.md) — how the browser suite is organised and
   what it deliberately does not do
+- [../backend/AUTH.md](../backend/AUTH.md) — sign-in, sessions and the
+  two surfaces, including the gates in this half
 - [../backend/README.md](../backend/README.md) — the API, sessions and the
   Perfox proxy
 - [../DEPLOYMENT.md](../DEPLOYMENT.md) — running the whole thing on a server

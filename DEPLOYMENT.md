@@ -84,7 +84,7 @@ requests across them is barely limited at all. Sessions are in Postgres and are
 fine; it is only the rate limiter.
 
 Scale vertically, not horizontally, until that moves to shared storage. See
-[AUTH.md](AUTH.md).
+[AUTH.md](backend/AUTH.md).
 
 ### 3. `CLIENT_DIST` must be set
 
@@ -240,7 +240,7 @@ exists it reports so and stops. To recover a lost administrator password,
 change it in the database directly.
 
 Then sign in at `/admin/login` and add customers there, entering each one's
-Perfox credentials. See [AUTH.md](AUTH.md).
+Perfox credentials. See [AUTH.md](backend/AUTH.md).
 
 ### Check it came up
 
@@ -291,7 +291,7 @@ Not defects, but things to know before being surprised by them.
 
 ## See also
 
-- [AUTH.md](AUTH.md) — sessions, cookies, passwords, the attempt cap
+- [AUTH.md](backend/AUTH.md) — sessions, cookies, passwords, the attempt cap
 - [backend/README.md](backend/README.md) — the API, configuration, data model
 - [client-ui/README.md](client-ui/README.md) — the browser half
 - [client-ui/OPERATOR-INTEGRATION.md](client-ui/OPERATOR-INTEGRATION.md) —
