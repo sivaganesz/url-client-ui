@@ -298,6 +298,8 @@ that order, so the error body names which one to fix.
 
 ## Deploying
 
+Deploying the whole thing to a server: [../DEPLOYMENT.md](../DEPLOYMENT.md).
+
 **This half deploys as static files.** `npm run build` produces `dist/`, and
 the backend serves it — which is what keeps the app and the API on one origin.
 Point the backend's `CLIENT_DIST` at it.

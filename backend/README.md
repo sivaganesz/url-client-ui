@@ -6,6 +6,8 @@ Auth, workspace credentials, and the Perfox proxy for the console in
 Express + TypeScript on Node 22 (`--experimental-strip-types`, so there is no
 build step) and Postgres.
 
+Deploying it to a server is a separate document: [../DEPLOYMENT.md](../DEPLOYMENT.md).
+
 ## What it is for
 
 The console talks to a Perfox workspace, and a workspace API key authorises
@@ -32,7 +34,7 @@ cp .env.example .env        # then generate an ENCRYPTION_KEY, below
 npm run migrate             # apply the schema
 npm run seed:admin          # create the admin account
 
-npm run dev                 # http://localhost:4400
+npm run dev                 # http://localhost:4300
 ```
 
 Then sign in at `/admin/login` and add customers there. `seed:admin` is the

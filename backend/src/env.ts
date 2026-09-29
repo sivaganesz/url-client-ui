@@ -29,6 +29,25 @@ export const IS_PROD = NODE_ENV === 'production'
 export const DATABASE_URL = required('DATABASE_URL')
 
 /**
+ * Whether to connect to Postgres over TLS: `auto`, `require` or `off`.
+ *
+ * `auto` is right almost everywhere — see backend/src/db/index.ts for what it
+ * treats as a private network. The other two exist so that a host neither of
+ * us has thought of is a setting rather than a patch: `require` for a managed
+ * database behind a hostname that looks local, `off` for a database genuinely
+ * on a private network that the guess does not recognise.
+ */
+const SSL_MODES = ['auto', 'require', 'off'] as const
+export const DATABASE_SSL = ((): (typeof SSL_MODES)[number] => {
+  const value = (process.env.DATABASE_SSL ?? 'auto').toLowerCase()
+  if ((SSL_MODES as readonly string[]).includes(value)) {
+    return value as (typeof SSL_MODES)[number]
+  }
+  console.warn(`[backend] DATABASE_SSL=${value} is not one of ${SSL_MODES.join(', ')}; using auto.`)
+  return 'auto'
+})()
+
+/**
  * Signs and encrypts. Two separate concerns, one key, deliberately:
  *
  *   · session cookies are random and stored hashed, so they need no key
