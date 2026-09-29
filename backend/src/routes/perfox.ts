@@ -32,6 +32,118 @@ const KB_ID = '[A-Za-z0-9_-]{8,64}'
  * can read and write everything in a workspace, and a signed-in user should
  * not be able to reach further through it than the app itself does.
  */
+/**
+ * How long an upstream request may take before it is given up on.
+ *
+ * Without one, a Perfox that accepts the connection and then says nothing
+ * holds this request open indefinitely — and with it a socket and the
+ * database client behind it. Enough of those and the process stops
+ * answering anybody, which is a worse failure than the slow page it was
+ * trying to avoid.
+ *
+ * Two budgets, because the work is not comparable. A read is a query and
+ * should be quick; an upload carries a file over whatever connection the
+ * operator happens to have, and cutting that off at a few seconds would
+ * fail uploads that were going to succeed.
+ */
+/**
+ * "Did not answer" and "could not be reached" are different faults, and the
+ * difference is the first thing worth knowing when a page will not load.
+ * 504 says the workspace is up and slow; 502 says nothing answered at all.
+ */
+const upstreamFailure = (err: unknown): { status: number; error: string } =>
+  (err as Error)?.name === 'TimeoutError'
+    ? { status: 504, error: 'The workspace did not answer in time.' }
+    : { status: 502, error: 'Could not reach the workspace.' }
+
+/**
+ * One number, in one shape, so two of them can be compared.
+ *
+ * Digits only, and a leading 00 dropped: +91 63741 60200, 916374160200 and
+ * 00916374160200 are the same telephone written three ways, and all three
+ * reduce to the same string.
+ *
+ * Everything else must differ. 16374160200 is a North American number that
+ * happens to share the last ten digits; 999916374160200 is a different
+ * number again. Comparing suffixes cannot tell any of these apart, which is
+ * why the comparison below is equality and not endsWith.
+ */
+const sameNumber = (raw: unknown): string =>
+  String(raw ?? '').replace(/\D/g, '').replace(/^00/, '')
+
+/**
+ * Whether this number may be rung, given the list in force.
+ *
+ * An empty list is no opinion, not a refusal: unset is the shipped state,
+ * and a guard that blocks everything when switched off would take the
+ * product down rather than protect it.
+ *
+ * Exported so the rule can be tested directly. The list is read from the
+ * environment once at start-up, so a test cannot vary it any other way.
+ */
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * The one form the carrier accepts: +91 and the ten national digits.
+ *
+ * Plivo refuses a bare national number, so a ten-digit entry has to be
+ * completed before it goes out rather than merely allowed in. Returns null
+ * when the input is not a number this deployment can dial.
+ */
+export function asDialled(raw: unknown): string | null {
+  const digits = String(raw ?? '').replace(/\D/g, '').replace(/^00/, '')
+  const national = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits
+  return national.length === 10 ? '+91' + national : null
+}
+
+/**
+ * Whether this destination can be sent to at all. Null when it can.
+ *
+ * Not an allowlist — an operator messages whoever their customers are. This
+ * only refuses what cannot be a destination: an empty field, a pasted
+ * conversation id, a name, a number with a digit too many.
+ *
+ * Phone numbers are Indian, in the three shapes the console accepts:
+ *
+ *   6374160200        the national number
+ *   916374160200      with the country code
+ *   +91 63741 60200   the same, spaced or punctuated
+ *
+ * A number from another country is refused. That is a deliberate narrowing
+ * for this deployment, not a property of the platform — widen it here, and
+ * in client-ui/src/lib/operator.tsx, which has to agree because a call never
+ * passes through this process.
+ *
+ * Email is the other kind of destination the same endpoint carries.
+ */
+export function destinationProblem(raw: unknown, channel: unknown): string | null {
+  const to = String(raw ?? '').trim()
+  if (!to) return 'A destination is required.'
+
+  if (String(channel ?? '').toLowerCase() === 'email') {
+    return EMAIL.test(to) ? null : 'That is not an email address.'
+  }
+
+  const digits = to.replace(/\D/g, '').replace(/^00/, '')
+  // Only strip a country code that could be one: 9123456789 is a ten-digit
+  // national number that begins 91, not a country code and eight digits.
+  const national = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits
+
+  return national.length === 10
+    ? null
+    : 'Enter a 10-digit number, or the same number with +91.'
+}
+
+export function mayRing(raw: unknown, allowlist: readonly string[]): boolean {
+  if (allowlist.length === 0) return true
+  const to = sameNumber(raw)
+  if (!to) return false
+  return allowlist.some((n) => sameNumber(n) === to)
+}
+
+const PROXY_TIMEOUT_MS = 15_000
+const UPLOAD_TIMEOUT_MS = 120_000
+
 const READS = [
   /^agents$/,
   new RegExp(`^agents/${ID}$`),
@@ -156,6 +268,7 @@ perfoxRouter.post(
           'content-type': contentType,
         },
         body: req.body,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       })
       const text = await upstream.text()
       res
@@ -165,7 +278,8 @@ perfoxRouter.post(
         .send(redact(text, creds))
     } catch (err) {
       console.error('[perfox] upload', redact((err as Error).message, creds))
-      res.status(502).json({ error: 'Could not reach the workspace.' })
+      const { status, error } = upstreamFailure(err)
+      res.status(status).json({ error })
     }
   },
 )
@@ -205,15 +319,27 @@ perfoxRouter.all('/perfox/*splat', async (req, res) => {
    * from the browser goes straight to the platform and never passes here,
    * so that one is guarded in the console instead.
    */
-  if (OUTBOUND_ALLOWLIST.length > 0 && resource === 'outbound') {
-    const to = String((req.body as { to?: unknown })?.to ?? '').replace(/[^0-9]/g, '')
-    if (!OUTBOUND_ALLOWLIST.some((n) => n === to || n.endsWith(to) || to.endsWith(n))) {
-      res.status(403).json({
-        error:
-          'Outbound is restricted to the numbers in OUTBOUND_ALLOWLIST on this deployment.',
-      })
+  if (resource === 'outbound') {
+    const body = req.body as { to?: unknown; channel?: unknown }
+    const problem = destinationProblem(body?.to, body?.channel)
+    if (problem) {
+      res.status(400).json({ error: problem })
       return
     }
+
+    // The carrier takes +91 and the ten digits, never the bare national
+    // number, so a ten-digit entry is completed here rather than refused
+    // upstream. Email is left exactly as typed.
+    const dialled = asDialled(body?.to)
+    if (dialled) body.to = dialled
+  }
+
+  if (resource === 'outbound' && !mayRing((req.body as { to?: unknown })?.to, OUTBOUND_ALLOWLIST)) {
+    res.status(403).json({
+      error:
+        'Outbound is restricted to the numbers in OUTBOUND_ALLOWLIST on this deployment.',
+    })
+    return
   }
 
   const url = new URL(req.originalUrl, 'http://placeholder')
@@ -228,6 +354,7 @@ perfoxRouter.all('/perfox/*splat', async (req, res) => {
         'content-type': 'application/json',
       },
       body: isWrite ? JSON.stringify(req.body ?? {}) : undefined,
+      signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
     })
 
     const text = await upstream.text()
@@ -238,7 +365,8 @@ perfoxRouter.all('/perfox/*splat', async (req, res) => {
       .send(redact(text, creds))
   } catch (err) {
     console.error('[perfox]', redact((err as Error).message, creds))
-    res.status(502).json({ error: 'Could not reach the workspace.' })
+    const { status, error } = upstreamFailure(err)
+    res.status(status).json({ error })
   }
 })
 

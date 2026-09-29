@@ -74,10 +74,9 @@ built app itself (`CLIENT_DIST`), which keeps that property without a proxy.
 | `npm run migrate` | apply `src/db/schema.sql` |
 | `npm run seed:admin` | create an administrator |
 | `npm run seed:dev` | the browser suite's accounts and workspace |
-| `npm test` | 100 tests, against a throwaway database |
+| `npm test` | 154 tests, against a throwaway database |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm run discover` | print a workspace's MCP tools, for checking a resource exists before writing against it |
 
 ---
 
@@ -109,7 +108,6 @@ the life of the data — see [../DEPLOYMENT.md](../DEPLOYMENT.md).
 ```
 backend/
 ├── docker-compose.yml       Postgres 17 for local development, on :5433
-├── discover.js              prints a workspace's MCP tools
 └── src/
     ├── index.ts             starts the server, schedules session sweeps
     ├── app.ts               the Express app: middleware, /api/health, routers
@@ -287,7 +285,7 @@ the process is up **and** can reach its data.
 ## Tests
 
 ```bash
-npm test        # 100 tests, ~1 minute
+npm test        # 154 tests, ~1 minute
 ```
 
 Node's built-in test runner, no additional dependency. They run against a real

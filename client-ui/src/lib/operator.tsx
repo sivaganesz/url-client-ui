@@ -133,6 +133,22 @@ const CONFIG_TIMEOUT_MS = 8000
 const RECONCILE_MS = 2000
 
 /**
+ * Effectively off.
+ *
+ * The SDK polls `pending` every 2.5s to notice a call ringing FOR this
+ * operator — routed inbound, or a transfer directed at them. This console has
+ * neither: it dials out and never goes available. Since 0.1.1 the poll starts
+ * in the SDK's constructor rather than on going available, so staying offline
+ * no longer avoids it.
+ *
+ * There is no off switch, and a value above ~24 days overflows setInterval and
+ * fires continuously, so this is an hour: one poll at mount, then nothing.
+ * Drop the option the day inbound or transfers are switched on — both arrive
+ * through this poll and neither rings without it.
+ */
+const RING_POLL_OFF_MS = 60 * 60 * 1000
+
+/**
  * Ask the server to end a call and keep at it until the platform agrees.
  *
  * Not a replacement for the SDK’s hangup, which since 0.1.1 does cancel a
@@ -190,6 +206,44 @@ function usable(body: unknown): body is OperatorConfig {
 }
 
 /**
+ * The one form the carrier accepts: +91 and the ten national digits.
+ *
+ * Plivo refuses a bare national number, so a ten-digit entry has to be
+ * completed before it goes out rather than merely allowed in. Returns null
+ * when the input is not a number this deployment can dial.
+ */
+export function asDialled(raw: unknown): string | null {
+  const digits = String(raw ?? '').replace(/\D/g, '').replace(/^00/, '')
+  const national = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits
+  return national.length === 10 ? '+91' + national : null
+}
+
+/**
+ * Whether this can be dialled. Null when it can.
+ *
+ * A call never reaches our backend — the browser talks to Perfox directly —
+ * so this is the only place a number can be checked before a telephone rings
+ * somewhere. It has to agree with destinationProblem in
+ * backend/src/routes/perfox.ts, which guards the message channels.
+ *
+ *   6374160200        the national number
+ *   916374160200      with the country code
+ *   +91 63741 60200   the same, spaced or punctuated
+ */
+export function dialProblem(raw: string | null | undefined): string | null {
+  const to = String(raw ?? '').trim()
+  if (!to) return 'No phone number to dial.'
+
+  const digits = to.replace(/\D/g, '').replace(/^00/, '')
+  // Only strip a country code that could be one: 9123456789 is a ten-digit
+  // national number beginning 91, not a country code and eight digits.
+  const national = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits
+
+  return national.length === 10
+    ? null
+    : 'Enter a 10-digit number, or the same number with +91.'
+}
+/**
  * Fetches the signed config, then mounts the SDK under it.
  *
  * Children render either way. `OperatorProvider` cannot mount before the
@@ -219,7 +273,7 @@ export function OperatorGate({ children }: { children: ReactNode }) {
         return body
       })
       .then((c) => {
-        if (live) setConfig(c)
+        if (live) setConfig({ ...c, ringPollMs: RING_POLL_OFF_MS })
       })
       .catch((err: Error) => {
         if (!live) return
@@ -302,8 +356,11 @@ function CallBridge({ children }: { children: ReactNode }) {
 
   const dial = useCallback(
     async ({ name, phone }: { name?: string | null; phone?: string | null }) => {
-      const digits = String(phone ?? '').replace(/[^\d+]/g, '')
-      if (!digits) throw new Error('No phone number to dial.')
+      const problem = dialProblem(phone)
+      if (problem) throw new Error(problem)
+      // dialProblem has already refused anything asDialled cannot complete,
+      // and the carrier will not take a bare national number.
+      const digits = asDialled(phone)!
 
       // Clear whatever the last attempt left behind, so a stale message cannot
       // be mistaken for this one failing.

@@ -161,9 +161,6 @@ async function request<T = unknown>(
   return body as T
 }
 
-export const health = () => request('/api/health')
-export const discover = () => request('/api/discover')
-
 /**
  * Reads already in flight, keyed by URL.
  *

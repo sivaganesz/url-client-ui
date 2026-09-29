@@ -517,3 +517,60 @@ describe('editing the details of a customer', () => {
     assert.equal(workspace.name, 'Northwind Trading')
   })
 })
+
+/**
+ * An id that is not a UUID.
+ *
+ * Both id columns are UUID, so the driver raises 22P02 on anything else and
+ * nothing on these routes catches it — which made a malformed request look
+ * like a fault in the server, loggable and alertable, by any caller who felt
+ * like typing one.
+ */
+describe('an id of the wrong shape', () => {
+  let admin: Client
+  beforeEach(async () => {
+    admin = await reset()
+  })
+
+  const BAD = ['not-a-uuid', '123', 'null', "'; DROP TABLE workspaces; --"]
+
+  test('is not found, on every route that takes one', async () => {
+    for (const id of BAD) {
+      const e = encodeURIComponent(id)
+      const answers = [
+        await admin.request(`/api/admin/customers/${e}`),
+        await admin.request(`/api/admin/customers/${e}/credentials`),
+        await admin.request(`/api/admin/customers/${e}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ workspaceName: 'X' }),
+        }),
+        await admin.request(`/api/admin/customers/${e}`, { method: 'DELETE' }),
+        await admin.post(`/api/admin/customers/${e}/status`, { status: 'suspended' }),
+        await admin.post(`/api/admin/customers/${e}/password`, {}),
+        await admin.post(`/api/admin/customers/${e}/test`, {}),
+        await admin.post(`/api/admin/admins/${e}/status`, { status: 'suspended' }),
+      ]
+      for (const res of answers) {
+        assert.equal(res.status, 404, `${id} should be not found, not ${res.status}`)
+      }
+    }
+  })
+
+  /**
+   * Order matters more than the status does.
+   *
+   * Checking the id first would answer a stranger's request about whether an
+   * id looks right before establishing that they have any business asking.
+   * Not signed in is the only thing they should learn.
+   */
+  test('still answers "not signed in" first to a caller who is not', async () => {
+    const res = await new Client().request('/api/admin/customers/not-a-uuid/credentials')
+    assert.equal(res.status, 401)
+  })
+
+  test('a well-formed id that matches nothing is also not found', async () => {
+    const absent = '11111111-2222-3333-4444-555555555555'
+    const res = await admin.request(`/api/admin/customers/${absent}`)
+    assert.equal(res.status, 404)
+  })
+})
