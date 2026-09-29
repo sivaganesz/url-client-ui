@@ -36,13 +36,21 @@ const READS = [
   /^agents$/,
   new RegExp(`^agents/${ID}$`),
   /^conversations$/,
+  /**
+   * One conversation, for the call panel.
+   *
+   * A call is over when its conversation is, and that is the only account of
+   * it both sides agree on: the operator API's call_status answers null for a
+   * call that finished and 404 for one its own session never handled.
+   */
+  new RegExp(`^conversations/${ID}$`),
   new RegExp(`^conversations/${ID}/events$`),
   new RegExp(`^conversations/${ID}/recordings$`),
   /^customers$/,
   new RegExp(`^customers/${ID}$`),
 
   /**
-   * A customer's own page.
+   * A customer’s own page.
    *
    * `details` is the workspace counting for us — conversations, channels,
    * first and last seen, and how those conversations ended. The console
@@ -274,6 +282,147 @@ perfoxRouter.get('/operator/config', requireAuth, async (req, res) => {
     operator: { externalId, name: user.name, userHash: sign(creds, externalId) },
   })
 })
+
+/**
+ * Ending a call, and not letting go until the platform agrees it ended.
+ *
+ * The SDK ends one with `void this.req("session/stop", ...)` — not awaited,
+ * not retried, no catch — and marks it ended locally on the next line. When
+ * that request fails the operator sees a closed panel and the customer keeps
+ * a live line, which is the complaint this exists to answer.
+ *
+ * Answering it needs a server, not better browser code. The stop has to
+ * outlive the tab that asked for it, and the operator API refuses a request
+ * whose origin is not on the site's allowed list, which is why this forwards
+ * the one the browser sent.
+ *
+ * It retries because a single stop proves nothing: the platform answers
+ * `{"ok":true}` to a session id that does not exist. The conversation going
+ * `ended` is the only evidence that anything happened, so that is what is
+ * waited for, and what is reported back.
+ */
+const STOP_ATTEMPTS = 4
+const STOP_GAP_MS = 1500
+
+const rest = async (creds: Credentials, path: string): Promise<unknown> => {
+  const upstream = await fetch(`${creds.apiBase}/${path}`, {
+    headers: { authorization: `Bearer ${creds.apiToken}`, accept: 'application/json' },
+    signal: AbortSignal.timeout(4000),
+  })
+  return upstream.ok ? await upstream.json().catch(() => null) : null
+}
+
+perfoxRouter.post('/operator/stop', requireAuth, async (req, res) => {
+  const user = req.user!
+  const creds = await credentialsFor(user)
+  const { callingConfigured } = publicWorkspace(creds)
+  const conversationId = String(req.body?.conversationId ?? '')
+  const sessionId = String(req.body?.sessionId ?? '')
+  /**
+   * Had the customer picked up?
+   *
+   * Absent counts as answered, which is the older behaviour: a caller that
+   * does not say is not one this should be cancelling calls on.
+   */
+  const answered = req.body?.answered !== false
+
+  if (!creds || !callingConfigured) {
+    res.status(409).json({ ended: false, reason: 'Operator calling is not set up.' })
+    return
+  }
+  if (!new RegExp(`^${ID}$`).test(conversationId)) {
+    res.status(400).json({ ended: false, reason: 'A conversation id is required.' })
+    return
+  }
+
+  const externalId = `op_${user.id}`
+  // The browser's own origin, which is the one the site already allows. A
+  // beacon from a closing tab sends it too.
+  const origin = req.headers.origin ?? `${req.protocol}://${req.get('host')}`
+
+  /** One operator-API call, signed and with the origin the site allows. */
+  const operatorPost = (route: string, extra: Record<string, unknown>): Promise<Response> =>
+    fetch(`${creds.operator.apiHost}/api/public/operator/${route}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Perfox-Site': creds.operator.siteId!,
+        origin,
+      },
+      body: JSON.stringify({
+        operator: {
+          external_id: externalId,
+          name: user.name,
+          user_hash: sign(creds, externalId),
+        },
+        ...extra,
+      }),
+      signal: AbortSignal.timeout(4000),
+    })
+
+  /**
+   * Two different ways a call ends, and only one of them works per case.
+   *
+   * `session/stop` ends the operator’s session, which is what an answered
+   * call needs. It does nothing at all to a call that is still ringing: there
+   * is no audio room yet, so nothing of it ever reaches the carrier, and the
+   * customer’s phone rings on for its full thirty seconds and connects them
+   * to an empty conversation if they pick up.
+   *
+   * `cancel_call` is the route for that window. It takes the conversation
+   * rather than the session, because before pickup there is no session to
+   * name.
+   *
+   * Since SDK 0.1.1 the browser cancels first, and better: its hangup() has
+   * Plivo’s `call_id`, which only exists in the reply to the outbound request
+   * and never reaches this process. So on a normal hang-up the cancel below
+   * is a second, coarser attempt at something already done.
+   *
+   * It stays because of the one case the browser cannot cover. On `pagehide`
+   * no further JavaScript is guaranteed to run, so hangup() never completes
+   * and a beacon to this route is all that is left — and then this is the
+   * only thing that stops the customer’s phone ringing. Deleting it as
+   * duplication would leave every closed tab ringing a stranger for thirty
+   * seconds.
+   *
+   * Both are attempted, because between reading the state and acting on it
+   * the call may have moved from one case to the other.
+   */
+  const stop = async (): Promise<void> => {
+    // Only what nobody answered. cancel_call ends an answered call too, and
+    // would have it recorded as cancelled by the operator — which is a poor
+    // description of a conversation that happened and then finished.
+    if (!answered) {
+      await operatorPost('cancel_call', { conversation_id: conversationId }).catch(() => null)
+    }
+    if (sessionId) await operatorPost('session/stop', { session_id: sessionId }).catch(() => null)
+  }
+
+  const isOver = async (): Promise<boolean> => {
+    const body = (await rest(creds, `conversations/${conversationId}`)) as
+      | { status?: string; data?: { status?: string } }
+      | null
+    return (body?.data?.status ?? body?.status) === 'ended'
+  }
+
+  for (let attempt = 1; attempt <= STOP_ATTEMPTS; attempt++) {
+    try {
+      await stop()
+      if (await isOver()) {
+        res.json({ ended: true, attempts: attempt })
+        return
+      }
+    } catch (err) {
+      console.error('[perfox] stop', redact((err as Error).message, creds))
+    }
+    if (attempt < STOP_ATTEMPTS) await new Promise((done) => setTimeout(done, STOP_GAP_MS))
+  }
+
+  // Reported, not hidden. A line still open after this is worth knowing about.
+  console.error(`[perfox] stop: ${conversationId} did not end after ${STOP_ATTEMPTS} attempts`)
+  res.json({ ended: false, attempts: STOP_ATTEMPTS })
+})
+
 
 /* ── what the shell needs to describe itself ─────────────── */
 
