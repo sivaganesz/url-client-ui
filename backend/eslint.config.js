@@ -50,12 +50,4 @@ export default [
        */
     },
   },
-
-  // discover.js is a plain-JS CLI, not part of the server.
-  {
-    files: ['discover.js'],
-    ...js.configs.recommended,
-    languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: globals.node },
-    rules: { ...js.configs.recommended.rules },
-  },
 ]

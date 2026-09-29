@@ -100,7 +100,7 @@ Each half has its own scripts for working inside it — see its README.
 ## Checks
 
 ```bash
-cd backend    && npm run lint && npm run typecheck && npm test   # 100 tests
+cd backend    && npm run lint && npm run typecheck && npm test   # 103 tests
 cd client-ui  && npm run lint && npm run typecheck && npm test   #  92 tests
 ```
 
