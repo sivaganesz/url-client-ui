@@ -17,7 +17,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:4400',
+        target: 'http://localhost:4300',
         // Left false so the Host header reaches the backend unchanged, which
         // is what `trust proxy` and the cookie domain expect in production.
         changeOrigin: false,

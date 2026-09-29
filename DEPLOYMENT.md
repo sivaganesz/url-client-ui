@@ -132,7 +132,7 @@ The app exits at startup if either is missing.
 | Variable | Set it to |
 |---|---|
 | `NODE_ENV` | `production` |
-| `PORT` | The port to listen on. Set it explicitly: unset it falls back to `4300`, while `.env.example` and local development use `4400`. |
+| `PORT` | The port to listen on. Defaults to `4300`, which is also what development uses. |
 | `CLIENT_DIST` | Absolute path to `client-ui/dist`. See warning 3. |
 
 ### Optional

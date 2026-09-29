@@ -48,8 +48,8 @@ jobs:
 
     env:
       DATABASE_URL: postgres://urlfactory:urlfactory@localhost:5433/urlfactory
-      # Playwright starts the backend itself and expects it on 4400.
-      PORT: '4400'
+      # Playwright starts the backend itself and expects it on 4300.
+      PORT: '4300'
       # The Perfox credentials the seed encrypts, from the repository secrets.
       PERFOX_API_BASE: ${{ secrets.PERFOX_API_BASE }}
       PERFOX_API_KEY: ${{ secrets.PERFOX_API_KEY }}

@@ -34,7 +34,7 @@ cp .env.example .env        # then generate an ENCRYPTION_KEY, below
 npm run migrate             # apply the schema
 npm run seed:admin          # create the admin account
 
-npm run dev                 # http://localhost:4400
+npm run dev                 # http://localhost:4300
 ```
 
 Then sign in at `/admin/login` and add customers there. `seed:admin` is the
