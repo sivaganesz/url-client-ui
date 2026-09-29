@@ -361,19 +361,31 @@ function CallBridge({ children }: { children: ReactNode }) {
   }, [hangup, session])
 
   /**
-   * The conversation, asked for as long as one is on screen.
+   * The conversation, asked for as long as a call is up.
    *
    * A call is over when its conversation is. That is the one account both
    * sides agree on, and the SDK consults it for neither: it learns the
    * customer hung up only from a room participant whose identity starts with
    * "phone-bridge", and a declined call never produces one at all.
    *
-   * From the first ring, not from 'live' — a call that is rejected never
-   * reaches live, and that is one of the two ways this goes wrong.
+   * Only once the call is live, though, and that guard is load-bearing.
+   *
+   * This used to watch from the first ring, on the reasoning that a rejected
+   * call never reaches live. That was safe while the SDK’s hangup() did
+   * nothing to a call without an audio room: a wrong verdict here closed the
+   * panel and no more. Since 0.1.1 hangup() cancels a dialing or ringing call
+   * server-side, so the same wrong verdict now puts the phone down on a
+   * customer whose handset is still ringing — two seconds in, before anybody
+   * could have answered.
+   *
+   * The ringing window belongs to the SDK now. It polls call_status itself
+   * and cancels properly, holding Plivo’s request id, which this does not
+   * have. What is left for this loop is the case the SDK still misses: an
+   * answered call whose ending never arrives.
    */
   useEffect(() => {
     const conversationId = active?.conversationId
-    if (!conversationId || active.status === 'ended') return
+    if (!conversationId || active.status !== 'live') return
 
     let watching = true
     const ask = async () => {
