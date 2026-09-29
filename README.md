@@ -104,14 +104,16 @@ cd backend    && npm run lint && npm run typecheck && npm test   # 100 tests
 cd client-ui  && npm run lint && npm run typecheck && npm test   #  92 tests
 ```
 
-**CI runs on every push**: lint, typecheck, the backend suite and the
+**CI runs on every push** — lint, typecheck, the backend suite and the
 production build, both halves. The backend tests run against a throwaway
 Postgres and an in-process fake Perfox, so nothing reaches the real platform
 and no test needs a key.
+[.github/workflows/ci.yml](.github/workflows/ci.yml)
 
-The browser suite drives a real browser against a real workspace. It is
-manual-only (`workflow_dispatch`) because it needs live credentials — the
-workflow names the six repository secrets required to schedule it.
+**The browser suite** drives a real browser against a real workspace, so it is
+manual-only (`workflow_dispatch`): it needs live credentials, and the workflow
+names the six repository secrets required to put it back on a schedule.
+[.github/workflows/browser-tests.yml](.github/workflows/browser-tests.yml)
 
 ---
 
