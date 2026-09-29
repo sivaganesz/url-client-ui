@@ -1,6 +1,6 @@
 # The browser suite, kept out of the push gate on purpose.
 #
-# These 76 tests drive a real browser against the real Perfox workspace. Two
+# These 92 tests drive a real browser against the real Perfox workspace. Two
 # reasons that does not belong on every push: a full run is a few hundred reads
 # in four minutes and the workspace answers `rate_limited` to the tail of it,
 # and it needs live credentials that a fork's pull request must never see.
@@ -11,9 +11,19 @@
 name: Browser tests
 
 on:
-  # 01:00 IST.
-  schedule:
-    - cron: '30 19 * * *'
+  # By hand only. It ran nightly at 01:00 IST until the six secrets it needs
+  # were decided against, at which point it failed every night instead — and a
+  # job that is always red teaches everyone to stop reading CI, including on
+  # the day something real breaks.
+  #
+  # The tests have not gone anywhere. They run locally with `npm test` in
+  # client-ui, which is how they have always been run. To bring the schedule
+  # back, put PERFOX_API_BASE, PERFOX_API_KEY, OPERATOR_API_HOST,
+  # OPERATOR_SITE_ID, OPERATOR_SITE_SECRET and OPERATOR_WORKFLOW_ID in the
+  # repository secrets and restore:
+  #
+  #   schedule:
+  #     - cron: '30 19 * * *'
   workflow_dispatch:
 
 jobs:
