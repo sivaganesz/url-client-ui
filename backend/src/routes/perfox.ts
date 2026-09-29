@@ -32,6 +32,33 @@ const KB_ID = '[A-Za-z0-9_-]{8,64}'
  * can read and write everything in a workspace, and a signed-in user should
  * not be able to reach further through it than the app itself does.
  */
+/**
+ * How long an upstream request may take before it is given up on.
+ *
+ * Without one, a Perfox that accepts the connection and then says nothing
+ * holds this request open indefinitely — and with it a socket and the
+ * database client behind it. Enough of those and the process stops
+ * answering anybody, which is a worse failure than the slow page it was
+ * trying to avoid.
+ *
+ * Two budgets, because the work is not comparable. A read is a query and
+ * should be quick; an upload carries a file over whatever connection the
+ * operator happens to have, and cutting that off at a few seconds would
+ * fail uploads that were going to succeed.
+ */
+/**
+ * "Did not answer" and "could not be reached" are different faults, and the
+ * difference is the first thing worth knowing when a page will not load.
+ * 504 says the workspace is up and slow; 502 says nothing answered at all.
+ */
+const upstreamFailure = (err: unknown): { status: number; error: string } =>
+  (err as Error)?.name === 'TimeoutError'
+    ? { status: 504, error: 'The workspace did not answer in time.' }
+    : { status: 502, error: 'Could not reach the workspace.' }
+
+const PROXY_TIMEOUT_MS = 15_000
+const UPLOAD_TIMEOUT_MS = 120_000
+
 const READS = [
   /^agents$/,
   new RegExp(`^agents/${ID}$`),
@@ -156,6 +183,7 @@ perfoxRouter.post(
           'content-type': contentType,
         },
         body: req.body,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       })
       const text = await upstream.text()
       res
@@ -165,7 +193,8 @@ perfoxRouter.post(
         .send(redact(text, creds))
     } catch (err) {
       console.error('[perfox] upload', redact((err as Error).message, creds))
-      res.status(502).json({ error: 'Could not reach the workspace.' })
+      const { status, error } = upstreamFailure(err)
+      res.status(status).json({ error })
     }
   },
 )
@@ -228,6 +257,7 @@ perfoxRouter.all('/perfox/*splat', async (req, res) => {
         'content-type': 'application/json',
       },
       body: isWrite ? JSON.stringify(req.body ?? {}) : undefined,
+      signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
     })
 
     const text = await upstream.text()
@@ -238,7 +268,8 @@ perfoxRouter.all('/perfox/*splat', async (req, res) => {
       .send(redact(text, creds))
   } catch (err) {
     console.error('[perfox]', redact((err as Error).message, creds))
-    res.status(502).json({ error: 'Could not reach the workspace.' })
+    const { status, error } = upstreamFailure(err)
+    res.status(status).json({ error })
   }
 })
 
