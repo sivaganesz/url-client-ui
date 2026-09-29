@@ -258,13 +258,25 @@ Administration, all requiring an administrator session:
 | `GET /api/admin/customers` | every customer and their workspace |
 | `POST /api/admin/customers` | create a customer and attach a workspace |
 | `GET` · `PATCH` · `DELETE /api/admin/customers/:workspaceId` | read, edit, remove |
-| `GET /api/admin/customers/:workspaceId/credentials` | the connection, without the secrets |
+| `GET /api/admin/customers/:workspaceId/credentials` | **reveals the decrypted Perfox token and operator secret**; audited as `customer.reveal` |
 | `POST /api/admin/customers/:workspaceId/test` | check the credentials reach Perfox |
 | `POST /api/admin/customers/:workspaceId/password` | issue a new password |
 | `POST /api/admin/customers/:workspaceId/status` | suspend or restore |
 | `GET` · `POST /api/admin/admins` | list and create administrators |
 | `POST /api/admin/admins/:adminId/status` | suspend, which also revokes sessions |
 | `GET /api/admin/events` | the audit trail |
+
+**The credentials route hands back plaintext.** It decrypts a workspace's
+Perfox token and operator secret and returns them, so an administrator can read
+back what was entered. One workspace per request, and every call is written to
+the audit trail as `customer.reveal`, recording which fields were revealed and
+by whom — never the values themselves.
+
+Two things follow. Responses from this route must not be logged or captured by
+anything that keeps request bodies. And an administrator session is, in
+practice, access to every workspace's credentials one request at a time: the
+only guard is `requireAdmin`, so the trail is a record of what happened rather
+than a barrier to it.
 
 `/api/health` returns `{"ok":true,"database":"up"}` with a 200, or a 503 when
 Postgres is unreachable. It is the check worth alerting on: it answers whether
