@@ -133,6 +133,22 @@ const CONFIG_TIMEOUT_MS = 8000
 const RECONCILE_MS = 2000
 
 /**
+ * Effectively off.
+ *
+ * The SDK polls `pending` every 2.5s to notice a call ringing FOR this
+ * operator — routed inbound, or a transfer directed at them. This console has
+ * neither: it dials out and never goes available. Since 0.1.1 the poll starts
+ * in the SDK's constructor rather than on going available, so staying offline
+ * no longer avoids it.
+ *
+ * There is no off switch, and a value above ~24 days overflows setInterval and
+ * fires continuously, so this is an hour: one poll at mount, then nothing.
+ * Drop the option the day inbound or transfers are switched on — both arrive
+ * through this poll and neither rings without it.
+ */
+const RING_POLL_OFF_MS = 60 * 60 * 1000
+
+/**
  * Ask the server to end a call and keep at it until the platform agrees.
  *
  * Not a replacement for the SDK’s hangup, which since 0.1.1 does cancel a
@@ -257,7 +273,7 @@ export function OperatorGate({ children }: { children: ReactNode }) {
         return body
       })
       .then((c) => {
-        if (live) setConfig(c)
+        if (live) setConfig({ ...c, ringPollMs: RING_POLL_OFF_MS })
       })
       .catch((err: Error) => {
         if (!live) return
