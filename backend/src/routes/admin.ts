@@ -1,4 +1,5 @@
-import { Router } from 'express'
+import { Router, type RequestHandler } from 'express'
+import { randomBytes } from 'node:crypto'
 import { one, query, type UserRow } from '../db/index.ts'
 import { decrypt, encrypt } from '../crypto.ts'
 import { hashPassword, passwordProblem, verifyPassword, wasteTime } from '../auth/password.ts'
@@ -13,6 +14,38 @@ import { limitLogins } from '../auth/rate-limit.ts'
 import { record } from '../audit.ts'
 
 export const adminRouter: Router = Router()
+
+/**
+ * An id that cannot name a row, rejected before it reaches Postgres.
+ *
+ * Both id columns are UUID. Handing the driver anything else raises 22P02,
+ * which nothing on these routes catches, so it surfaces as 500 — a fault
+ * report for a request that was merely malformed, and one any caller could
+ * provoke at will.
+ *
+ * 404 is the honest answer: an id of the wrong shape names nothing, which is
+ * the same outcome as a well-formed id matching no row.
+ *
+ * Deliberately middleware rather than `adminRouter.param`, which would run
+ * ahead of requireAdmin — and an unauthenticated caller must be told they
+ * are not signed in, not what this route thinks of their id.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Express types a route parameter as string | string[]; only one shape can be an id. */
+const isId = (value: unknown): boolean => typeof value === 'string' && UUID.test(value)
+
+const validIds: RequestHandler = (req, res, next) => {
+  if (req.params.workspaceId !== undefined && !isId(req.params.workspaceId)) {
+    res.status(404).json({ error: 'No such workspace.' })
+    return
+  }
+  if (req.params.adminId !== undefined && !isId(req.params.adminId)) {
+    res.status(404).json({ error: 'No such administrator.' })
+    return
+  }
+  next()
+}
 
 /**
  * The admin surface: sign in, and create the customers who cannot sign
@@ -83,7 +116,6 @@ interface CustomerRow {
   workspace_name: string
   perfox_api_base: string | null
   has_api_token: boolean
-  token_hint: string | null
   has_operator: boolean
   user_id: string | null
   user_name: string | null
@@ -107,7 +139,6 @@ adminRouter.get('/admin/customers', requireAdmin, async (_req, res) => {
             w.name                            AS workspace_name,
             w.perfox_api_base,
             (w.perfox_api_token_enc IS NOT NULL)      AS has_api_token,
-            NULL::text                        AS token_hint,
             (w.operator_site_secret_enc IS NOT NULL
              AND w.operator_site_id IS NOT NULL)      AS has_operator,
             u.id AS user_id, u.name AS user_name, u.email, u.mobile,
@@ -225,7 +256,7 @@ adminRouter.post('/admin/customers', requireAdmin, async (req, res) => {
  * per-user column still exists, for suspending one member of a workspace that
  * carries on.
  */
-adminRouter.post('/admin/customers/:workspaceId/status', requireAdmin, async (req, res) => {
+adminRouter.post('/admin/customers/:workspaceId/status', requireAdmin, validIds, async (req, res) => {
   const status = text(req.body?.status)
   if (status !== 'active' && status !== 'suspended') {
     res.status(400).json({ error: "Status must be 'active' or 'suspended'." })
@@ -271,7 +302,7 @@ adminRouter.post('/admin/customers/:workspaceId/status', requireAdmin, async (re
  *
  * Clearing is therefore explicit: send `null`.
  */
-adminRouter.patch('/admin/customers/:workspaceId', requireAdmin, async (req, res) => {
+adminRouter.patch('/admin/customers/:workspaceId', requireAdmin, validIds, async (req, res) => {
   const b = req.body ?? {}
   const sets: string[] = []
   const values: unknown[] = []
@@ -295,8 +326,61 @@ adminRouter.patch('/admin/customers/:workspaceId', requireAdmin, async (req, res
   if (given(b.operatorSiteSecret)) put('operator_site_secret_enc', secret(b.operatorSiteSecret))
   if (given(b.operatorWorkflowId)) put('operator_workflow_id', plain(b.operatorWorkflowId))
 
-  if (sets.length === 0) {
+  /**
+   * The person, who lives in another table.
+   *
+   * Name and phone only. The email is what they sign in with, so changing
+   * it here would change who can reach the account — a different decision,
+   * and one nobody should make by tabbing through a form.
+   *
+   * The phone is not decoration either: it is the number an outbound call
+   * goes to. Hence the shape check, so a bad one fails here rather than at
+   * dial time, and hence its name in the audit trail.
+   */
+  const person: string[] = []
+  const personValues: unknown[] = []
+  const putPerson = (column: string, value: unknown) => {
+    person.push(`${column} = $${person.length + 1}`)
+    personValues.push(value)
+  }
+
+  if (given(b.name)) putPerson('name', text(b.name))
+  if (b.mobile !== undefined) {
+    const mobile = b.mobile === null ? null : text(b.mobile) || null
+    if (mobile !== null && !/^\+?[0-9][0-9 ()-]{6,19}$/.test(mobile)) {
+      res.status(400).json({ error: 'That does not look like a phone number.' })
+      return
+    }
+    putPerson('mobile', mobile)
+  }
+
+  if (sets.length === 0 && person.length === 0) {
     res.status(400).json({ error: 'Nothing to change.' })
+    return
+  }
+
+  if (person.length > 0) {
+    personValues.push(req.params.workspaceId)
+    const personSet = person.join(', ')
+    await query(
+      `UPDATE users SET ${personSet}, updated_at = now()
+        WHERE id = (SELECT id FROM users WHERE workspace_id = $${personValues.length}
+                     ORDER BY (role = 'owner') DESC, created_at LIMIT 1)`,
+      personValues,
+    )
+  }
+
+  if (sets.length === 0) {
+    const only = await one<{ name: string }>(
+      'SELECT name FROM workspaces WHERE id = $1',
+      [req.params.workspaceId],
+    )
+    await record(req, 'customer.update', {
+      type: 'customer',
+      id: String(req.params.workspaceId),
+      label: only?.name,
+    })
+    res.json({ ok: true })
     return
   }
 
@@ -341,7 +425,7 @@ adminRouter.patch('/admin/customers/:workspaceId', requireAdmin, async (req, res
  * This endpoint exists to check a credential, not to become a second way of
  * reading a customer's data through an admin session.
  */
-adminRouter.post('/admin/customers/:workspaceId/test', requireAdmin, async (req, res) => {
+adminRouter.post('/admin/customers/:workspaceId/test', requireAdmin, validIds, async (req, res) => {
   const w = await one<{
     perfox_api_base: string | null
     perfox_api_token_enc: string | null
@@ -414,6 +498,8 @@ adminRouter.post('/admin/password', requireAdmin, async (req, res) => {
   // they think one has been taken.
   await query('DELETE FROM admin_sessions WHERE admin_id = $1', [admin.id])
   await createAdminSession(res, admin, req)
+
+  await record(req, 'admin.password', { type: 'admin', id: admin.id, label: admin.email })
 
   res.json({ ok: true })
 })
@@ -492,7 +578,7 @@ adminRouter.post('/admin/admins', requireAdmin, async (req, res) => {
  * will not suspend the last active one, for the same reason: an admin surface
  * with nobody able to sign in needs a person with psql to repair it.
  */
-adminRouter.post('/admin/admins/:adminId/status', requireAdmin, async (req, res) => {
+adminRouter.post('/admin/admins/:adminId/status', requireAdmin, validIds, async (req, res) => {
   const status = text(req.body?.status)
   if (status !== 'active' && status !== 'suspended') {
     res.status(400).json({ error: "Status must be 'active' or 'suspended'." })
@@ -515,8 +601,8 @@ adminRouter.post('/admin/admins/:adminId/status', requireAdmin, async (req, res)
     }
   }
 
-  const rows = await query<{ id: string }>(
-    'UPDATE admins SET status = $1, updated_at = now() WHERE id = $2 RETURNING id',
+  const rows = await query<{ id: string; email: string }>(
+    'UPDATE admins SET status = $1, updated_at = now() WHERE id = $2 RETURNING id, email',
     [status, req.params.adminId],
   )
   if (rows.length === 0) {
@@ -528,6 +614,17 @@ adminRouter.post('/admin/admins/:adminId/status', requireAdmin, async (req, res)
     // The open tab has to stop working, not merely the next sign-in.
     await query('DELETE FROM admin_sessions WHERE admin_id = $1', [req.params.adminId])
   }
+
+  // Taking away another administrator — their sessions end mid-action —
+  // is the most consequential thing one can do to another, and the only
+  // privileged act that used to leave no trace. Creating one was already
+  // recorded; removing one now is too.
+  await record(req, status === 'suspended' ? 'admin.suspend' : 'admin.reinstate', {
+    type: 'admin',
+    id: String(req.params.adminId),
+    label: rows[0]!.email,
+  })
+
   res.json({ ok: true, status })
 })
 
@@ -582,7 +679,21 @@ adminRouter.get('/admin/events', requireAdmin, async (req, res) => {
  * stored makes every edit a retyping exercise — the API base and the site id
  * are configuration, not credentials, and hiding them bought nothing.
  */
-adminRouter.get('/admin/customers/:workspaceId', requireAdmin, async (req, res) => {
+adminRouter.get('/admin/customers/:workspaceId', requireAdmin, validIds, async (req, res) => {
+  /**
+   * The person as well as the workspace.
+   *
+   * The Customer Profile tab shows who the account belongs to, and the
+   * reset acts on them. One owner per workspace today, but the row is
+   * chosen by role rather than assumed, so a second user later does not
+   * quietly become the one whose password gets replaced.
+   */
+  const owner = await one<{ name: string; email: string; mobile: string | null }>(
+    `SELECT name, email, mobile FROM users
+       WHERE workspace_id = $1 ORDER BY (role = 'owner') DESC, created_at LIMIT 1`,
+    [req.params.workspaceId],
+  )
+
   const w = await one<{
     name: string
     perfox_api_base: string | null
@@ -606,6 +717,9 @@ adminRouter.get('/admin/customers/:workspaceId', requireAdmin, async (req, res) 
   res.json({
     customer: {
       workspaceName: w.name,
+      ownerName: owner?.name ?? null,
+      ownerEmail: owner?.email ?? null,
+      ownerMobile: owner?.mobile ?? null,
       perfoxApiBase: w.perfox_api_base,
       operatorApiHost: w.operator_api_host,
       operatorSiteId: w.operator_site_id,
@@ -633,7 +747,7 @@ adminRouter.get('/admin/customers/:workspaceId', requireAdmin, async (req, res) 
  *
  * The trail records that it was read, never what was read.
  */
-adminRouter.get('/admin/customers/:workspaceId/credentials', requireAdmin, async (req, res) => {
+adminRouter.get('/admin/customers/:workspaceId/credentials', requireAdmin, validIds, async (req, res) => {
   const w = await one<{
     name: string
     perfox_api_token_enc: string | null
@@ -682,7 +796,79 @@ adminRouter.get('/admin/customers/:workspaceId/credentials', requireAdmin, async
  * The audit entry survives the row. `target_id` is plain text with no foreign
  * key precisely so that "who deleted Northwind, and when?" outlives Northwind.
  */
-adminRouter.delete('/admin/customers/:workspaceId', requireAdmin, async (req, res) => {
+/**
+ * A password a person can read down a phone line.
+ *
+ * Four groups of four from an alphabet with no 0/O and no 1/l/I, because
+ * this gets dictated and typed by hand at least once. Twenty characters of
+ * it, well past the twelve the rule asks for, and drawn from the same source
+ * the session tokens use rather than Math.random.
+ */
+function generatedPassword(): string {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+  const bytes = randomBytes(16)
+  const chars = [...bytes].map((b) => alphabet[b % alphabet.length]).join('')
+  return [0, 4, 8, 12].map((i) => chars.slice(i, i + 4)).join('-')
+}
+
+/**
+ * Giving a locked-out customer a way back in.
+ *
+ * There is no email anywhere in this product, so there is no link to send
+ * and no self-service route: an admin sets a new password and hands it over,
+ * which is exactly how the account was created in the first place. The
+ * customer can change it themselves once they are in.
+ *
+ * Generated here rather than typed. A support person choosing passwords for
+ * forty customers chooses the same one for forty customers.
+ *
+ * Every session that customer has is ended. A reset is asked for when
+ * somebody has lost the password or somebody else has found it, and in the
+ * second case a session still open is the whole problem.
+ */
+adminRouter.post('/admin/customers/:workspaceId/password', requireAdmin, validIds, async (req, res) => {
+  const owner = await one<{ id: string; email: string }>(
+    `SELECT id, email FROM users
+       WHERE workspace_id = $1 ORDER BY (role = 'owner') DESC, created_at LIMIT 1`,
+    [req.params.workspaceId],
+  )
+
+  if (!owner) {
+    res.status(404).json({ error: 'That workspace has no user to reset.' })
+    return
+  }
+
+  const password = generatedPassword()
+  // The generator is fixed, so this can only fail if someone changes it.
+  const problem = passwordProblem(password)
+  if (problem) {
+    console.error('[admin] generated password rejected:', problem)
+    res.status(500).json({ error: 'Could not generate a password.' })
+    return
+  }
+
+  await query('UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2', [
+    await hashPassword(password),
+    owner.id,
+  ])
+  await query('DELETE FROM sessions WHERE user_id = $1', [owner.id])
+
+  const workspace = await one<{ name: string }>(
+    'SELECT name FROM workspaces WHERE id = $1',
+    [req.params.workspaceId],
+  )
+  await record(req, 'customer.password_reset', {
+    type: 'customer',
+    id: String(req.params.workspaceId),
+    label: workspace?.name ?? owner.email,
+  })
+
+  // Said once. Only the hash is kept, so closing the dialog loses it and the
+  // only way back is another reset — which the page has to make plain.
+  res.json({ email: owner.email, password })
+})
+
+adminRouter.delete('/admin/customers/:workspaceId', requireAdmin, validIds, async (req, res) => {
   const w = await one<{ name: string }>('SELECT name FROM workspaces WHERE id = $1', [
     req.params.workspaceId,
   ])

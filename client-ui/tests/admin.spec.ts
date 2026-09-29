@@ -308,6 +308,9 @@ test('the edit form fills itself in, and the secrets stay behind an eye', async 
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
 
+  // The dialog opens on Customer profile; the connection is its own tab.
+  await dialog.getByText('Perfox connection', { exact: true }).click()
+
   // Configuration is there to edit rather than to retype.
   await expect(dialog.getByLabel('API base', { exact: true })).not.toHaveValue('')
 

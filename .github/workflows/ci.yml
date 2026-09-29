@@ -1,0 +1,91 @@
+# The gate.
+#
+# Everything here runs on every push, needs no secret, and cannot reach the
+# live workspace: the backend suite talks to a throwaway Postgres and a fake
+# Perfox started in-process (see backend/tests/harness.ts). The browser suite
+# is deliberately not here — it drives the real workspace, so it runs nightly
+# in browser-tests.yml instead.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A newer push makes the run in flight pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: urlfactory
+          POSTGRES_PASSWORD: urlfactory
+          POSTGRES_DB: urlfactory
+        # 5433 is the port the local Docker setup uses, so the default in
+        # tests/harness.ts works here without an override.
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U urlfactory"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+        working-directory: backend
+
+      - run: npm run lint
+        working-directory: backend
+
+      - run: npm run typecheck
+        working-directory: backend
+
+      # The suite creates and drops its own database, so it needs an account
+      # that can do that — the compose superuser, same as locally.
+      - name: Tests
+        run: npm test
+        working-directory: backend
+        env:
+          TEST_ADMIN_URL: postgres://urlfactory:urlfactory@localhost:5433/urlfactory
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: client-ui/package-lock.json
+
+      - run: npm ci
+        working-directory: client-ui
+
+      - run: npm run lint
+        working-directory: client-ui
+
+      # `build` runs `tsc --noEmit` before vite, so this is the typecheck too.
+      # It is also the artifact the backend serves in production, which makes a
+      # build failure here the same failure the deploy would hit.
+      - run: npm run build
+        working-directory: client-ui

@@ -90,7 +90,7 @@ export default defineConfig({
       // sibling project now, not part of this one.
       command: 'npm start',
       cwd: '../backend',
-      url: 'http://localhost:4400/api/health',
+      url: 'http://localhost:4300/api/health',
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
       stdout: 'ignore',

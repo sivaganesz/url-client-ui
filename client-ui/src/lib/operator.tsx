@@ -34,7 +34,7 @@ import type { OperatorConfig } from '@perfox/operator-react'
 export type CallStatus = 'dialing' | 'ringing' | 'live' | 'ended'
 
 /**
- * The SDK's errors, said in English.
+ * The SDK’s errors, said in English.
  *
  * It reports them as terse machine strings — `call no_answer`, `dial: 403`,
  * `session: ...` — and they go straight onto the screen of whoever just tried
@@ -111,7 +111,7 @@ const NOT_MOUNTED: CallApi = {
 const CallContext = createContext<CallApi | null>(null)
 
 /**
- * Never throws, unlike the SDK's own `useOperator`.
+ * Never throws, unlike the SDK’s own `useOperator`.
  *
  * Pages call it unconditionally and read `ready`/`reason`, so a console with
  * no operator credentials explains why calling is unavailable instead of
@@ -123,6 +123,69 @@ export function useCall(): CallApi {
 
 /** How long to wait for the config before calling the connector unreachable. */
 const CONFIG_TIMEOUT_MS = 8000
+
+/**
+ * How often to ask whether the call on screen is still a call.
+ *
+ * The SDK decides that from single events that go missing in both
+ * directions, and nothing in it ever re-checks. This does.
+ */
+const RECONCILE_MS = 2000
+
+/**
+ * Effectively off.
+ *
+ * The SDK polls `pending` every 2.5s to notice a call ringing FOR this
+ * operator — routed inbound, or a transfer directed at them. This console has
+ * neither: it dials out and never goes available. Since 0.1.1 the poll starts
+ * in the SDK's constructor rather than on going available, so staying offline
+ * no longer avoids it.
+ *
+ * There is no off switch, and a value above ~24 days overflows setInterval and
+ * fires continuously, so this is an hour: one poll at mount, then nothing.
+ * Drop the option the day inbound or transfers are switched on — both arrive
+ * through this poll and neither rings without it.
+ */
+const RING_POLL_OFF_MS = 60 * 60 * 1000
+
+/**
+ * Ask the server to end a call and keep at it until the platform agrees.
+ *
+ * Not a replacement for the SDK’s hangup, which since 0.1.1 does cancel a
+ * ringing call and does it better than this can — it holds Plivo’s call_id.
+ * This is the half the SDK still does not do: it retries, and it checks the
+ * conversation afterwards, so the work outlives whatever happens to this tab.
+ *
+ * `beacon` is for a page that is going away: sendBeacon is the one request a
+ * closing tab is allowed to finish, and there the SDK’s hangup never gets to
+ * run at all.
+ */
+function stopOnServer(
+  conversationId: string,
+  sessionId: string,
+  /**
+   * Whether the customer had picked up.
+   *
+   * A call still ringing is cancelled outright; one that was answered is
+   * only stopped. The platform records a cancel as "cancelled by operator",
+   * so cancelling a conversation somebody actually had would file it as
+   * something that never happened.
+   */
+  answered: boolean,
+  beacon = false,
+): void {
+  const body = JSON.stringify({ conversationId, sessionId, answered })
+  if (beacon && navigator.sendBeacon) {
+    navigator.sendBeacon('/api/operator/stop', new Blob([body], { type: 'application/json' }))
+    return
+  }
+  void fetch('/api/operator/stop', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+    keepalive: true,
+  }).catch(() => {})
+}
 
 /**
  * Everything the SDK needs, present and the right shape.
@@ -142,6 +205,44 @@ function usable(body: unknown): body is OperatorConfig {
   )
 }
 
+/**
+ * The one form the carrier accepts: +91 and the ten national digits.
+ *
+ * Plivo refuses a bare national number, so a ten-digit entry has to be
+ * completed before it goes out rather than merely allowed in. Returns null
+ * when the input is not a number this deployment can dial.
+ */
+export function asDialled(raw: unknown): string | null {
+  const digits = String(raw ?? '').replace(/\D/g, '').replace(/^00/, '')
+  const national = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits
+  return national.length === 10 ? '+91' + national : null
+}
+
+/**
+ * Whether this can be dialled. Null when it can.
+ *
+ * A call never reaches our backend — the browser talks to Perfox directly —
+ * so this is the only place a number can be checked before a telephone rings
+ * somewhere. It has to agree with destinationProblem in
+ * backend/src/routes/perfox.ts, which guards the message channels.
+ *
+ *   6374160200        the national number
+ *   916374160200      with the country code
+ *   +91 63741 60200   the same, spaced or punctuated
+ */
+export function dialProblem(raw: string | null | undefined): string | null {
+  const to = String(raw ?? '').trim()
+  if (!to) return 'No phone number to dial.'
+
+  const digits = to.replace(/\D/g, '').replace(/^00/, '')
+  // Only strip a country code that could be one: 9123456789 is a ten-digit
+  // national number beginning 91, not a country code and eight digits.
+  const national = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits
+
+  return national.length === 10
+    ? null
+    : 'Enter a 10-digit number, or the same number with +91.'
+}
 /**
  * Fetches the signed config, then mounts the SDK under it.
  *
@@ -172,7 +273,7 @@ export function OperatorGate({ children }: { children: ReactNode }) {
         return body
       })
       .then((c) => {
-        if (live) setConfig(c)
+        if (live) setConfig({ ...c, ringPollMs: RING_POLL_OFF_MS })
       })
       .catch((err: Error) => {
         if (!live) return
@@ -203,7 +304,7 @@ export function OperatorGate({ children }: { children: ReactNode }) {
   )
 }
 
-/** Maps the SDK's surface onto the smaller one this console needs. */
+/** Maps the SDK’s surface onto the smaller one this console needs. */
 function CallBridge({ children }: { children: ReactNode }) {
   const op = useOperator()
   const { dialOut, hold, hangup, setMicEnabled, session } = op
@@ -255,8 +356,11 @@ function CallBridge({ children }: { children: ReactNode }) {
 
   const dial = useCallback(
     async ({ name, phone }: { name?: string | null; phone?: string | null }) => {
-      const digits = String(phone ?? '').replace(/[^\d+]/g, '')
-      if (!digits) throw new Error('No phone number to dial.')
+      const problem = dialProblem(phone)
+      if (problem) throw new Error(problem)
+      // dialProblem has already refused anything asDialled cannot complete,
+      // and the carrier will not take a bare national number.
+      const digits = asDialled(phone)!
 
       // Clear whatever the last attempt left behind, so a stale message cannot
       // be mistaken for this one failing.
@@ -290,10 +394,102 @@ function CallBridge({ children }: { children: ReactNode }) {
     [dialOut, session, dismissed],
   )
 
+  /**
+   * Ending a call: tell the SDK, then make sure it happened.
+   *
+   * hangup() stops the local audio and fires a stop request it never waits
+   * for, then reports the call ended regardless. When that request fails the
+   * panel closes over a line that is still open, which is what an operator
+   * hanging up on a customer who can still hear them looks like.
+   *
+   * The ids are read first because endLocal clears the session on its way
+   * out, and the stop is addressed to the session it is about to forget.
+   */
   const end = useCallback(async () => {
+    const current = session.getState().activeCall
+    const conversationId = current?.conversationId ?? null
+    const sessionId = current?.sessionId ?? ''
+    const answered = current?.status === 'live'
+
     await hangup()
     setParty(null)
-  }, [hangup])
+
+    if (conversationId) stopOnServer(conversationId, sessionId, answered)
+  }, [hangup, session])
+
+  /**
+   * The conversation, asked for as long as a call is up.
+   *
+   * A call is over when its conversation is. That is the one account both
+   * sides agree on, and the SDK consults it for neither: it learns the
+   * customer hung up only from a room participant whose identity starts with
+   * "phone-bridge", and a declined call never produces one at all.
+   *
+   * Only once the call is live, though, and that guard is load-bearing.
+   *
+   * This used to watch from the first ring, on the reasoning that a rejected
+   * call never reaches live. That was safe while the SDK’s hangup() did
+   * nothing to a call without an audio room: a wrong verdict here closed the
+   * panel and no more. Since 0.1.1 hangup() cancels a dialing or ringing call
+   * server-side, so the same wrong verdict now puts the phone down on a
+   * customer whose handset is still ringing — two seconds in, before anybody
+   * could have answered.
+   *
+   * The ringing window belongs to the SDK now. It polls call_status itself
+   * and cancels properly, holding Plivo’s request id, which this does not
+   * have. What is left for this loop is the case the SDK still misses: an
+   * answered call whose ending never arrives.
+   */
+  useEffect(() => {
+    const conversationId = active?.conversationId
+    if (!conversationId || active.status !== 'live') return
+
+    let watching = true
+    const ask = async () => {
+      try {
+        const res = await fetch(`/api/perfox/conversations/${conversationId}`)
+        if (!res.ok) return
+        const body = await res.json().catch(() => null)
+        // Only an explicit "ended" acts. A request that failed, or a
+        // conversation the workspace has not caught up with, says nothing —
+        // and must not be what takes a live call off the screen.
+        const status = body?.data?.status ?? body?.status
+        if (watching && status === 'ended') await end()
+      } catch {
+        // Same reasoning: silence is not evidence.
+      }
+    }
+
+    const timer = setInterval(() => void ask(), RECONCILE_MS)
+    return () => {
+      watching = false
+      clearInterval(timer)
+    }
+  }, [active?.conversationId, active?.status, end])
+
+  /**
+   * A tab closing mid-call.
+   *
+   * The SDK’s own teardown drops the audio and the socket and never tells
+   * the platform anything, so the customer is left holding a line to a
+   * browser that no longer exists. The server is told on the way out and
+   * finishes the job without us.
+   */
+  useEffect(() => {
+    const leaving = () => {
+      const current = session.getState().activeCall
+      if (current?.conversationId && current.status !== 'ended') {
+        stopOnServer(
+          current.conversationId,
+          current.sessionId ?? '',
+          current.status === 'live',
+          true,
+        )
+      }
+    }
+    window.addEventListener('pagehide', leaving)
+    return () => window.removeEventListener('pagehide', leaving)
+  }, [session])
 
   const dismissError = useCallback(() => {
     setDismissed(session.getState().error ?? null)

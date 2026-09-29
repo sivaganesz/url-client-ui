@@ -1,0 +1,11 @@
+# The repository root had none, so node_modules, a build and — the one that
+# matters — a .env here were all visible to `git add`. backend/ and client-ui/
+# each guard their own; nothing guarded this level.
+node_modules
+dist
+
+# Never committed. This is a public repository, and the rule should be the
+# repository's rather than something each person remembers.
+.env
+.env.*
+!.env.example
