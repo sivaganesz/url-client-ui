@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Avatar from '../ui/Avatar'
 import Badge, { StatusBadge } from '../ui/Badge'
 import Spinner from '../ui/Spinner'
@@ -6,7 +6,7 @@ import ConfirmDialog from '../ui/ConfirmDialog'
 import { Tabs } from '../ui/Field'
 import OverviewTab from './OverviewTab'
 import TranscriptTab from './TranscriptTab'
-import { IconChat, IconChevronLeft, IconPhone, IconX, channelIcon } from '../icons'
+import { IconChat, IconChevronLeft, IconPhone, IconPhoneDown, IconX, channelIcon } from '../icons'
 import { cn } from '../../lib/cn'
 import { EMPTY_REACH } from '../../lib/shapes'
 import { useResource } from '../../lib/useResource'
@@ -45,6 +45,19 @@ export default function ConversationDetail({
   const [callResult, setCallResult] = useState<SendResult | null>(null)
 
   /**
+   * Whether the call on screen is this conversation's own.
+   *
+   * Matched on the number rather than the conversation id: placing a call
+   * opens a conversation of its own, so the id in the panel is never the id
+   * of the page the call was placed from.
+   */
+  const digitsOf = (v: string | null | undefined) => String(v ?? '').replace(/\D/g, '')
+  const onThisCall = Boolean(
+    operator.call &&
+      conversation.phone &&
+      digitsOf(operator.call.phone) === digitsOf(conversation.phone),
+  )
+  /**
    * What stops this call being placed.
    *
    * The agent's phone trigger is deliberately NOT one of them any more. This
@@ -57,13 +70,62 @@ export default function ConversationDetail({
     ? 'No phone number on this conversation'
     : !operator.ready
       ? operator.reason
-      : operator.call
+      : // A call to somebody else still blocks this one. This page's own call
+        // blocks nothing, because the button ends it instead of placing it.
+        operator.call && !onThisCall
         ? 'You are already on a call'
         : null
+
+  /**
+   * Hanging up from this button, as distinct from the call failing.
+   *
+   * dial() settles only once the call is over and reports one that ended
+   * early as one that could not be connected. Without this, ending a call
+   * on purpose would raise "The call could not be connected" over the
+   * conversation a moment after the operator chose to end it.
+   */
+  const endedHere = useRef(false)
+
+  /**
+   * "Calling…" ends when the call does, not when dial() settles.
+   *
+   * dial() resolves only once the SDK’s dial loop stops, and hanging up does
+   * not reliably stop it: the loop can run its full thirty seconds after the
+   * operator has already put the phone down and the panel has closed. For
+   * those thirty seconds this button said "Calling…" about a call that was
+   * over, and refused to place another one. Then, when the loop finally gave
+   * up, dial() rejected and put "The call could not be connected" over the
+   * conversation — a verdict on a call the operator had ended themselves.
+   *
+   * The call on screen is the better signal, because it goes the moment the
+   * operator ends it, wherever they ended it from. Waiting to have seen one
+   * first matters: for the tick between the click and the panel opening there
+   * is no call yet, and clearing on that would undo the click.
+   *
+   * A call that ends on its own — no answer, busy, declined — gets here only
+   * after dial() has already thrown, so that message is still shown.
+   */
+  const hadCall = useRef(false)
+  useEffect(() => {
+    if (onThisCall) {
+      hadCall.current = true
+      return
+    }
+    if (!hadCall.current) return
+    hadCall.current = false
+    endedHere.current = true
+    setCalling(false)
+  }, [onThisCall])
+
+  async function endCall() {
+    endedHere.current = true
+    await operator.end()
+  }
 
   async function placeCall() {
     setConfirmCall(false)
     setCallResult(null)
+    endedHere.current = false
     if (!conversation.phone) return
     setCalling(true)
     try {
@@ -72,7 +134,7 @@ export default function ConversationDetail({
       await operator.dial({ name: conversation.title, phone: conversation.phone })
       setCallResult({ ok: true })
     } catch (err) {
-      setCallResult({ ok: false, text: (err as Error).message })
+      if (!endedHere.current) setCallResult({ ok: false, text: (err as Error).message })
     } finally {
       setCalling(false)
     }
@@ -121,24 +183,39 @@ export default function ConversationDetail({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            {/*
+              One button, two jobs. While this page's call is up it ends it,
+              from the first ring rather than from the moment somebody
+              answers — a call dialling a number nobody meant to ring is the
+              one people most want to stop. The corner panel can end it too;
+              this is the place they were already looking.
+            */}
             <button
               type="button"
-              disabled={Boolean(cannotCall) || calling}
-              title={cannotCall ?? `Call ${conversation.phone} yourself`}
-              onClick={() => setConfirmCall(true)}
+              disabled={onThisCall ? false : Boolean(cannotCall) || calling}
+              title={
+                onThisCall
+                  ? `End the call to ${conversation.phone}`
+                  : (cannotCall ?? `Call ${conversation.phone} yourself`)
+              }
+              onClick={() => (onThisCall ? void endCall() : setConfirmCall(true))}
               className={cn(
                 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11.5px] font-medium transition-colors',
-                cannotCall
-                  ? 'cursor-not-allowed border-line bg-sunken text-ink-4'
-                  : 'border-brand-line bg-brand-soft text-brand hover:border-brand hover:bg-brand hover:text-white',
+                onThisCall
+                  ? 'border-danger/30 bg-danger-bg text-danger hover:border-danger hover:bg-danger hover:text-white'
+                  : cannotCall
+                    ? 'cursor-not-allowed border-line bg-sunken text-ink-4'
+                    : 'border-brand-line bg-brand-soft text-brand hover:border-brand hover:bg-brand hover:text-white',
               )}
             >
-              {calling ? (
+              {onThisCall ? (
+                <IconPhoneDown size={13} />
+              ) : calling ? (
                 <Spinner size={12} />
               ) : (
                 <IconPhone size={13} />
               )}
-              {calling ? 'Calling…' : 'Call'}
+              {onThisCall ? 'End Call' : calling ? 'Calling…' : 'Call'}
             </button>
             <StatusBadge label={conversation.status} />
           </div>

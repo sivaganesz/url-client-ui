@@ -14,10 +14,10 @@
     "test:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@perfox/operator-react": "file:vendor/perfox-operator-react-0.1.1.tgz",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.9.1",
-    "@perfox/operator-react": "file:vendor/perfox-operator-react-0.1.0.tgz"
+    "react-router-dom": "^7.9.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
