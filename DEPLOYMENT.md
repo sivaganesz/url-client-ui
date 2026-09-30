@@ -261,6 +261,13 @@ accepted it. This endpoint is the one that answers whether it works.
 Not defects, but things to know before being surprised by them.
 
 - **One instance only** — warning 2.
+- **Indian numbers only, outbound.** A message or call to a number from
+  another country is refused, including a reply to a customer who messaged
+  in from abroad. Inbound is unaffected. A deliberate narrowing for this
+  deployment: widen it in `destinationProblem` and `asDialled`
+  (backend/src/routes/perfox.ts) and `dialProblem`
+  (client-ui/src/lib/operator.tsx), which have to agree because a call never
+  reaches the backend.
 - **No invite flow.** Customer accounts are created by an administrator.
   Registration is disabled and the endpoint refuses even though the page is
   reachable.

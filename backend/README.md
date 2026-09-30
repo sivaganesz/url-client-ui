@@ -224,6 +224,46 @@ one, sending an outbound message, and the knowledge-base file and folder
 operations. File upload has a route of its own, because it carries a file
 rather than JSON.
 
+
+### What may be sent to
+
+`POST /outbound` carries SMS, WhatsApp and email alike, and the destination is
+checked before anything is forwarded.
+
+Phone numbers are **Indian**, in the three shapes the console accepts, and are
+completed to the one form the carrier takes:
+
+```
+6374160200        →  +916374160200
+916374160200      →  +916374160200
++91 63741 60200   →  +916374160200
+```
+
+Plivo refuses a bare national number, so accepting ten digits is not enough —
+they are completed here rather than failing upstream with a message nobody can
+act on. Email is checked for an `@` and left exactly as typed.
+
+**A number from another country is refused**, including a reply to a customer
+who messaged in from abroad. That is a deliberate narrowing for this
+deployment, not a property of the platform: widen it in `destinationProblem`
+and `asDialled` here, and in `dialProblem` in
+`../client-ui/src/lib/operator.tsx`, which has to agree because a call never
+passes through this process.
+
+`OUTBOUND_ALLOWLIST` sits behind that check and answers a different question —
+*who* may be rung, rather than *what shape* a destination takes. It is empty
+here and in production.
+
+### When the workspace does not answer
+
+Every request to Perfox carries a deadline: 15 seconds for a read, 120 for an
+upload, which is carrying a file over whatever connection the operator has.
+
+A request that times out answers **504**, one that could not be reached at all
+answers **502**. The difference is the first thing worth knowing when a page
+will not load — up and slow is a different fault from not there.
+
+
 **Operator calling** is also here, but works differently: the browser talks to
 Perfox directly over WebRTC, and this process only issues the signed identity
 (`GET /api/operator/config`) and ends calls reliably (`POST /api/operator/stop`).
@@ -275,6 +315,26 @@ anything that keeps request bodies. And an administrator session is, in
 practice, access to every workspace's credentials one request at a time: the
 only guard is `requireAdmin`, so the trail is a record of what happened rather
 than a barrier to it.
+
+### The audit trail
+
+Every privileged act is written to `admin_events` and shown at
+`/admin/activity` — who did it, to whom, when. Eleven actions:
+
+```
+customer.create   customer.update    customer.suspend   customer.reinstate
+customer.reveal   customer.password_reset               customer.delete
+admin.create      admin.suspend      admin.reinstate    admin.password
+```
+
+The entry records **which** fields were touched and never their values — a
+credential reveal writes down that it happened, not what was read.
+
+The four `admin.*` actions matter for the same reason the customer ones do:
+suspending an administrator ends their live sessions rather than merely
+refusing the next sign-in, and an account that loses access with nothing in
+the trail leaves nobody to ask.
+
 
 `/api/health` returns `{"ok":true,"database":"up"}` with a 200, or a 503 when
 Postgres is unreachable. It is the check worth alerting on: it answers whether
