@@ -98,7 +98,7 @@ try {
           operator_api_host, operator_site_id, operator_site_secret_enc, operator_workflow_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
       [
-        'Siva Workspace',
+        'Call Center Workspace',
         trim(env.PERFOX_API_BASE),
         env.PERFOX_API_KEY ? encrypt(env.PERFOX_API_KEY) : null,
         trim(env.OPERATOR_API_HOST),

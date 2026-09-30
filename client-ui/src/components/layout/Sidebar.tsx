@@ -64,8 +64,9 @@ export default function Sidebar({
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand text-white">
           <IconChat size={15} />
         </span>
-        {/* The workspace this console is pointed at, not a fixed product name.
-            It read "Siva Workspace" whatever the key actually connected to. */}
+        {/* The workspace this console is pointed at, as the API reports it —
+            not a fixed product name. The fallback covers the moment before
+            that request lands. */}
         <span className="truncate text-[13.5px] font-semibold tracking-tight">
           {workspace?.name || 'Workspace'}
         </span>
