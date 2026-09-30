@@ -84,8 +84,15 @@ jobs:
       - run: npm run lint
         working-directory: client-ui
 
-      # `build` runs `tsc --noEmit` before vite, so this is the typecheck too.
-      # It is also the artifact the backend serves in production, which makes a
-      # build failure here the same failure the deploy would hit.
+      # Two TypeScript projects, and `build` only compiles one. Its
+      # `tsc --noEmit` reads tsconfig.json, which includes `src` alone; the
+      # tests are their own project under tsconfig.test.json. Without this
+      # step a type error in a spec file passes CI, and the suite meant to
+      # protect everything else is the one thing nothing protects.
+      - run: npm run typecheck
+        working-directory: client-ui
+
+      # The artifact the backend serves in production, which makes a build
+      # failure here the same failure the deploy would hit.
       - run: npm run build
         working-directory: client-ui
