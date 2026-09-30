@@ -91,7 +91,11 @@ if (CLIENT_DIST) {
     console.warn(`[backend] CLIENT_DIST does not exist: ${dist}`)
   } else {
     app.use(express.static(dist, { index: false, maxAge: '1y' }))
-    app.get('/*splat', (_req, res) => {
+    // `/` is listed separately because `/*splat` does not match it: the
+    // wildcard wants at least one segment, so every deep link worked while
+    // the site's own front door answered Express's default 404. `index: false`
+    // above means express.static will not cover it either.
+    app.get(['/', '/*splat'], (_req, res) => {
       res.set('cache-control', 'no-store').sendFile(join(dist, 'index.html'))
     })
   }
