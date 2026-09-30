@@ -245,7 +245,7 @@ test('the administrators page lists who can get in, and guards the last way in',
   await dialog.getByLabel('Name').fill('Second')
   await dialog.getByLabel('Email').fill('second@example.com')
   await dialog.getByLabel('Password').fill('short')
-  await expect(dialog.getByText(/at least 12 characters/i)).toBeVisible()
+  await expect(dialog.getByText(/at least 6 characters/i)).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Add administrator' })).toBeDisabled()
 
   await dialog.getByRole('button', { name: 'Cancel' }).click()

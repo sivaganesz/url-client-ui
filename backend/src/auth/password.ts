@@ -48,9 +48,17 @@ export async function wasteTime(): Promise<void> {
  * Length is the only requirement that reliably helps. Composition rules push
  * people towards "Password1!" and towards reuse, so they are deliberately
  * absent; a password manager and a long passphrase both pass.
+ *
+ * Six is a low floor, chosen deliberately and easy to raise: it is one
+ * constant here and one in each of the three dialogs that say it aloud.
+ * Online guessing is capped separately at ten attempts in fifteen minutes, so
+ * this governs only what happens if the table itself leaks — and passwords an
+ * administrator generates for a customer are nineteen characters regardless.
  */
+export const MIN_PASSWORD = 6
+
 export function passwordProblem(plain: string): string | null {
-  if (plain.length < 12) return 'Use at least 12 characters.'
+  if (plain.length < MIN_PASSWORD) return `Use at least ${MIN_PASSWORD} characters.`
   if (plain.length > 200) return 'That is longer than 200 characters.'
   return null
 }

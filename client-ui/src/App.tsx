@@ -1,6 +1,7 @@
 import { lazy } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
+import Landing from './pages/Landing'
 import Login from './pages/Login'
 import AdminLogin from './pages/admin/AdminLogin'
 import AdminShell from './pages/admin/AdminShell'
@@ -50,6 +51,11 @@ function RequireSession() {
 
   if (status === 'loading') return <PageSkeleton />
   if (status === 'signed-out') {
+    // The root is the front door, and a stranger opening it should be told
+    // what they have reached rather than handed a password box. Every other
+    // protected path still redirects, because somebody asking for /analytics
+    // knows what this is and wants to get back to it.
+    if (location.pathname === '/') return <Landing />
     // Carry where they were headed, so signing in resumes it rather than
     // dropping them on the dashboard.
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
