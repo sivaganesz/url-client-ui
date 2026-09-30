@@ -84,9 +84,11 @@ export default function AdminShell() {
 
       <div className="flex-1" />
 
-      {/* The identity on its own row and the actions under it. Side by side,
-          two buttons and an email address share 200px and the address loses —
-          it read "admin…", which is no use for telling two accounts apart. */}
+      {/* The identity on one row and the actions under it. Both buttons
+          beside the address would leave it reading "admin…", which is no
+          use for telling two accounts apart. The theme toggle does sit on
+          the identity row: it is a fixed 50-odd pixels, and the address
+          already truncates behind a title. */}
       {admin && (
         <div className="mx-2.5 mb-2 flex flex-col gap-1.5 rounded-lg px-2 py-2">
           <span className="flex items-center gap-2.5">
@@ -98,6 +100,11 @@ export default function AdminShell() {
               <span className="truncate text-[10.5px] text-white/50" title={admin.email}>
                 {admin.email}
               </span>
+            </span>
+            {/* `onPanel` because this rail is a dark surface in both themes.
+                `shrink-0` so the address gives up characters, not the toggle. */}
+            <span className="ml-auto shrink-0">
+              <ThemeToggle onPanel />
             </span>
           </span>
           <span className="flex items-center gap-1">
@@ -115,11 +122,6 @@ export default function AdminShell() {
             >
               Sign out
             </button>
-          </span>
-          {/* Its own row, under Sign out. `onPanel` because this rail is a
-              dark surface in both themes and carries its own treatment. */}
-          <span className="flex items-center justify-end">
-            <ThemeToggle onPanel />
           </span>
         </div>
       )}
