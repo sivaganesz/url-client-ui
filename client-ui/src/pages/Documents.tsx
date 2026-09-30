@@ -628,7 +628,7 @@ function ViewToggle({
           onClick={() => onChange(id)}
           className={cn(
             'inline-flex h-6 w-7 items-center justify-center rounded-full transition-colors',
-            view === id ? 'bg-brand text-white' : 'text-ink-3 hover:text-ink',
+            view === id ? 'bg-brand text-on-accent' : 'text-ink-3 hover:text-ink',
           )}
         >
           <Icon size={13} />

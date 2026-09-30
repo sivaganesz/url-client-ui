@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Button from '../../components/ui/Button'
 import Spinner from '../../components/ui/Spinner'
 import { FormField, controlClass } from '../../components/ui/Field'
-import { IconAlert } from '../../components/icons'
+import { IconAlert, IconEye, IconEyeOff } from '../../components/icons'
 import { cn } from '../../lib/cn'
 
 /**
@@ -25,6 +25,7 @@ export default function SignInForm({
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [shown, setShown] = useState(false)
 
   const ready = email.trim() !== '' && password !== '' && !busy
 
@@ -40,6 +41,9 @@ export default function SignInForm({
       // The password, not the address: retyping an email is a nuisance and it
       // was not the thing that was wrong.
       setPassword('')
+      // And hidden again, so the next attempt is not typed in the clear
+      // because the last one happened to be revealed.
+      setShown(false)
     } finally {
       setBusy(false)
     }
@@ -73,14 +77,31 @@ export default function SignInForm({
 
       <FormField label="Password">
         {(id) => (
-          <input
-            id={id}
-            type="password"
-            value={password}
-            autoComplete="current-password"
-            onChange={(e) => setPassword(e.target.value)}
-            className={cn(controlClass, 'h-10')}
-          />
+          <div className="relative flex items-center">
+            <input
+              id={id}
+              type={shown ? 'text' : 'password'}
+              value={password}
+              autoComplete="current-password"
+              onChange={(e) => setPassword(e.target.value)}
+              className={cn(controlClass, 'h-10 pr-10')}
+            />
+            {/* Only once there is something to reveal, so an empty field is
+                not decorated with a control that would do nothing. */}
+            {password !== '' && (
+              <button
+                type="button"
+                onClick={() => setShown((s) => !s)}
+                aria-label={shown ? 'Hide password' : 'Show password'}
+                aria-pressed={shown}
+                // Not a submit: inside a form, a bare button is one, and
+                // clicking the eye would try to sign in.
+                className="absolute right-1 flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-muted-bg hover:text-ink"
+              >
+                {shown ? <IconEyeOff size={15} /> : <IconEye size={15} />}
+              </button>
+            )}
+          </div>
         )}
       </FormField>
 

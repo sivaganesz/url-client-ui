@@ -14,6 +14,7 @@ import {
 import { useSession } from '../../lib/session'
 import Avatar from '../ui/Avatar'
 import ChangePasswordDialog from '../ChangePasswordDialog'
+import ThemeToggle from '../ThemeToggle'
 
 const SECTIONS = [
   {
@@ -117,9 +118,11 @@ export default function Sidebar({
 
       {/* A real account block now, unlike the "[Account name]" placeholder
           that used to sit here over a hardcoded workspace. */}
-      {/* The identity on its own row and the actions under it. Side by side,
-          two buttons and an email address share 200px and the address loses —
-          it read "siva@e…", which is no use for telling two accounts apart. */}
+      {/* The identity on one row and the actions under it. Both buttons
+          beside the address would leave it reading "siva@e…", which is no
+          use for telling two accounts apart. The theme toggle does sit on
+          the identity row: it is a fixed 50-odd pixels, and the address
+          already truncates behind a title. */}
       {user && (
         <div className="mx-2.5 flex flex-col gap-1.5 rounded-lg px-2 py-2">
           <span className="flex items-center gap-2.5">
@@ -131,6 +134,12 @@ export default function Sidebar({
               <span className="truncate text-[10.5px] text-ink-3" title={user.email}>
                 {user.email}
               </span>
+            </span>
+            {/* `shrink-0` so the toggle keeps its own width and the address
+                gives up characters instead — the address already truncates and
+                carries a title, the toggle would become an unlabelled stub. */}
+            <span className="ml-auto shrink-0">
+              <ThemeToggle />
             </span>
           </span>
           <span className="flex items-center gap-1">

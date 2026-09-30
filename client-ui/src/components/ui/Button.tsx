@@ -2,7 +2,7 @@ import { cn } from '../../lib/cn'
 
 const VARIANTS: Record<string, string> = {
   primary:
-    'bg-brand text-white border-brand hover:bg-brand-dark hover:border-brand-dark shadow-card',
+    'bg-brand text-on-accent border-brand hover:bg-brand-dark hover:border-brand-dark shadow-card',
   secondary:
     'bg-surface text-ink border-line-strong hover:bg-sunken',
   ghost:

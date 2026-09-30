@@ -46,8 +46,109 @@
   --color-channel-sms: #8b5cf6;
   --color-channel-email: #1e3a8a;
 
+
+/* Text that sits on a filled accent — a brand button, a danger button.
+     White on this deployment's mid-blue in light; near-black on the lighter
+     blue dark mode needs, because no single blue can carry white text AND be
+     legible as text on a dark surface. That is arithmetic, not taste. */
+  --color-on-accent: #ffffff;
+
+  /* A surface that is dark on purpose: the admin rail, and the scrim behind a
+     dialog. Distinct from `ink`, which is the colour text happens to be — in
+     dark mode ink becomes near-white, and a rail painted with it disappears. */
+  --color-panel: #1c1b19;
+
+  /* The dim behind a dialog. Its own token because it wants to go darker
+     in dark mode, not lighter with the text. */
+  --color-scrim: #1c1b19;
+
+  /* The brand-coloured hero on the sign-in pages, which carries white text.
+     Its own token because  has to lighten in dark mode to stay legible
+     as text, and white on a light blue is 2.2:1. This stays dark in both. */
+  --color-brand-panel: #3a5a8c;
+
+  /* Charts. Kept as tokens so a theme reaches them; SERIES is deliberately
+     not the UI brand blue, which is too desaturated to read as a data fill. */
+  --color-chart-series: #2a78d6;
+  --color-chart-grid: #ece9e2;
+  --color-chart-axis: #6b6862;
+
+  /* One shadow, expressed as colours so a theme can reach it. On a dark
+     surface a dark shadow is invisible, so dark mode leans on a lifted
+     surface and a stronger line instead of a heavier drop. */
+  --shadow-near: rgb(28 27 25 / 0.04);
+  --shadow-far: rgb(28 27 25 / 0.06);
+  --shadow-raised-far: rgb(28 27 25 / 0.08);
+
+  --color-scroll-thumb: #d8d4cb;
+  --color-scroll-thumb-hover: #bfbab0;
+
   --radius-card: 0.75rem;
 }
+
+/**
+ * The dark theme.
+ *
+ * The same token names with different values, so no component knows a theme
+ * exists — `bg-surface` and `text-ink` keep working and simply resolve
+ * elsewhere. `:root.dark` rather than `.dark` so it outranks the `:root` that
+ * Tailwind emits for `@theme`.
+ *
+ * Every text-on-background pair here clears WCAG AA, worst case 6.39:1
+ * against the light theme's 5.09:1. Warm neutrals, to keep the light theme's
+ * character rather than drifting to a blue-grey.
+ */
+:root.dark {
+  --color-canvas: #191816;
+  --color-surface: #201f1d;
+  --color-sunken: #141312;
+  --color-line: #32302d;
+  --color-line-strong: #46433e;
+
+  --color-ink: #f3f1ec;
+  --color-ink-2: #c9c5bc;
+  --color-ink-3: #a8a49b;
+  --color-ink-4: #8d8980;
+
+  /* Lighter, because it has to read as text on a dark surface. Which is why
+     on-accent flips to near-black below. */
+  --color-brand: #8ab0e0;
+  --color-brand-dark: #a9c6ec;
+  --color-brand-soft: #1d2836;
+  --color-brand-line: #35496b;
+  --color-on-accent: #17160f;
+
+  --color-ok: #86c795;
+  --color-ok-bg: #182619;
+  --color-warn: #e3b45f;
+  --color-warn-bg: #2a2213;
+  --color-danger: #ef9a86;
+  --color-danger-bg: #2d1a16;
+  --color-muted: #a8a49b;
+  --color-muted-bg: #24221e;
+
+  /* Darker than the canvas, so a rail still reads as its own surface rather
+     than merging with the page behind it. */
+  --color-panel: #0e0d0c;
+  --color-scrim: #000000;
+  --color-brand-panel: #1d3252;
+
+  /* The email channel's navy is unreadable on a dark rail; the rest carry. */
+  --color-channel-email: #6b8fd4;
+  --color-channel-any: #8a96a8;
+
+  --color-chart-series: #6fa8ea;
+  --color-chart-grid: #302e2b;
+  --color-chart-axis: #a8a49b;
+
+  --shadow-near: rgb(0 0 0 / 0.30);
+  --shadow-far: rgb(0 0 0 / 0.40);
+  --shadow-raised-far: rgb(0 0 0 / 0.55);
+
+  --color-scroll-thumb: #3a3833;
+  --color-scroll-thumb-hover: #504d46;
+}
+
 
 @layer base {
   html {
@@ -85,13 +186,13 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #d8d4cb;
+    background: var(--color-scroll-thumb);
     border-radius: 9999px;
     border: 2px solid transparent;
     background-clip: content-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #bfbab0;
+    background: var(--color-scroll-thumb-hover);
     background-clip: content-box;
   }
 }
@@ -129,12 +230,12 @@
   /* One shared elevation so cards, menus and popovers never disagree. */
   .shadow-card {
     box-shadow:
-      0 1px 2px rgb(28 27 25 / 0.04),
-      0 1px 3px rgb(28 27 25 / 0.06);
+      0 1px 2px var(--shadow-near),
+      0 1px 3px var(--shadow-far);
   }
   .shadow-raised {
     box-shadow:
-      0 2px 4px rgb(28 27 25 / 0.04),
-      0 8px 20px rgb(28 27 25 / 0.08);
+      0 2px 4px var(--shadow-near),
+      0 8px 20px var(--shadow-raised-far);
   }
 }

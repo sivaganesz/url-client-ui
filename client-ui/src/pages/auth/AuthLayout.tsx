@@ -39,7 +39,7 @@ export default function AuthLayout({
       <div
         className={cn(
           'relative hidden w-[46%] max-w-2xl shrink-0 flex-col justify-between overflow-hidden p-10 text-white lg:flex xl:p-14',
-          tone === 'ink' ? 'bg-ink' : 'bg-brand',
+          tone === 'ink' ? 'bg-panel' : 'bg-brand-panel',
         )}
       >
         {/* Two soft washes rather than a flat fill: a large plain rectangle
@@ -85,7 +85,7 @@ export default function AuthLayout({
           <span
             className={cn(
               'mb-6 flex h-10 w-10 items-center justify-center rounded-xl text-white lg:hidden',
-              tone === 'ink' ? 'bg-ink' : 'bg-brand',
+              tone === 'ink' ? 'bg-panel' : 'bg-brand-panel',
             )}
           >
             <IconChat size={19} />

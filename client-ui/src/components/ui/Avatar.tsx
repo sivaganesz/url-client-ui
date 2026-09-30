@@ -1,16 +1,23 @@
 import { cn } from '../../lib/cn'
 
 const SIZES: Record<string, string> = {
-  sm: 'h-8 w-8 text-[11px]',
-  md: 'h-9 w-9 text-xs',
-  lg: 'h-13 w-13 text-base',
+  sm: 'h-7 w-7 text-[11px]',
+  md: 'h-8 w-8 text-xs',
+  lg: 'h-12 w-12 text-base',
 }
 
+/**
+ * One letter, not two.
+ *
+ * A pair of initials is a name badge; a single letter is a marker, which is
+ * all this is next to a name that is already written out beside it. It also
+ * survives the shapes this data actually arrives in — "Customer 4567",
+ * "white-pau", an address with no name at all — where a second initial is as
+ * often a digit as a surname.
+ */
 export function initialsOf(name = ''): string {
-  const parts = String(name).trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
+  const first = String(name).trim().replace(/^[^\p{L}\p{N}]+/u, '')[0]
+  return first ? first.toUpperCase() : '?'
 }
 
 export interface AvatarProps {

@@ -118,7 +118,7 @@ export default function LogFilters({
         className={cn(
           'inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-[11.5px] font-medium transition-colors',
           value.followUp
-            ? 'border-danger bg-danger text-white'
+            ? 'border-danger bg-danger text-on-accent'
             : 'border-line-strong bg-surface text-ink-2 hover:border-danger hover:text-danger',
         )}
       >
