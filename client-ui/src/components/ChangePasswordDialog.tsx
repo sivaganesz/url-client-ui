@@ -7,7 +7,7 @@ import { IconAlert } from './icons'
 import { cn } from '../lib/cn'
 
 /** The backend's floor, repeated here so the form can say it before submitting. */
-const MIN_LENGTH = 12
+const MIN_LENGTH = 6
 
 /**
  * Changing your own password, on either surface.

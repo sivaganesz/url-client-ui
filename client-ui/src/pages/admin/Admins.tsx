@@ -14,7 +14,7 @@ import { useResource } from '../../lib/useResource'
 import { adminApi, useAdmin, type AdminRow } from '../../lib/admin'
 
 /** The backend's floor, repeated so the form can say it before submitting. */
-const MIN_LENGTH = 12
+const MIN_LENGTH = 6
 
 const when = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'

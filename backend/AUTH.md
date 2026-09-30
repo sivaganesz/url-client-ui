@@ -175,7 +175,7 @@ The parameters are deliberately not tuned. argon2's defaults track current
 OWASP guidance; a number invented today is a number nobody revisits in three
 years.
 
-**The only rule is length:** at least 12 characters, at most 200.
+**The only rule is length:** at least 6 characters, at most 200.
 
 Composition rules — a capital, a digit, a symbol — push people towards
 `Password1!` and towards reuse. A long passphrase and a password manager both

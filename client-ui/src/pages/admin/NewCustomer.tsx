@@ -9,7 +9,7 @@ import { cn } from '../../lib/cn'
 import { adminApi, type NewCustomer as NewCustomerInput } from '../../lib/admin'
 import { OperatorHelp, PerfoxHelp } from './CredentialHelp'
 
-const MIN_LENGTH = 12
+const MIN_LENGTH = 6
 
 const EMPTY: NewCustomerInput = {
   workspaceName: '',

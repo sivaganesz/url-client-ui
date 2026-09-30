@@ -128,7 +128,7 @@ test('a customer can reach the password form, and it checks the old one', async 
   // Too short, and the form says so rather than letting the server say it.
   await dialog.getByLabel('Current password').fill('whatever-it-is')
   await dialog.getByLabel('New password', { exact: true }).fill('short')
-  await expect(dialog.getByText(/at least 12 characters/i)).toBeVisible()
+  await expect(dialog.getByText(/at least 6 characters/i)).toBeVisible()
   await expect(submit).toBeDisabled()
 
   // Long enough, but the two boxes disagree.
