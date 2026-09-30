@@ -1,5 +1,5 @@
 /**
- * Siva Workspace data access — REST.
+ * Workspace data access — REST.
  *
  * Everything goes through the same-origin backend (../backend), which resolves
  * the signed-in user's workspace and adds its Authorization header — so the
