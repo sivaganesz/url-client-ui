@@ -1,19 +1,17 @@
 import { useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { PageBody, PageHeader } from '../components/layout/AppShell'
-import StatTile from '../components/ui/StatTile'
 import DataTable from '../components/ui/DataTable'
 import TablePager from '../components/ui/TablePager'
-import Card, { ReservedPanel } from '../components/ui/Card'
+import Card from '../components/ui/Card'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import DataBanner from '../components/ui/DataBanner'
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States'
-import { IconAgent, IconAlert, IconGrid, IconPower, IconRows, IconTrend } from '../components/icons'
+import { IconAgent, IconAlert, IconGrid, IconPower, IconRows } from '../components/icons'
 import { cn } from '../lib/cn'
-import { num } from '../lib/format'
 import { useResource } from '../lib/useResource'
 import { usePagination } from '../lib/usePagination'
 import { activateAgent, deactivateAgent, getAgents } from '../lib/api'
@@ -303,21 +301,6 @@ export default function Agents() {
             </Button>
           </div>
         )}
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
-          <StatTile
-            label="Total AI agents"
-            value={num(rows.length)}
-            foot={`${active} published · ${paused} not live`}
-            icon={IconAgent}
-            loading={loading}
-          />
-          <ReservedPanel
-            icon={IconTrend}
-            title="Further agent metrics"
-            note="Reserved — the agents endpoint returns no per-agent conversation or resolution figures, so only the count is real."
-          />
-        </div>
 
         {view === 'table' ? (
           <DataTable
