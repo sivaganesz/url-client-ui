@@ -1,5 +1,5 @@
 {
-  "name": "url-factory",
+  "name": "call-centre",
   "private": true,
   "version": "0.1.0",
   "description": "The client console and the backend that serves it, as one deployable.",
