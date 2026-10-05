@@ -1,0 +1,110 @@
+# The gate, for GitLab.
+#
+# A mirror of .github/workflows/ci.yml, which still runs on GitHub — both
+# remotes are live, so the same push is checked twice and the two must agree
+# about what passing means.
+#
+# Everything here runs on every push, needs no secret, and cannot reach the
+# live workspace: the backend suite talks to a throwaway Postgres and a fake
+# Perfox started in-process (see backend/tests/harness.ts).
+#
+# The browser suite is deliberately absent. It drives the real workspace and
+# needs credentials that were decided against, and a job that is always red
+# teaches everyone to stop reading CI — including on the day something real
+# breaks. It runs locally, with TEST_PASSWORD and TEST_ADMIN_PASSWORD set.
+#
+# The mere existence of this file also turns off Auto DevOps, whose generic
+# pipeline ran `npm test` at the repository root. There is no test script
+# there; the suites live one level down, in backend/ and client-ui/.
+
+default:
+  # Debian rather than Alpine on purpose: argon2 is a native module, and the
+  # prebuilt binaries it downloads are glibc. On musl it would have to compile
+  # from source, which needs python3, make and g++ in the image.
+  image: node:22
+  # A newer push makes the run in flight pointless.
+  interruptible: true
+
+variables:
+  # npm will not cache outside the project directory, and GitLab will not
+  # upload a cache from outside it either.
+  npm_config_cache: '$CI_PROJECT_DIR/.npm'
+
+# One pipeline per change, not two. Without the middle rule a branch that has
+# an open merge request gets both a branch pipeline and a merge request one.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+stages:
+  - test
+
+backend:
+  stage: test
+  timeout: 15 minutes
+
+  services:
+    - name: postgres:17
+      alias: postgres
+
+  variables:
+    POSTGRES_USER: urlfactory
+    POSTGRES_PASSWORD: urlfactory
+    POSTGRES_DB: urlfactory
+    # The one line that does not carry over from GitHub Actions. There, the
+    # service published 5432 onto the runner's own 5433 so the default in
+    # tests/harness.ts worked untouched. Here a service is a separate
+    # container on a shared network: it is reached by its alias, on the port
+    # it actually listens on, and no mapping exists to borrow.
+    #
+    # The suite creates and drops its own database each run, so this has to be
+    # an account allowed to do that — the image's superuser, as locally.
+    TEST_ADMIN_URL: 'postgres://urlfactory:urlfactory@postgres:5432/urlfactory'
+
+  cache:
+    key:
+      files:
+        - backend/package-lock.json
+    paths:
+      - .npm/
+
+  before_script:
+    - cd backend
+    - npm ci
+
+  script:
+    - npm run lint
+    - npm run typecheck
+    - npm test
+
+frontend:
+  stage: test
+  timeout: 15 minutes
+
+  cache:
+    key:
+      files:
+        - client-ui/package-lock.json
+    paths:
+      - .npm/
+
+  before_script:
+    - cd client-ui
+    - npm ci
+
+  script:
+    - npm run lint
+
+    # Two TypeScript projects, and `build` only compiles one. Its
+    # `tsc --noEmit` reads tsconfig.json, which includes `src` alone; the
+    # tests are their own project under tsconfig.test.json. Without this
+    # step a type error in a spec file passes CI, and the suite meant to
+    # protect everything else is the one thing nothing protects.
+    - npm run typecheck
+
+    # The artifact the backend serves in production, which makes a build
+    # failure here the same failure the deploy would hit.
+    - npm run build
