@@ -202,7 +202,7 @@ export default function Conversations() {
                   'inline-flex h-7 max-w-[10rem] items-center gap-1 rounded-full border px-2.5 text-[11.5px] transition-colors',
                   agent === ANY_AGENT.id
                     ? 'border-line-strong bg-surface text-ink-2 hover:bg-sunken'
-                    : 'border-brand bg-brand font-medium text-white',
+                    : 'border-brand bg-brand font-medium text-on-accent',
                 )}
               >
                 <IconAgent size={11} className="shrink-0" />

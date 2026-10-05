@@ -202,10 +202,10 @@ export default function ConversationDetail({
               className={cn(
                 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11.5px] font-medium transition-colors',
                 onThisCall
-                  ? 'border-danger/30 bg-danger-bg text-danger hover:border-danger hover:bg-danger hover:text-white'
+                  ? 'border-danger/30 bg-danger-bg text-danger hover:border-danger hover:bg-danger hover:text-on-accent'
                   : cannotCall
                     ? 'cursor-not-allowed border-line bg-sunken text-ink-4'
-                    : 'border-brand-line bg-brand-soft text-brand hover:border-brand hover:bg-brand hover:text-white',
+                    : 'border-brand-line bg-brand-soft text-brand hover:border-brand hover:bg-brand hover:text-on-accent',
               )}
             >
               {onThisCall ? (

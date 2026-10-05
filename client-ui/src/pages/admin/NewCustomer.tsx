@@ -9,7 +9,7 @@ import { cn } from '../../lib/cn'
 import { adminApi, type NewCustomer as NewCustomerInput } from '../../lib/admin'
 import { OperatorHelp, PerfoxHelp } from './CredentialHelp'
 
-const MIN_LENGTH = 12
+const MIN_LENGTH = 6
 
 const EMPTY: NewCustomerInput = {
   workspaceName: '',
@@ -277,9 +277,9 @@ function Steps({
                 className={cn(
                   'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
                   state === 'done'
-                    ? 'bg-ok text-white'
+                    ? 'bg-ok text-on-accent'
                     : state === 'current'
-                      ? 'bg-brand text-white'
+                      ? 'bg-brand text-on-accent'
                       : 'bg-muted-bg text-ink-4',
                 )}
               >
@@ -343,7 +343,7 @@ function Created({
         className="flex h-20 w-20 items-center justify-center rounded-full bg-ok/8"
       >
         <span className="flex h-14 w-14 items-center justify-center rounded-full bg-ok/15">
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-ok text-white shadow-card">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-ok text-on-accent shadow-card">
             <IconCheck size={22} />
           </span>
         </span>

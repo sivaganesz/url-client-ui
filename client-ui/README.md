@@ -178,6 +178,77 @@ base produces `//agents` and fails the same way — both proxies trim it.
 
 ---
 
+## Colour, and the two themes
+
+**Every colour is a token.** They are declared once in `src/index.css` and used
+by name everywhere else:
+
+```css
+--color-surface: #ffffff;   /* card backgrounds */
+--color-ink:     #1c1b19;   /* the main text colour */
+--color-line:    #e7e4dd;   /* borders */
+```
+
+```jsx
+<div className="bg-surface text-ink border-line">
+```
+
+That is what makes a second theme possible without touching a component.
+`:root.dark` redeclares 35 of those names with dark values, so `bg-surface`
+keeps working and simply resolves elsewhere. No component knows a theme exists.
+
+Tailwind 4, so there is no config file and no `dark:` variants scattered
+through the markup — the configuration is the CSS.
+
+### Adding a colour
+
+**Declare it twice, or it will look wrong in one theme.** A raw hex in a
+component is invisible in review and only shows up when somebody switches.
+
+```css
+@theme {
+  --color-new-thing: #…;   /* light */
+}
+
+:root.dark {
+  --color-new-thing: #…;   /* dark */
+}
+```
+
+Check the pair you have created: text on a background should clear 4.5:1. The
+dark palette's worst pair is 6.39:1 and the light one's is 5.09:1, so there is
+room — but a new colour is a new pair, and nothing enforces it automatically.
+
+### Tokens that are not what they sound like
+
+| Token | What it is for |
+|---|---|
+| `ink` | the colour **text** is. Never a surface — it inverts between themes |
+| `panel` | a surface that is dark **on purpose**: the admin rail |
+| `scrim` | the dim behind a dialog |
+| `brand-panel` | the sign-in hero, which carries white text in both themes |
+| `on-accent` | text **on** a filled accent. White in light, near-black in dark |
+
+The last one is the least obvious. A single blue cannot both carry white text
+and be legible as text on a dark surface — it would need to be darker than
+0.183 luminance and lighter than 0.237 at once. So in dark mode a brand button
+carries dark text, as dark interfaces generally do.
+
+### Which theme is in force
+
+The choice lives in `localStorage` under `ui-theme`, defaults to the operating
+system's setting, and follows the system only while nobody has chosen.
+
+It is applied by a small script in `index.html` **before the first paint**. An
+effect would run after React has drawn, which is a white flash on every load
+for anyone who picked dark. `src/lib/theme.ts` only has to agree with what that
+script already did.
+
+The toggle lives in the account block at the foot of either rail, and shows the
+theme it will switch *to*.
+
+---
+
 ## Folder structure
 
 ```
@@ -217,6 +288,7 @@ client-ui/
     │   ├── ConversationLog.tsx     the cases table on Analytics
     │   ├── RecordingPlayer.tsx     LogFilters.tsx
     │   ├── ChangePasswordDialog.tsx
+    │   ├── ThemeToggle.tsx         light or dark, in the account block
     │   ├── ErrorBoundary.tsx       icons.tsx
     │
     └── lib/
@@ -233,6 +305,7 @@ client-ui/
         ├── collections.ts  filtering and sorting helpers
         ├── export.ts       CSV and JSON download
         ├── kbUpload.ts     folder-aware knowledge-base upload
+        ├── theme.ts        which theme is in force, and remembering it
         ├── format.ts       dates, durations, numbers
         └── cn.ts           class-name joining
 ```
@@ -249,6 +322,7 @@ client-ui/
   `Field` and `Modal` before writing a table, a panel, an input or a dialog.
 - **Paging comes in two kinds.** `usePagination` + `TablePager` for a list the
   browser already holds; a cursor for `/calls`, which the API pages properly.
+- **A new colour is declared twice**, light and dark, or it looks wrong in
 - **Tailwind classes of equal specificity are settled by stylesheet order**,
   not by the order they appear in the attribute. When one utility has to win,
   make it more specific rather than moving it.

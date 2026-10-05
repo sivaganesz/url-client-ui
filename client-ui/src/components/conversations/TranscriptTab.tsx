@@ -64,7 +64,7 @@ export default function TranscriptTab({
                   className={cn(
                     'px-3.5 py-2.5 text-[13px] leading-relaxed break-words',
                     m.role === 'customer'
-                      ? 'rounded-[14px_14px_4px_14px] bg-brand text-white'
+                      ? 'rounded-[14px_14px_4px_14px] bg-brand text-on-accent'
                       : 'rounded-[14px_14px_14px_4px] border border-line bg-surface text-ink',
                   )}
                 >

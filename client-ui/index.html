@@ -7,7 +7,29 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-    <title>Siva Workspace</title>
+    <title>Call Centre Workspace</title>
+    <!--
+      The theme, before anything is drawn.
+
+      React applies it too, but an effect runs after the first paint — which
+      is a white flash on every load for anyone who chose dark. This is the
+      one script worth blocking the parser for, and it is four lines.
+
+      Wrapped because reading storage throws outright in a private window
+      rather than returning nothing.
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('ui-theme')
+          var dark =
+            saved === 'dark' ||
+            (!saved && matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) document.documentElement.classList.add('dark')
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

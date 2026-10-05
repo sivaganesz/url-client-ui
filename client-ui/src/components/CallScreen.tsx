@@ -160,9 +160,9 @@ function CallButton({
       className={cn(
         'flex flex-col items-center justify-center gap-1 rounded-lg border py-2 text-[10.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         tone === 'danger'
-          ? 'border-danger/30 bg-danger-bg text-danger hover:bg-danger hover:text-white'
+          ? 'border-danger/30 bg-danger-bg text-danger hover:bg-danger hover:text-on-accent'
           : active
-            ? 'border-brand bg-brand text-white'
+            ? 'border-brand bg-brand text-on-accent'
             : 'border-line-strong bg-surface text-ink-2 hover:border-brand-line hover:bg-brand-soft hover:text-brand',
       )}
     >

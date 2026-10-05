@@ -183,7 +183,7 @@ describe('changing a password', () => {
       newPassword: 'short',
     })
     assert.equal(res.status, 400)
-    assert.match((await res.json()).error, /12 characters/)
+    assert.match((await res.json()).error, /6 characters/)
   })
 
   test('ends every other session', async () => {

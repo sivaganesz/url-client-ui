@@ -150,7 +150,7 @@ export function ChipGroup({
             className={cn(
               'h-7 rounded-full border px-2.5 text-[11.5px] transition-colors',
               selected
-                ? 'border-brand bg-brand font-medium text-white'
+                ? 'border-brand bg-brand font-medium text-on-accent'
                 : 'border-line-strong bg-surface text-ink-2 hover:bg-sunken',
             )}
           >

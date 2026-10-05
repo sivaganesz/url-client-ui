@@ -672,7 +672,7 @@ conversations[], customerPanel
 | `workflowId` | no | omit → tenant default agent |
 | `mode` | no | `live_tap` (default), `dictation`, `third_actor` |
 | `autoAvailable` | no | go available on mount. Default `false` |
-| `ringPollMs` | no | default `2500`. See §11 |
+| `ringPollMs` | no | default `2500`. **This app sets it to an hour** — see §11 |
 
 ### Endpoints the SDK calls
 
@@ -713,6 +713,19 @@ unavailable or already on a call, but a **directed** ring — a warm transfer
 aimed at one operator by name — is surfaced either way. An app with no answer
 UI is therefore handed transfers it silently ignores, and the customer rings
 out.
+
+**This app sets `ringPollMs` to an hour**, which is as close to off as the SDK
+allows: it ticks once when the session is constructed and then effectively not
+again. There is no switch, and a value above roughly 24 days overflows
+`setInterval` and fires continuously, so an hour rather than a year.
+
+**Undo that first** if inbound calls or warm transfers are ever wanted. Both
+arrive through this poll, and at an hour's interval a ringing call would be
+noticed long after it stopped ringing.
+
+Outbound numbers are checked before anything is dialled — see `dialProblem` in
+`src/lib/operator.tsx`. A call never reaches the backend, so that is the only
+place a number can be refused before a telephone rings somewhere.
 
 If that matters, either build the answer surface or call `decline()` on any
 incoming ring, so the transferring operator learns immediately. This app

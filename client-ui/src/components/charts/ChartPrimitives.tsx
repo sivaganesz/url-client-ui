@@ -11,10 +11,10 @@ import { cn } from '../../lib/cn'
  * Every chart here is single-series, so no categorical palette is in play and
  * identity is carried by axis labels, never by colour alone.
  */
-export const SERIES = '#2a78d6'
-export const SERIES_SOFT = 'rgba(42, 120, 214, 0.12)'
-export const GRID = '#ece9e2'
-export const AXIS_TEXT = '#6b6862'
+export const SERIES = 'var(--color-chart-series)'
+export const SERIES_SOFT = 'color-mix(in srgb, var(--color-chart-series) 12%, transparent)'
+export const GRID = 'var(--color-chart-grid)'
+export const AXIS_TEXT = 'var(--color-chart-axis)'
 
 /** Rounded only on the end away from the baseline, per mark spec. */
 export function barPathVertical(x: number, y: number, w: number, h: number, r = 4) {

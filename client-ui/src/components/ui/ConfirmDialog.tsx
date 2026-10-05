@@ -37,7 +37,7 @@ export default function ConfirmDialog({
         type="button"
         aria-label="Cancel"
         onClick={onCancel}
-        className="absolute inset-0 bg-ink/30"
+        className="absolute inset-0 bg-scrim/30"
       />
       <div
         ref={panel}
