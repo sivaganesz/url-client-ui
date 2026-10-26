@@ -31,16 +31,25 @@ The current arrangement, which a new deployment replaces:
 
 | | |
 |---|---|
-| Host | Railway |
-| Database | Railway-managed Postgres |
-| Trigger | Railway redeploys on a push to the branch set in its dashboard |
-| Migrations | run against the production database before the new build serves traffic |
+| Host | Render, as a single web service |
+| Database | Render-managed Postgres |
+| Trigger | Render redeploys on a push to `main` |
+| Migrations | applied by the start command, before the server takes traffic |
 
-CI runs on GitHub Actions on every push — lint, typecheck, the backend suite
-and the production build — and is independent of the deploy.
+One service rather than two. The backend serves the built frontend itself,
+which is what keeps the app and the API on one origin — see warning 3.
+
+The start command is `npm run migrate && npm run seed:admin && npm start`.
+Both scripts are safe to repeat, so every boot after the first applies nothing
+and creates nobody. A host that offers a pre-deploy hook can run the migration
+there instead and start with `npm start` alone.
+
+CI runs on every push — lint, typecheck, the backend suite and the production
+build — and is independent of the deploy. `.gitlab-ci.yml` is the gate;
+`.github/workflows/ci.yml` runs the same checks on the GitHub mirror.
 
 Everything below is written so that moving off this is a matter of
-configuration rather than code: nothing in the application depends on Railway,
+configuration rather than code: nothing in the application depends on Render,
 and the only host-specific decision left is where TLS to the database is
 required (`DATABASE_SSL`, below).
 
