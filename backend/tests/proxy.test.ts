@@ -161,10 +161,11 @@ describe('operator signing', () => {
      * the request — otherwise a client could name its own and sign in as any
      * operator on the workspace's site.
      */
-    assert.equal(cfg.operator.externalId, `op_${login.user.id}`)
+    assert.equal(cfg.operator.externalId, 'a@t.test')
+    assert.ok(typeof cfg.operator.expiresAt === 'number')
 
     const expected = createHmac('sha256', 'sa_secret_live_AAA')
-      .update(`sa_site_live_AAA.${cfg.operator.externalId}`)
+      .update(`operator:v1|sa_site_live_AAA|${cfg.operator.externalId}|${cfg.operator.expiresAt}`)
       .digest('hex')
     assert.equal(cfg.operator.userHash, expected, 'the signature does not verify')
   })
