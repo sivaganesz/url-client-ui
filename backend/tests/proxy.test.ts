@@ -146,7 +146,7 @@ describe('operator signing', () => {
       },
     })
     const c = new Client()
-    const login = await (await c.login('a@t.test', PASSWORD)).json()
+    await c.login('a@t.test', PASSWORD)
 
     const res = await c.get('/api/operator/config')
     const body = await res.text()
