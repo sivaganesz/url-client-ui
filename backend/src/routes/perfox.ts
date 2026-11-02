@@ -372,15 +372,17 @@ perfoxRouter.all('/perfox/*splat', async (req, res) => {
 
 /* ── operator calling ────────────────────────────────────── */
 
-const sign = (c: Credentials, externalId: string): string =>
+const OPERATOR_SIGNATURE_TTL_SECONDS = 23 * 60 * 60
+
+const sign = (c: Credentials, externalId: string, expiresAt: number): string =>
   createHmac('sha256', c.operator.siteSecret!)
-    .update(`${c.operator.siteId}.${externalId}`)
+    .update(`operator:v1|${c.operator.siteId}|${externalId}|${expiresAt}`)
     .digest('hex')
 
 /**
  * The signed identity the operator SDK needs.
  *
- * The external id is derived from the signed-in user, never taken from the
+ * The external id is the user's email (matching listed Studio users), never
  * request: if a client could name its own, it could sign in as any operator on
  * the workspace's site. The site secret is what makes that signature trusted,
  * so it stays here and is never part of the response.
@@ -401,13 +403,19 @@ perfoxRouter.get('/operator/config', requireAuth, async (req, res) => {
     return
   }
 
-  const externalId = `op_${user.id}`
+  const externalId = user.email.toLowerCase().trim()
+  const expiresAt = Math.floor(Date.now() / 1000) + OPERATOR_SIGNATURE_TTL_SECONDS
   res.json({
     configured: true,
     apiHost: creds.operator.apiHost,
     siteId: creds.operator.siteId,
     workflowId: creds.operator.workflowId || null,
-    operator: { externalId, name: user.name, userHash: sign(creds, externalId) },
+    operator: {
+      externalId,
+      name: user.name,
+      userHash: sign(creds, externalId, expiresAt),
+      expiresAt,
+    },
   })
 })
 
@@ -463,7 +471,8 @@ perfoxRouter.post('/operator/stop', requireAuth, async (req, res) => {
     return
   }
 
-  const externalId = `op_${user.id}`
+  const externalId = user.email.toLowerCase().trim()
+  const expiresAt = Math.floor(Date.now() / 1000) + OPERATOR_SIGNATURE_TTL_SECONDS
   // The browser's own origin, which is the one the site already allows. A
   // beacon from a closing tab sends it too.
   const origin = req.headers.origin ?? `${req.protocol}://${req.get('host')}`
@@ -481,7 +490,8 @@ perfoxRouter.post('/operator/stop', requireAuth, async (req, res) => {
         operator: {
           external_id: externalId,
           name: user.name,
-          user_hash: sign(creds, externalId),
+          user_hash: sign(creds, externalId, expiresAt),
+          expires_at: expiresAt,
         },
         ...extra,
       }),

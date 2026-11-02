@@ -7,7 +7,7 @@ This is written to be followed in a project that has none of it yet. It
 documents how calling works in this app (`client-ui`), and the decisions worth
 copying or reconsidering. Code samples are complete enough to paste.
 
-Current against **SDK 0.1.1**.
+Current against **SDK 0.1.2**.
 
 ---
 
@@ -84,7 +84,7 @@ optional — it is the reason a pure static frontend cannot do this alone.
 ### The signature
 
 ```
-user_hash = HMAC_SHA256(site_secret, "<siteId>.<externalId>")   // hex
+user_hash = HMAC_SHA256(site_secret, "operator:v1|<siteId>|<externalId>|<expiresAt>")   // hex
 ```
 
 Two rules:
@@ -172,13 +172,13 @@ Scheme included, no trailing slash, and `localhost` is **not** the same as
 
 ```bash
 mkdir -p vendor
-cp /path/to/perfox-operator-react-0.1.1.tgz vendor/
+cp /path/to/perfox-operator-react-0.1.2.tgz vendor/
 ```
 
 ```jsonc
 // package.json
 "dependencies": {
-  "@perfox/operator-react": "file:vendor/perfox-operator-react-0.1.1.tgz"
+  "@perfox/operator-react": "file:vendor/perfox-operator-react-0.1.2.tgz"
 }
 ```
 
@@ -215,8 +215,8 @@ never the secret.
 // server — Node, zero dependencies beyond node:crypto
 import { createHmac } from 'node:crypto'
 
-const signOperator = (siteId, secret, externalId) =>
-  createHmac('sha256', secret).update(`${siteId}.${externalId}`).digest('hex')
+const signOperator = (siteId, secret, externalId, expiresAt) =>
+  createHmac('sha256', secret).update(`operator:v1|${siteId}|${externalId}|${expiresAt}`).digest('hex')
 
 // GET /api/operator/config
 function operatorConfig(req, res) {
@@ -229,7 +229,8 @@ function operatorConfig(req, res) {
   }
 
   // ▼ THE IMPORTANT LINE — derive identity from the session, never the request.
-  const externalId = `op_${req.user.id}`
+  const externalId = req.user.email.toLowerCase().trim()
+  const expiresAt = Math.floor(Date.now() / 1000) + 23 * 3600
 
   res.json({
     configured: true,
