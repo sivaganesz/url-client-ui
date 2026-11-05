@@ -90,7 +90,7 @@ console, and a customer cannot reach the admin API.
 |---|---|---|
 | `/` | **Dashboard** | The workspace at a glance: total conversations and the split by channel (phone, WhatsApp, web), conversation volume over time, and the busiest agents. Each tile links into the page that explains it. |
 | `/analytics` | **Analytics** | The same figures with a date range and Day / Week / Month bucketing, plus the credit balance and the **conversation log** — a filterable, paged table of every case, with export. |
-| `/conversations` `/conversations/:id` | **Conversations** | Two panes: every conversation on the left, filterable by channel; the selected thread on the right. The thread shows the transcript, the agent's tool calls, a recording player where one exists, and a composer for replying on the channel the conversation is on. |
+| `/conversations` `/conversations/:id` | **Conversations** | Two panes: every conversation on the left, filterable by channel; the selected thread on the right. The thread shows what was said — the customer, the agent, and an operator who stepped in — with a delivery tick on anything sent, a recording player where one exists, and a composer for replying on the channel the conversation is on. It refreshes itself while the conversation is open. Tool calls and the platform's own events sit behind a **Show technical details** toggle, off by default. |
 | `/call-logs` | **Call Logs** | Phone calls specifically: total calls, how many resolved, how many have recordings, total talk time. Filter by channel and outcome; play any recording inline. |
 | `/customers` `/customers/:id` | **Customers** | Two panes: everyone the workspace has spoken to on the left, one of them on the right. **Profile** carries identity, quick stats and AI-generated insights across all their conversations; **Communication** lists their conversations, filtered by status, fifty at a time. |
 | `/agents` | **AI Agents** | Every agent in the workspace, as cards or a table. Shows which channels each is connected to and whether it is published; publish and unpublish from here. |
@@ -282,7 +282,8 @@ client-ui/
     │   │                   ConfirmDialog, DataBanner
     │   ├── charts/         BarChart, LineChart, BarList, ChartPrimitives
     │   ├── conversations/  the thread: ConversationDetail, TranscriptTab,
-    │   │                   OverviewTab, Composer, ToolEvent, channels
+    │   │                   OverviewTab, Composer, ToolEvent, channels,
+    │   │                   technical (what the toggle hides)
     │   ├── CallScreen.tsx          the call panel, above the router outlet
     │   ├── NewConversationDialog.tsx
     │   ├── ConversationLog.tsx     the cases table on Analytics

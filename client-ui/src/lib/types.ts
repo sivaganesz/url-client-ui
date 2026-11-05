@@ -180,7 +180,18 @@ export interface Conversation {
   unread: number
 }
 
-export type MessageRole = 'customer' | 'agent' | 'tool' | 'system'
+export type MessageRole = 'customer' | 'agent' | 'operator' | 'tool' | 'system'
+
+/**
+ * What the carrier has done with a message we sent.
+ *
+ * The platform's own vocabulary, kept verbatim rather than mapped to ticks
+ * here: `queued` and `sent` are one tick, `delivered` and `read` two, and the
+ * last of those is the blue pair. `failed` and `suppressed` are not late
+ * stages of the same journey — they are the message never arriving, which the
+ * thread has to say out loud rather than leave on a hopeful single tick.
+ */
+export type DeliveryStatus = 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'suppressed'
 
 export interface Message {
   id: string
@@ -195,6 +206,40 @@ export interface Message {
   toolOutput?: unknown
   toolStatus?: string
   toolLatencyMs?: number
+  /** Set on outgoing messages once a delivery_status event reports on them. */
+  delivery?: DeliveryStatus
+  /** The provider's reason, carried only when `delivery` is `failed`. */
+  deliveryError?: string
+  /**
+   * The WhatsApp envelope as sent, when the reply was richer than text.
+   *
+   * `text` always carries a flattened version — the body with each option on
+   * its own `- ` line — so a renderer that ignores this still shows something
+   * readable. It just shows it as prose, which is how three tappable buttons
+   * ended up looking like a bulleted list in the middle of a sentence.
+   */
+  structured?: StructuredMessage
+}
+
+/** One of the options offered under a message, as WhatsApp records it. */
+export interface StructuredButton {
+  id?: string
+  title: string
+}
+
+/**
+ * A WhatsApp message envelope.
+ *
+ * Only `text` and `buttons` are rendered specially, because those are the two
+ * shapes we have actually seen. Anything else — a list, a template, a media
+ * wrapper — falls back to the flattened `text`, which is always right if
+ * plainer than it could be. Inventing a layout for a shape nobody has
+ * inspected is how you ship something confidently wrong.
+ */
+export interface StructuredMessage {
+  type?: string
+  body?: string
+  buttons?: StructuredButton[]
 }
 
 export interface Call {

@@ -57,12 +57,14 @@ Browser                          Your backend                 Perfox tenant
    │                                  │                             │
    │  GET /api/operator/config        │                             │
    ├─────────────────────────────────►│                             │
+   │                                  │ expiresAt = now + 23h       │
    │                                  │ user_hash = HMAC_SHA256(    │
    │                                  │   site_secret,              │
-   │                                  │   "<siteId>.<externalId>")  │
+   │                                  │   "operator:v1|<siteId>|    │
+   │                                  │    <externalId>|<expiresAt>")│
    │  { apiHost, siteId, workflowId,  │                             │
    │    operator:{externalId, name,   │                             │
-   │              userHash} }         │                             │
+   │              userHash, expiresAt}}                             │
    │◄─────────────────────────────────┤                             │
    │                                                                │
    │  POST /api/public/operator/call_outbound                       │
@@ -240,7 +242,8 @@ function operatorConfig(req, res) {
     operator: {
       externalId,
       name: req.user.name,
-      userHash: signOperator(site.siteId, site.secret, externalId),
+      userHash: signOperator(site.siteId, site.secret, externalId, expiresAt),
+      expiresAt,
     },
   })
 }
@@ -269,14 +272,20 @@ keeps two browsers distinct — though the operators remain anonymous.
 The HMAC is trivial to port; only the string format matters.
 
 ```python
-hmac.new(secret.encode(), f"{site_id}.{external_id}".encode(), hashlib.sha256).hexdigest()
+payload = f"operator:v1|{site_id}|{external_id}|{expires_at}"
+hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 ```
 
 ```java
 Mac m = Mac.getInstance("HmacSHA256");
 m.init(new SecretKeySpec(secret.getBytes(UTF_8), "HmacSHA256"));
-String hash = HexFormat.of().formatHex(m.doFinal((siteId + "." + externalId).getBytes(UTF_8)));
+String payload = "operator:v1|" + siteId + "|" + externalId + "|" + expiresAt;
+String hash = HexFormat.of().formatHex(m.doFinal(payload.getBytes(UTF_8)));
 ```
+
+`expiresAt` is epoch **seconds**, and the same value must be sent alongside
+the hash — the platform recomputes the string from what it receives, so a
+signature over a timestamp it was never told about cannot be verified.
 
 ---
 
@@ -669,7 +678,7 @@ conversations[], customerPanel
 |---|---|---|
 | `apiHost` | yes | tenant API host |
 | `siteId` | yes | operator-enabled site |
-| `operator` | yes | `{ externalId, name, userHash }` |
+| `operator` | yes | `{ externalId, name, userHash, expiresAt }` |
 | `workflowId` | no | omit → tenant default agent |
 | `mode` | no | `live_tap` (default), `dictation`, `third_actor` |
 | `autoAvailable` | no | go available on mount. Default `false` |

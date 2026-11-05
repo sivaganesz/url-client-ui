@@ -77,9 +77,17 @@ function ChannelChip({
 export default function Composer({
   conversation,
   reach,
+  onSent,
 }: {
   conversation: Conversation
   reach: Resource<AgentReach>
+  /**
+   * The conversation the message actually went to, which is not always this
+   * one. A text channel continues the open thread; when there is no open
+   * thread left to continue — abandoned, closed, past WhatsApp's 24-hour
+   * window — the platform starts a new one and says so in the response.
+   */
+  onSent?: (conversationId: string | null) => void
 }) {
   const composerId = useId()
   const [draft, setDraft] = useState('')
@@ -137,6 +145,7 @@ export default function Composer({
       if (r.sendAuthorized) {
         setDraft('')
         setChannel(null)
+        onSent?.(r.conversationId)
       }
     } catch (err) {
       setResult({ ok: false, text: (err as Error).message })
