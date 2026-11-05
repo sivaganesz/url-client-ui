@@ -51,17 +51,58 @@ function DeliveryMark({ status, error }: { status: Message['delivery']; error?: 
   )
 }
 
+/**
+ * What a bubble says, and the options it offered.
+ *
+ * A buttons reply arrives twice over: `text` has the body with each option
+ * flattened onto its own `- ` line, and `message` has them apart. Rendering
+ * `text` puts "- Reschedule Visit" in the middle of a sentence, which is three
+ * tappable buttons pretending to be prose. So the body comes from the envelope
+ * where there is one, and the options are drawn underneath it.
+ *
+ * They are not controls here. The customer taps these in WhatsApp; this
+ * console is reading a record of what they were offered, so they are plain
+ * text in a box and nothing invites a click that would do nothing.
+ */
+function Body({ message }: { message: Message }) {
+  const envelope = message.structured
+  const body = envelope?.body?.trim() || message.text
+  const buttons = envelope?.buttons ?? []
+
+  if (buttons.length === 0) return <>{body}</>
+
+  return (
+    <>
+      {body}
+      {/* `current` rather than a named colour: this sits inside three
+          different fills and has to read on all of them. */}
+      <span className="mt-2.5 flex flex-col gap-1 border-t border-current/20 pt-2">
+        {buttons.map((b, i) => (
+          <span
+            key={b.id ?? i}
+            className="rounded-md bg-current/15 px-2.5 py-1.5 text-center text-[12px] font-medium"
+          >
+            {b.title}
+          </span>
+        ))}
+      </span>
+    </>
+  )
+}
+
 export default function TranscriptTab({
   conversation,
   thread,
   reach,
   showTechnical,
+  onSent,
 }: {
   conversation: Conversation
   thread: Resource<Message[]>
   reach: Resource<AgentReach>
   /** Owned by the tab row above, which is where the control for it lives. */
   showTechnical: boolean
+  onSent?: (conversationId: string | null) => void
 }) {
   const hidden = thread.data.filter(isTechnical).length
   const visible = showTechnical ? thread.data : thread.data.filter((m) => !isTechnical(m))
@@ -107,16 +148,16 @@ export default function TranscriptTab({
                 </span>
               </span>
             ) : (
-              /* Customer right in brand fill, agent left on surface — matching
-                 the console, which is the inverse of a normal inbox. An
-                 operator sits on the agent's side, because it is the same side
-                 of the conversation, and is tinted so a reader can tell at a
-                 glance which replies a person wrote. */
+              /* The customer on the left, us on the right — the way every
+                 messaging app the reader already uses lays a thread out. An
+                 operator sits on our side, because it is the same side of the
+                 conversation, and is tinted rather than filled so a reader can
+                 tell at a glance which replies a person wrote. */
               <div
                 key={m.id}
                 className={cn(
                   'flex max-w-[82%] flex-col gap-1 sm:max-w-[68%]',
-                  m.role === 'customer' ? 'items-end self-end' : 'items-start self-start',
+                  m.role === 'customer' ? 'items-start self-start' : 'items-end self-end',
                 )}
               >
                 <span className="px-1 text-[10.5px] font-medium text-ink-3">
@@ -128,15 +169,18 @@ export default function TranscriptTab({
                 </span>
                 <div
                   className={cn(
-                    'px-3.5 py-2.5 text-[13px] leading-relaxed break-words',
+                    /* `whitespace-pre-line` because the agent sends real line
+                       breaks and they were being collapsed, running a reply
+                       written as several short lines into one paragraph. */
+                    'px-3.5 py-2.5 text-[13px] leading-relaxed break-words whitespace-pre-line',
                     m.role === 'customer'
-                      ? 'rounded-[14px_14px_4px_14px] bg-brand text-on-accent'
+                      ? 'rounded-[14px_14px_14px_4px] border border-line bg-surface text-ink'
                       : m.role === 'operator'
-                        ? 'rounded-[14px_14px_14px_4px] border border-brand/25 bg-brand-soft text-ink'
-                        : 'rounded-[14px_14px_14px_4px] border border-line bg-surface text-ink',
+                        ? 'rounded-[14px_14px_4px_14px] border border-brand/25 bg-brand-soft text-ink'
+                        : 'rounded-[14px_14px_4px_14px] bg-brand text-on-accent',
                   )}
                 >
-                  {m.text}
+                  <Body message={m} />
                 </div>
                 {/* The tick belongs only to what we sent; nothing reports on
                     what the customer wrote. */}
@@ -151,7 +195,7 @@ export default function TranscriptTab({
           )
         )}
       </div>
-      <Composer conversation={conversation} reach={reach} />
+      <Composer conversation={conversation} reach={reach} onSent={onSent} />
     </>
   )
 }

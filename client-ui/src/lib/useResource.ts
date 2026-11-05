@@ -6,7 +6,17 @@ export interface Resource<T> {
   data: T
   status: ResourceStatus
   error: Error | null
+  /** Fetch again, visibly: back to skeletons, and an error replaces the page. */
   reload: () => void
+  /**
+   * Fetch again without saying so.
+   *
+   * For a poll, where `reload` is wrong twice over: it drops the view back to
+   * skeletons every few seconds, and a single timed-out request would replace
+   * a thread somebody is reading with an error page. A quiet refresh leaves
+   * what is on screen alone and swaps the data in only when new data arrives.
+   */
+  refresh: () => void
 }
 
 /** An abort is our own doing — a remount or a refetch — never a failure to report. */
@@ -51,11 +61,11 @@ export function useResource<T>(
   // rather than on recency.
   const active = useRef<AbortController | null>(null)
 
-  const run = useCallback(() => {
+  const run = useCallback((quiet: boolean) => {
     active.current?.abort()
     const controller = new AbortController()
     active.current = controller
-    setState((s) => ({ ...s, status: 'loading', error: null }))
+    if (!quiet) setState((s) => ({ ...s, status: 'loading', error: null }))
 
     Promise.resolve()
       .then(() => load(controller.signal))
@@ -64,6 +74,12 @@ export function useResource<T>(
       })
       .catch((error: Error) => {
         if (controller.signal.aborted || aborted(error)) return
+        // A quiet refresh that fails says nothing. The data on screen was good
+        // a moment ago, and blanking a conversation somebody is reading
+        // because one poll timed out is worse than being a few seconds stale.
+        // The next tick will either succeed or keep failing silently, and the
+        // reader can still press Retry on anything that asks.
+        if (quiet) return
         setState({ data: empty, status: 'error', error })
       })
 
@@ -71,12 +87,22 @@ export function useResource<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 
-  useEffect(run, [run])
+  useEffect(() => run(false), [run])
+
+  /**
+   * Wrapped rather than handed out raw, because `reload` is passed straight to
+   * onClick in a few places — `onRetry={reload}` — and a raw `run` would be
+   * called with a click event, which is truthy, which would quietly make every
+   * Retry button a silent one.
+   */
+  const reload = useCallback(() => run(false), [run])
+  const refresh = useCallback(() => run(true), [run])
 
   return {
     data: state.data,
     status: state.status,
     error: state.error,
-    reload: run,
+    reload,
+    refresh,
   }
 }

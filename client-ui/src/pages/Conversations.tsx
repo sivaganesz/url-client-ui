@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import Avatar from '../components/ui/Avatar'
 import Badge, { StatusBadge } from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -26,6 +26,7 @@ import {
   channelsOf,
 } from '../components/conversations/channels'
 import { useResource } from '../lib/useResource'
+import { useCall } from '../lib/operator'
 import {
   getAnalytics,
   getConversations,
@@ -40,6 +41,7 @@ export default function Conversations() {
   const { openDrawer } = useOutletContext<ShellContext>()
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [query, setQuery] = useState('')
   const [channel, setChannel] = useState('All')
@@ -131,6 +133,71 @@ export default function Conversations() {
 
   const selectedId = id ?? null
   const selected = conversations.find((c) => c.id === selectedId) ?? null
+
+  /**
+   * Follow the conversation a message or a call actually went to.
+   *
+   * The rail has to refetch before it can show where we just landed — the
+   * detail pane is only rendered for a conversation the list holds, so
+   * navigating to one it has never heard of shows the empty state until the
+   * refetch arrives. The tab travels in the router's own state rather than
+   * ours, so it applies to this navigation and not to the next one: clicking
+   * a row in the rail afterwards still opens on Overview.
+   */
+  // The two functions, not the resource they came from: `list` is a fresh
+  // object every render, so depending on it would rebuild this callback each
+  // time, re-run every effect that holds it, and let a reload re-trigger
+  // itself. Both of these are stable for as long as the loader is.
+  const { reload: reloadList, refresh: refreshList } = list
+  const openConversation = useCallback(
+    (conversationId: string) => {
+      reloadList()
+      navigate(`/conversations/${conversationId}`, { state: { tab: 'transcript' } })
+    },
+    [reloadList, navigate],
+  )
+  const landedOnTab = (location.state as { tab?: string } | null)?.tab
+
+  /**
+   * A call is a conversation of its own, so follow it.
+   *
+   * Watched here rather than inside the open thread, because a call placed
+   * from the New dialog has no thread open to notice it. Only once it is
+   * live: a dialling call has no transcript to read yet, and moving the page
+   * the moment somebody clicks Call would take the number they were looking
+   * at away from them before it rang.
+   */
+  const operator = useCall()
+  const liveCall = operator.call?.status === 'live' ? operator.call.conversationId : null
+  useEffect(() => {
+    if (liveCall && liveCall !== selectedId) openConversation(liveCall)
+  }, [liveCall, selectedId, openConversation])
+
+  /**
+   * A conversation made a moment ago may not be listed yet.
+   *
+   * The workspace takes a beat to catch up, and the refetch above can land
+   * before it has. Without this the reader is left on "Select a conversation"
+   * looking at a URL that is already correct, with nothing to tell them it
+   * will resolve itself. Bounded, because a URL for a conversation that does
+   * not exist must end at the empty state rather than polling forever.
+   */
+  const [waits, setWaits] = useState(0)
+  const stillLooking = Boolean(selectedId) && !selected && waits < 6
+  useEffect(() => {
+    if (!stillLooking) return
+    const timer = setTimeout(() => {
+      setWaits((n) => n + 1)
+      refreshList()
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [stillLooking, waits, refreshList])
+  // A different conversation is a fresh question, and gets the full patience.
+  const [waitingFor, setWaitingFor] = useState(selectedId)
+  if (waitingFor !== selectedId) {
+    setWaitingFor(selectedId)
+    setWaits(0)
+  }
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -396,6 +463,8 @@ export default function Conversations() {
             key={selected.id}
             conversation={selected}
             onBack={() => navigate('/conversations')}
+            initialTab={landedOnTab}
+            onOpenConversation={openConversation}
           />
         )}
       </section>
@@ -409,11 +478,10 @@ export default function Conversations() {
           onClose={() => setStarting(false)}
           onStarted={({ conversationId }: StartedConversation) => {
             setStarting(false)
-            // The thread is new, so the rail has to refetch before it can
-            // highlight where we just landed. A call never arrives here — the
-            // dialog closes itself and the shell's panel takes over.
-            list.reload()
-            if (conversationId) navigate(`/conversations/${conversationId}`)
+            // A call never arrives here — the dialog closes itself and the
+            // shell's panel takes over, and the watch above follows the call's
+            // own conversation once it connects.
+            if (conversationId) openConversation(conversationId)
           }}
         />
       )}

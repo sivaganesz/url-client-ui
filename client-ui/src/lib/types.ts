@@ -211,11 +211,35 @@ export interface Message {
   /** The provider's reason, carried only when `delivery` is `failed`. */
   deliveryError?: string
   /**
-   * The WhatsApp envelope as sent — buttons, a list, a template, a media
-   * wrapper — when the reply was something richer than text. `text` carries
-   * its readable label either way, so nothing has to read this to render.
+   * The WhatsApp envelope as sent, when the reply was richer than text.
+   *
+   * `text` always carries a flattened version — the body with each option on
+   * its own `- ` line — so a renderer that ignores this still shows something
+   * readable. It just shows it as prose, which is how three tappable buttons
+   * ended up looking like a bulleted list in the middle of a sentence.
    */
-  structured?: Record<string, unknown>
+  structured?: StructuredMessage
+}
+
+/** One of the options offered under a message, as WhatsApp records it. */
+export interface StructuredButton {
+  id?: string
+  title: string
+}
+
+/**
+ * A WhatsApp message envelope.
+ *
+ * Only `text` and `buttons` are rendered specially, because those are the two
+ * shapes we have actually seen. Anything else — a list, a template, a media
+ * wrapper — falls back to the flattened `text`, which is always right if
+ * plainer than it could be. Inventing a layout for a shape nobody has
+ * inspected is how you ship something confidently wrong.
+ */
+export interface StructuredMessage {
+  type?: string
+  body?: string
+  buttons?: StructuredButton[]
 }
 
 export interface Call {

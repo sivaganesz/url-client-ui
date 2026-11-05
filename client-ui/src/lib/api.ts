@@ -482,6 +482,23 @@ export function duration(fromIso?: string, toIso?: string): string | null {
  * identity_resolved. WhatsApp adds delivery_status, which is folded into the
  * message it reports on rather than rendered beside it.
  */
+/**
+ * How far along a message is, so a status can only ever move forward.
+ *
+ * `failed` and `suppressed` share the top not because they come last but
+ * because they are terminal in a different direction: the message never
+ * arrived, and that must not be overwritten by a stale `delivered` listed
+ * after them.
+ */
+const DELIVERY_RANK: Record<string, number> = {
+  queued: 1,
+  sent: 2,
+  delivered: 3,
+  read: 4,
+  suppressed: 5,
+  failed: 5,
+}
+
 export async function getMessages(conversationId: string, signal?: AbortSignal): Promise<Message[]> {
   const res = await rest<ApiList<Record<string, unknown>>>(`conversations/${conversationId}/events`, {
     limit: 1000,
@@ -490,9 +507,21 @@ export async function getMessages(conversationId: string, signal?: AbortSignal):
 
   const thread: Message[] = []
   /** Provider message id -> where that message sits in `thread`. */
-  const sent = new Map<string, number>()
-  /** The last thing we sent, for a status event that names no message. */
-  let lastOutgoing = -1
+  const byMessageId = new Map<string, number>()
+  /** Every message we sent, so one that named no id can still be found. */
+  const outgoing: { at: string; index: number }[] = []
+  /**
+   * Statuses, held back for a second pass.
+   *
+   * Because the first pass cannot resolve them. The events are sorted by
+   * `created_at` and ties break arbitrarily: a status stamped the same
+   * millisecond as the message it reports on is listed either side of it, and
+   * a real conversation has it on both. Applying them as they arrive drops
+   * every one that landed first, which is invisible unless that message's
+   * only status was the one that landed first — and then its tick is simply
+   * never drawn, with nothing anywhere to say why.
+   */
+  const statuses: Record<string, any>[] = []
 
   for (const e of rows<Record<string, any>>(res)) {
     /**
@@ -502,17 +531,9 @@ export async function getMessages(conversationId: string, signal?: AbortSignal):
      * the bubbles — which is a WhatsApp tick wearing entirely the wrong
      * clothes. It reports on a message already in the thread, so it is folded
      * into that message and the chip disappears.
-     *
-     * Matched by `message_id` where both rows carry one. Where they do not,
-     * it belongs to the last thing we sent before it: the events arrive in
-     * order, so that is the message directly above.
      */
     if (e.event_type === 'delivery_status') {
-      const target = thread[sent.get(e.message_id) ?? lastOutgoing]
-      if (target && e.status) {
-        target.delivery = e.status as DeliveryStatus
-        target.deliveryError = e.error ?? undefined
-      }
+      statuses.push(e)
       continue
     }
 
@@ -528,12 +549,25 @@ export async function getMessages(conversationId: string, signal?: AbortSignal):
     /**
      * A person on our side, answering in place of the agent.
      *
-     * The platform calls them `human_agent`. Nothing here did, so an
-     * operator's reply matched no branch and came out as a grey "System"
-     * chip — their own words, rendered as machine noise.
+     * Not `actor`, which says `ai` for these too — the console sends through
+     * POST /outbound, so the platform records the message as the agent
+     * speaking even though somebody typed it. What separates them is
+     * `origin`: a send made through the API carries `public_api_outbound` and
+     * an `outbound_message_id`, and a reply the agent composed on its own
+     * carries neither.
+     *
+     * `human_agent` is kept alongside it for a reply made through Perfox's
+     * own operator interface, which this console never produces.
+     *
+     * The limit of this is worth knowing: anything else that sends through
+     * the API would be labelled an operator too. Today the composer and the
+     * new-conversation dialog are the only callers, and a person is behind
+     * both.
      */
-    const isOperator = !isTool && e.actor === 'human_agent'
-    const isAi = !isTool && !isOperator && (e.event_type === 'ai_response' || e.actor === 'ai')
+    const throughTheApi = e.origin === 'public_api_outbound' || Boolean(e.outbound_message_id)
+    const isOperator = !isTool && !isUser && (e.actor === 'human_agent' || throughTheApi)
+    const isAi =
+      !isTool && !isUser && !isOperator && (e.event_type === 'ai_response' || e.actor === 'ai')
 
     thread.push({
       id: e.id,
@@ -554,11 +588,49 @@ export async function getMessages(conversationId: string, signal?: AbortSignal):
     // Only what we sent can be delivered or read; a status event never
     // reports on something the customer wrote.
     if (isAi || isOperator) {
-      lastOutgoing = thread.length - 1
+      const index = thread.length - 1
+      outgoing.push({ at: e.created_at, index })
       for (const id of [e.message_id, e.outbound_message_id]) {
-        if (id) sent.set(id, lastOutgoing)
+        if (id) byMessageId.set(id, index)
       }
     }
+  }
+
+  for (const e of statuses) {
+    /**
+     * By id where we can, by position where we cannot.
+     *
+     * Both are needed. A message this console sent carries the same
+     * `message_id` as the statuses reporting on it, so those match exactly.
+     * A reply the agent composed on its own carries no `message_id` at all,
+     * while its statuses carry one that appears nowhere else — for those,
+     * the only thing connecting them is that the status came after the
+     * message, so it belongs to the last thing we sent by then.
+     */
+    let index = e.message_id ? byMessageId.get(e.message_id) : undefined
+    if (index === undefined) {
+      let latest = ''
+      for (const o of outgoing) {
+        if (o.at <= e.created_at && o.at >= latest) {
+          latest = o.at
+          index = o.index
+        }
+      }
+    }
+
+    const target = index === undefined ? undefined : thread[index]
+    if (!target || !e.status) continue
+
+    // Forwards only. `sent` arrives several times per message and can be
+    // listed after `delivered`, which last-wins would read as the carrier
+    // forgetting. A failure outranks everything: it means nothing arrived,
+    // and that is not a thing to hide behind a tick.
+    const arriving = DELIVERY_RANK[e.status] ?? 0
+    const have = target.delivery ? (DELIVERY_RANK[target.delivery] ?? 0) : 0
+    if (arriving < have) continue
+
+    target.delivery = e.status as DeliveryStatus
+    target.deliveryError = e.error ?? undefined
   }
 
   return thread
