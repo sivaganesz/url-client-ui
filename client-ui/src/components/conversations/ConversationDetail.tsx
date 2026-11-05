@@ -6,7 +6,16 @@ import ConfirmDialog from '../ui/ConfirmDialog'
 import { Tabs } from '../ui/Field'
 import OverviewTab from './OverviewTab'
 import TranscriptTab from './TranscriptTab'
-import { IconChat, IconChevronLeft, IconPhone, IconPhoneDown, IconX, channelIcon } from '../icons'
+import { technicalCount } from './technical'
+import {
+  IconChat,
+  IconChevronLeft,
+  IconPhone,
+  IconPhoneDown,
+  IconSparkle,
+  IconX,
+  channelIcon,
+} from '../icons'
 import { cn } from '../../lib/cn'
 import { EMPTY_REACH } from '../../lib/shapes'
 import { useResource } from '../../lib/useResource'
@@ -22,6 +31,14 @@ export default function ConversationDetail({
   onBack?: () => void
 }) {
   const [tab, setTab] = useState('overview')
+  /**
+   * Off by default: this page is read to decide whether to step into a
+   * conversation, and a reader doing that is served by the conversation alone.
+   * The control sits in the tab row because that is the last fixed thing above
+   * the thread — the thread itself scrolls, and a switch that scrolls away is
+   * a switch nobody finds twice.
+   */
+  const [showTechnical, setShowTechnical] = useState(false)
 
   const loadMessages = useCallback(
     (signal: AbortSignal) => getMessages(conversation.id, signal),
@@ -141,7 +158,12 @@ export default function ConversationDetail({
   }
 
   const ChannelIcon = channelIcon[conversation.channel] ?? IconChat
-  const spoken = thread.data.filter((m) => m.role === 'customer' || m.role === 'agent')
+  // What was actually said, by anyone — an operator stepping in is a message
+  // in the conversation, not an event beside it, so the count includes them.
+  const spoken = thread.data.filter(
+    (m) => m.role === 'customer' || m.role === 'agent' || m.role === 'operator',
+  )
+  const hiddenEvents = technicalCount(thread.data)
   const call = callInfoOf(thread.data)
 
   return (
@@ -222,14 +244,32 @@ export default function ConversationDetail({
         </header>
 
         <div className="shrink-0 border-b border-line bg-surface px-4 pt-3 sm:px-5">
-          <Tabs
-            tabs={[
-              { id: 'overview', label: 'Overview' },
-              { id: 'transcript', label: 'Transcript' },
-            ]}
-            value={tab}
-            onChange={setTab}
-          />
+          {/* `items-end` so the tabs keep sitting on the border their
+              underline is drawn against; the toggle rides just above it. */}
+          <div className="flex items-end justify-between gap-4">
+            <Tabs
+              tabs={[
+                { id: 'overview', label: 'Overview' },
+                { id: 'transcript', label: 'Transcript' },
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
+            {/* Only on the tab it acts on, and only when it has something to
+                reveal — a plain text conversation carries no control that
+                would do nothing. */}
+            {tab === 'transcript' && hiddenEvents > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowTechnical((on) => !on)}
+                aria-pressed={showTechnical}
+                className="mb-1.5 inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[10.5px] font-medium text-ink-3 hover:bg-muted-bg hover:text-ink"
+              >
+                <IconSparkle size={11} className="shrink-0" />
+                {showTechnical ? 'Hide technical details' : `Show technical details (${hiddenEvents})`}
+              </button>
+            )}
+          </div>
         </div>
 
         {callResult && (
@@ -260,7 +300,12 @@ export default function ConversationDetail({
         {tab === 'overview' ? (
           <OverviewTab conversation={conversation} thread={thread} spoken={spoken} call={call} />
         ) : (
-          <TranscriptTab conversation={conversation} thread={thread} reach={reach} />
+          <TranscriptTab
+            conversation={conversation}
+            thread={thread}
+            reach={reach}
+            showTechnical={showTechnical}
+          />
         )}
       </div>
 

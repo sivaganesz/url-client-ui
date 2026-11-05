@@ -180,7 +180,18 @@ export interface Conversation {
   unread: number
 }
 
-export type MessageRole = 'customer' | 'agent' | 'tool' | 'system'
+export type MessageRole = 'customer' | 'agent' | 'operator' | 'tool' | 'system'
+
+/**
+ * What the carrier has done with a message we sent.
+ *
+ * The platform's own vocabulary, kept verbatim rather than mapped to ticks
+ * here: `queued` and `sent` are one tick, `delivered` and `read` two, and the
+ * last of those is the blue pair. `failed` and `suppressed` are not late
+ * stages of the same journey — they are the message never arriving, which the
+ * thread has to say out loud rather than leave on a hopeful single tick.
+ */
+export type DeliveryStatus = 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'suppressed'
 
 export interface Message {
   id: string
@@ -195,6 +206,16 @@ export interface Message {
   toolOutput?: unknown
   toolStatus?: string
   toolLatencyMs?: number
+  /** Set on outgoing messages once a delivery_status event reports on them. */
+  delivery?: DeliveryStatus
+  /** The provider's reason, carried only when `delivery` is `failed`. */
+  deliveryError?: string
+  /**
+   * The WhatsApp envelope as sent — buttons, a list, a template, a media
+   * wrapper — when the reply was something richer than text. `text` carries
+   * its readable label either way, so nothing has to read this to render.
+   */
+  structured?: Record<string, unknown>
 }
 
 export interface Call {

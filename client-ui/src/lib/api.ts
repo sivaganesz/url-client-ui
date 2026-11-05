@@ -45,6 +45,7 @@ import type {
   ChannelLabel,
   Conversation,
   Credits,
+  DeliveryStatus,
   Message,
   OutboundRequest,
   OutboundResult,
@@ -467,22 +468,54 @@ export function duration(fromIso?: string, toIso?: string): string | null {
 /**
  * Transcript events -> the message shape the thread renders.
  *
- * Served by GET /conversations/{id}/events. `include=tool_io` is opt-in and off
- * by default, which is why a first look shows only
- * {id,event_type,actor,channel,created_at,text}; with it, tool events also carry
- * tool_name / tool_input / tool_output / tool_status / tool_latency_ms — the
- * console's "Debug" affordance.
+ * Served by GET /conversations/{id}/events, where every extra payload is
+ * opt-in: with no `include` a row carries only
+ * {id,event_type,actor,channel,created_at,text}. All four are asked for here —
+ * `tool_io` for the console's "Debug" affordance (tool_name / tool_input /
+ * tool_output / tool_status / tool_latency_ms), `files` for attachments,
+ * `delivery` for what the carrier did with what we sent, and `structured` so a
+ * WhatsApp buttons, list, template or media reply arrives as readable text
+ * instead of a bubble of raw JSON.
  *
  * Event types seen on phone calls: user_message, ai_response, tool_call,
  * tool_result, call_started, call_ended, call_recorded, status_change,
- * identity_resolved.
+ * identity_resolved. WhatsApp adds delivery_status, which is folded into the
+ * message it reports on rather than rendered beside it.
  */
 export async function getMessages(conversationId: string, signal?: AbortSignal): Promise<Message[]> {
   const res = await rest<ApiList<Record<string, unknown>>>(`conversations/${conversationId}/events`, {
     limit: 1000,
-    include: 'tool_io,files',
+    include: 'tool_io,files,delivery,structured',
   }, signal)
-  return rows<Record<string, any>>(res).map((e): Message => {
+
+  const thread: Message[] = []
+  /** Provider message id -> where that message sits in `thread`. */
+  const sent = new Map<string, number>()
+  /** The last thing we sent, for a status event that names no message. */
+  let lastOutgoing = -1
+
+  for (const e of rows<Record<string, any>>(res)) {
+    /**
+     * A delivery status is not a turn in the conversation.
+     *
+     * Left alone it renders as a grey "delivery status" chip wedged between
+     * the bubbles — which is a WhatsApp tick wearing entirely the wrong
+     * clothes. It reports on a message already in the thread, so it is folded
+     * into that message and the chip disappears.
+     *
+     * Matched by `message_id` where both rows carry one. Where they do not,
+     * it belongs to the last thing we sent before it: the events arrive in
+     * order, so that is the message directly above.
+     */
+    if (e.event_type === 'delivery_status') {
+      const target = thread[sent.get(e.message_id) ?? lastOutgoing]
+      if (target && e.status) {
+        target.delivery = e.status as DeliveryStatus
+        target.deliveryError = e.error ?? undefined
+      }
+      continue
+    }
+
     const isUser = e.event_type === 'user_message' || e.actor === 'user'
     /**
      * Tool before actor. A `tool_call` is raised with `actor: 'ai'`, so an
@@ -492,22 +525,43 @@ export async function getMessages(conversationId: string, signal?: AbortSignal):
      * arguments the agent called with never appeared anywhere.
      */
     const isTool = e.event_type === 'tool_call' || e.event_type === 'tool_result'
-    const isAi = !isTool && (e.event_type === 'ai_response' || e.actor === 'ai')
-    return {
+    /**
+     * A person on our side, answering in place of the agent.
+     *
+     * The platform calls them `human_agent`. Nothing here did, so an
+     * operator's reply matched no branch and came out as a grey "System"
+     * chip — their own words, rendered as machine noise.
+     */
+    const isOperator = !isTool && e.actor === 'human_agent'
+    const isAi = !isTool && !isOperator && (e.event_type === 'ai_response' || e.actor === 'ai')
+
+    thread.push({
       id: e.id,
       eventType: e.event_type,
-      role: isUser ? 'customer' : isAi ? 'agent' : isTool ? 'tool' : 'system',
-      author: isUser ? 'Customer' : isAi ? 'AI Agent' : 'System',
+      role: isUser ? 'customer' : isOperator ? 'operator' : isAi ? 'agent' : isTool ? 'tool' : 'system',
+      author: isUser ? 'Customer' : isOperator ? 'Operator' : isAi ? 'AI Agent' : 'System',
       time: clockOf(e.created_at),
       at: e.created_at,
       text: e.text?.trim() || '',
+      structured: e.message ?? undefined,
       toolName: e.tool_name ?? null,
       toolStatus: e.tool_status ?? null,
       toolLatencyMs: e.tool_latency_ms ?? null,
       toolInput: e.tool_input ?? null,
       toolOutput: e.tool_output ?? null,
+    })
+
+    // Only what we sent can be delivered or read; a status event never
+    // reports on something the customer wrote.
+    if (isAi || isOperator) {
+      lastOutgoing = thread.length - 1
+      for (const id of [e.message_id, e.outbound_message_id]) {
+        if (id) sent.set(id, lastOutgoing)
+      }
     }
-  })
+  }
+
+  return thread
 }
 
 /**

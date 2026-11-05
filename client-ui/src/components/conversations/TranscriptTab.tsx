@@ -1,20 +1,71 @@
 import Composer from './Composer'
 import ToolEvent from './ToolEvent'
+import { isTechnical } from './technical'
 import { EmptyState, ErrorState, Skeleton } from '../ui/States'
-import { IconChat, IconClock } from '../icons'
+import { IconAlert, IconChat, IconCheck, IconClock, IconTicks } from '../icons'
 import { cn } from '../../lib/cn'
 import type { AgentReach, Conversation, Message } from '../../lib/types'
 import type { Resource } from '../../lib/useResource'
+
+/**
+ * The carrier's verdict on a message we sent, drawn the way WhatsApp draws it.
+ *
+ * Nothing at all until a delivery_status event reports on the message, which
+ * is the honest state rather than an incomplete one: a phone call and the web
+ * widget report no delivery, so there is no tick to draw and never will be.
+ * Only the stages that actually arrive are shown — an unticked bubble means
+ * "not heard back about", never "failed".
+ */
+function DeliveryMark({ status, error }: { status: Message['delivery']; error?: string }) {
+  if (!status) return null
+
+  /* Not late stages of the same journey. The message did not arrive, and a
+     hopeful single tick would say the opposite of what happened. */
+  if (status === 'failed' || status === 'suppressed') {
+    const label = status === 'failed' ? 'Not delivered' : 'Not sent'
+    return (
+      <span className="inline-flex items-center gap-1 text-danger" title={error || label}>
+        <IconAlert size={11} />
+        {label}
+      </span>
+    )
+  }
+
+  const [Icon, label] =
+    status === 'queued'
+      ? ([IconClock, 'Queued'] as const)
+      : status === 'sent'
+        ? ([IconCheck, 'Sent'] as const)
+        : status === 'read'
+          ? ([IconTicks, 'Read'] as const)
+          : ([IconTicks, 'Delivered'] as const)
+
+  return (
+    // The label rides on the wrapper: the icons set aria-hidden on themselves,
+    // so one passed through to the svg would be announced to nobody.
+    <span role="img" aria-label={label} title={label} className="inline-flex items-center">
+      {/* Read is the only one that takes colour, which is the whole point of
+          the blue pair — it is scanned, not read. */}
+      <Icon size={12} className={status === 'read' ? 'text-brand' : undefined} />
+    </span>
+  )
+}
 
 export default function TranscriptTab({
   conversation,
   thread,
   reach,
+  showTechnical,
 }: {
   conversation: Conversation
   thread: Resource<Message[]>
   reach: Resource<AgentReach>
+  /** Owned by the tab row above, which is where the control for it lives. */
+  showTechnical: boolean
 }) {
+  const hidden = thread.data.filter(isTechnical).length
+  const visible = showTechnical ? thread.data : thread.data.filter((m) => !isTechnical(m))
+
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4 sm:p-5">
@@ -30,10 +81,18 @@ export default function TranscriptTab({
           </div>
         ) : thread.status === 'error' ? (
           <ErrorState error={thread.error} onRetry={thread.reload} />
-        ) : thread.data.length === 0 ? (
-          <EmptyState icon={IconChat} title="No messages" note="This conversation has no transcript events." />
+        ) : visible.length === 0 ? (
+          <EmptyState
+            icon={IconChat}
+            title="No messages"
+            note={
+              hidden > 0
+                ? 'Nothing was said in this conversation — only technical events, which are hidden.'
+                : 'This conversation has no transcript events.'
+            }
+          />
         ) : (
-          thread.data.map((m) =>
+          visible.map((m) =>
             m.role === 'tool' ? (
               <ToolEvent key={m.id} event={m} />
             ) : m.role === 'system' ? (
@@ -49,7 +108,10 @@ export default function TranscriptTab({
               </span>
             ) : (
               /* Customer right in brand fill, agent left on surface — matching
-                 the console, which is the inverse of a normal inbox. */
+                 the console, which is the inverse of a normal inbox. An
+                 operator sits on the agent's side, because it is the same side
+                 of the conversation, and is tinted so a reader can tell at a
+                 glance which replies a person wrote. */
               <div
                 key={m.id}
                 className={cn(
@@ -58,19 +120,32 @@ export default function TranscriptTab({
                 )}
               >
                 <span className="px-1 text-[10.5px] font-medium text-ink-3">
-                  {m.role === 'customer' ? conversation.name : `AI · ${conversation.agent ?? m.author}`}
+                  {m.role === 'customer'
+                    ? conversation.name
+                    : m.role === 'operator'
+                      ? m.author
+                      : `AI · ${conversation.agent ?? m.author}`}
                 </span>
                 <div
                   className={cn(
                     'px-3.5 py-2.5 text-[13px] leading-relaxed break-words',
                     m.role === 'customer'
                       ? 'rounded-[14px_14px_4px_14px] bg-brand text-on-accent'
-                      : 'rounded-[14px_14px_14px_4px] border border-line bg-surface text-ink',
+                      : m.role === 'operator'
+                        ? 'rounded-[14px_14px_14px_4px] border border-brand/25 bg-brand-soft text-ink'
+                        : 'rounded-[14px_14px_14px_4px] border border-line bg-surface text-ink',
                   )}
                 >
                   {m.text}
                 </div>
-                <span className="px-1 text-[10px] text-ink-4">{m.time}</span>
+                {/* The tick belongs only to what we sent; nothing reports on
+                    what the customer wrote. */}
+                <span className="flex items-center gap-1 px-1 text-[10px] text-ink-4">
+                  {m.time}
+                  {m.role !== 'customer' && (
+                    <DeliveryMark status={m.delivery} error={m.deliveryError} />
+                  )}
+                </span>
               </div>
             ),
           )
