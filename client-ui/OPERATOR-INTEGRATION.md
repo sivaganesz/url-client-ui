@@ -108,6 +108,24 @@ Two rules:
 - carrying your app's **origin in `allowed_origins`** — on the site **and on
   the operator node**. Both are required.
 
+And on the **agent's workflow**, two things that are easy to miss because
+neither is part of the site:
+
+- **every operator listed on the agent's Operator node.** A **Web operator**
+  row of type *External ID (your app)* whose value is exactly the email that
+  person signs into your app with — this backend signs the session's email,
+  so the two have to be the same string. A *Studio user* row works instead,
+  when the signed-in email is that Studio user's own. An operator on neither
+  is refused with `operator_not_listed` no matter how correct the signature,
+  and the error body quotes the id it was looking for.
+- **a number bound to the Phone trigger.** An outbound call goes out *from*
+  that number and there is no workspace default caller ID, so without one the
+  call is never placed — "This agent has no number on its Phone trigger".
+
+Both are per agent, and both need a **republish** to take effect, which the
+platform says takes up to a minute. Adding an operator to your team later
+means adding a row here; it is not something the app can do for you.
+
 **In the project:**
 
 - React **18 or newer** (peer dependency). This app is on 19.
@@ -591,7 +609,7 @@ Three details that matter more than they look:
 
 ---
 
-## 9. Troubleshooting — the three gates
+## 9. Troubleshooting — the four gates
 
 Each check fails with its own `403`, so the error body tells you which one. They
 are evaluated in this order; fixing one reveals the next.
@@ -601,6 +619,7 @@ are evaluated in this order; fixing one reveals the next.
 | `origin_not_allowed` | The `Origin` header is not on the site's list | Add the exact origin to **allowed_origins on the site AND on the operator node**. Both |
 | `operator_not_enabled` | The site is not flagged for the operator SDK | Enable the operator SDK on the site in Studio → Sites. May be tenant/plan-gated |
 | `operator_signature_required` | The `user_hash` did not verify | Usually **not** a bad secret: check that the site id and secret are from the *same* site, and that the `siteId` in the hash matches the `X-Perfox-Site` header |
+| `operator_not_listed` | The signature was good; the id it names is on no Operator node | The body quotes the `external_id` it looked for. Add a **Web operator** row of type *External ID (your app)* with exactly that value, or sign the email of a *Studio user* already listed, then **republish** (§3) |
 
 A server-to-server request sends **no `Origin` header at all** and is refused
 with `origin_not_allowed`. Send the header explicitly, as below.
@@ -629,6 +648,7 @@ being tested.
 
 | Symptom | Cause |
 |---|---|
+| "This agent has no number on its Phone trigger" | Exactly that. The call goes out from that number and there is no workspace default caller ID — bind one in the workflow and republish (§3) |
 | Dial resolves, no audio, no error | Not a secure context — mic blocked. HTTPS, or use `localhost` |
 | A stale error shows on a good call | The SDK clears `state.error` only in `setAvailability` and `openConversation`. If you call neither, track what you have shown and ignore it (§7) |
 | A failed call reports success | `dialOut` does not throw — read `session.getState()` back (§7) |

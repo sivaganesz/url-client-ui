@@ -7,7 +7,13 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { IconAlert, IconEye, IconEyeOff } from '../../components/icons'
 import { cn } from '../../lib/cn'
 import { useResource } from '../../lib/useResource'
-import { adminApi, type CustomerDetail, type CustomerRow, type NewCustomer } from '../../lib/admin'
+import {
+  adminApi,
+  type CustomerChanges,
+  type CustomerDetail,
+  type CustomerRow,
+  type NewCustomer,
+} from '../../lib/admin'
 import { OperatorHelp, PerfoxHelp } from './CredentialHelp'
 
 const TABS = [
@@ -109,6 +115,36 @@ export default function EditConnectionDialog({
     return now !== before
   })
 
+  /**
+   * The edit, in the three states the API has: set, clear, or leave alone.
+   *
+   * An empty box means two different things and only this form knows which.
+   * A secret's field is always empty, because nothing reads one back — empty
+   * there means "leave it", and sending it would wipe the key on every
+   * unrelated edit. Everywhere else the box was filled from what is stored,
+   * so empty means somebody emptied it, and the old value has to go rather
+   * than quietly survive the save.
+   *
+   * `storedFor` tells the two apart without a list to keep in step: a field
+   * with nothing on file has nothing to clear, and a secret never has
+   * anything on file.
+   *
+   * Sending the empty string instead is what made removing a workflow id
+   * fail — the server reads '' as "not supplied", skipped the field, found
+   * nothing else to do and answered "Nothing to change" over an edit that
+   * was real.
+   */
+  const payload = (): CustomerChanges => {
+    const out: CustomerChanges = {}
+    for (const [key, raw] of Object.entries(changes)) {
+      const field = key as keyof NewCustomer
+      const value = String(raw ?? '').trim()
+      if (value) out[field] = value
+      else if (String(storedFor[field] ?? '').trim()) out[field] = null
+    }
+    return out
+  }
+
   const ready =
     !loading &&
     !busy &&
@@ -124,7 +160,7 @@ export default function EditConnectionDialog({
       // Only what was touched, whichever tab it was on. The user's name, email
       // and password are theirs to change, not an admin's to overwrite, and an
       // untouched secret must not be resent as an empty string.
-      await adminApi.updateCustomer(editing.workspace_id, changes)
+      await adminApi.updateCustomer(editing.workspace_id, payload())
       onSaved()
     } catch (err) {
       setError((err as Error).message)

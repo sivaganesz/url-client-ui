@@ -141,6 +141,14 @@ and the two do not contradict each other anywhere you would think to look.
   production expects a managed database.
 - A **Perfox workspace** per customer. Their API key and operator credentials
   are entered through the admin UI after deployment, not configured here.
+- **Work in Studio that no deployment can do for you**, if operators are to
+  place calls: each person who will call has to be listed on the agent's
+  Operator node, by the email they sign into this console with, and the
+  agent's Phone trigger needs a number bound to it — the call goes out from
+  that number and there is no workspace default. Both need a republish.
+  Without the first, calling fails with `operator_not_listed`; without the
+  second, "This agent has no number on its Phone trigger". See
+  [`client-ui/OPERATOR-INTEGRATION.md`](client-ui/OPERATOR-INTEGRATION.md) §3.
 
 ---
 
