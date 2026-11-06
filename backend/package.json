@@ -1,7 +1,7 @@
 {
   "name": "call-centre-backend",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "description": "Auth, workspace credentials, and the Perfox proxy for the client console.",
   "scripts": {
