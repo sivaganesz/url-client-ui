@@ -160,6 +160,15 @@ export interface NewCustomer {
   operatorWorkflowId?: string
 }
 
+/**
+ * An edit to a customer: present means set, `null` means clear, absent means
+ * leave alone. Three states, because a connection field can genuinely be
+ * emptied and "" already means something else on the wire.
+ */
+export type CustomerChanges = {
+  [K in keyof NewCustomer]?: NewCustomer[K] | null
+}
+
 async function send<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -192,8 +201,12 @@ export const adminApi = {
    * `null` means "clear it". The form can never show an existing secret —
    * nothing reads one back — so its field is always empty, and treating empty
    * as a clear would wipe the key on every unrelated edit.
+   *
+   * Which is why the caller has to say `null` rather than send the empty
+   * field it is holding: only the form knows whether an empty box is a value
+   * somebody deleted or a secret that was never shown to them.
    */
-  updateCustomer: (workspaceId: string, changes: Partial<NewCustomer>) =>
+  updateCustomer: (workspaceId: string, changes: CustomerChanges) =>
     send<{ ok: true }>(`/api/admin/customers/${workspaceId}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
